@@ -79,6 +79,7 @@ import final_units as funits
 import final_step_predictor as fpred
 import final_boundary_registry as bcreg
 import final_capability_registry as capreg
+import flexo_scale_policy as flexoscale
 
 
 
@@ -393,6 +394,21 @@ def _common(cfg):
     theory="CUF" if legacy_te1 else theory_raw
     method=str(_req(cfg,"method","CASE")).upper()
     mode=str(_req(cfg,"mode","CASE")).upper()
+    # A micro CASE must never fall through the old classical CUF/KL routes.
+    try:
+        scale_model=flexoscale.scale_from_case(cfg)
+    except ValueError as exc:
+        raise FinalCaseError(f"Неверный выбор макро/микро: {exc}") from exc
+    if scale_model=="MICRO":
+        try:
+            flexoscale.micro_material_from_case(cfg)
+        except (ValueError, KeyError, TypeError) as exc:
+            raise FinalCaseError(f"MICRO G3D: неверный паспорт материала: {exc}") from exc
+        raise FinalCaseError(
+            "MICRO G3D: материальный закон проверен, но связанный градиентно-"
+            "флексоэлектрический решатель с высшими ГУ и временными циклами МВИ "
+            "ещё не реализован. Запуск классического MACRO-кода запрещён."
+        )
     if theory in capreg.PLANNED_THEORIES:
         raise FinalCaseError(
             f"{theory}: теория зарегистрирована, но её вариационные уравнения "
@@ -554,7 +570,7 @@ def _common(cfg):
     fdm_operator_scheme=_fdm_operator_scheme(cfg)
 
     return dict(
-        theory=theory,cuf_model=cuf_model,method=method,mode=mode,
+        theory=theory,cuf_model=cuf_model,method=method,mode=mode,scale_model=scale_model,
         geometry_model=geometry_model,material_model=material_model,j2_parameters=j2_parameters,units=units,
         capability=capability,capability_warnings=capability_warnings,
         unit_validation=unit_validation,

@@ -32,6 +32,7 @@ import final_load_builder as loadbuilder
 import final_birger_curve as birgercurve
 import final_units as funits
 import final_capability_registry as capreg
+import flexo_scale_policy as flexoscale
 import final_te_basis_provider as tebasis
 import final_run_bundle as runbundle
 import final_boundary_registry as bcreg
@@ -1477,6 +1478,31 @@ class EnhancedSolverGUI(SolverGUI):
             lab,ent=self._labeled_entry(geom,r,txt,key); self.unit_labels[key]=lab
             ent.bind("<KeyRelease>",lambda e:self._update_grid_info())
 
+        # Scale is physical, not a numerical method; MICRO cannot use MACRO solver.
+        scale_box=ttk.LabelFrame(left,text="Масштабная теория",padding=8)
+        scale_box.pack(fill="x",pady=(0,8))
+        self.scale_combo=ttk.Combobox(
+            scale_box,textvariable=self._v("scale_model","MACRO"),
+            values=flexoscale.SCALES,state="readonly",width=18
+        )
+        self.scale_combo.pack(anchor="w")
+        self.scale_combo.bind("<<ComboboxSelected>>",lambda _e:self._refresh_visibility())
+        self.scale_note=ttk.Label(scale_box,wraplength=470,justify="left",
+             text="MACRO — классическая упругость; MICRO — полная ковариантная G3D-флексоэлектрическая теория (реализация связанных PDE готовится).")
+        self.scale_note.pack(fill="x",pady=(5,0))
+        micro=ttk.LabelFrame(left,text="MICRO · G3D, параметры СИ",padding=8)
+        micro.pack(fill="x",pady=(0,8))
+        for j,(caption,key) in enumerate((
+            ("Градиентная длина ell, м","micro_ell_m"),
+            ("Флексокоэффициент mu1, Кл/м","micro_mu1"),
+            ("Флексокоэффициент mu2, Кл/м","micro_mu2"),
+            ("Проницаемость kappa, Ф/м","micro_kappa"),
+            ("Плотность rho, кг/м3","micro_rho"),
+            ("Вязкий коэффициент eta, с","micro_eta"),
+            ("Порядок потенциала P","micro_potential_order"),
+        )): self._labeled_entry(micro,j,caption,key)
+        ttk.Label(micro,text="Без автоматических физических значений. Gz не подменяет G3D. Микроветка не запускается до реализации связанной системы.",
+            wraplength=460).grid(row=7,column=0,columnspan=2,sticky="w")
         mat=ttk.LabelFrame(left,text="Материал",padding=8); mat.pack(fill="x",pady=(0,8))
         ttk.Label(mat,text="Источник").grid(row=0,column=0,sticky="w",pady=3)
         self.material_source_combo=ttk.Combobox(mat,textvariable=self._v("material_source","USER"),values=("USER","REFERENCE"),state="readonly",width=16)
@@ -6155,6 +6181,19 @@ class FinalSolverGUI(EnhancedSolverGUI):
         cfg["fdm_grid"]=fdm; cfg["mvi_grid"]=mvi; cfg["grid"]=dict(fdm if method=="FDM" else mvi)
         cfg["geometry_model"]=self._v("geometry_model","VON_KARMAN").get()
         cfg["material_model"]=self._v("material_model","HOOKE").get()
+        cfg["scale_model"]=self._v("scale_model","MACRO").get()
+        if cfg["scale_model"]=="MICRO":
+            cfg["micro"]={
+                "gradient_model":"G3D",
+                "ell_m":self._v("micro_ell_m").get().strip(),
+                "mu1_c_per_m":self._v("micro_mu1").get().strip(),
+                "mu2_c_per_m":self._v("micro_mu2").get().strip(),
+                "kappa_f_per_m":self._v("micro_kappa").get().strip(),
+                "rho_kg_m3":self._v("micro_rho").get().strip(),
+                "eta_s":self._v("micro_eta").get().strip(),
+                "potential_order":self._v("micro_potential_order").get().strip(),
+            }
+            flexoscale.micro_material_from_case(cfg)
         if method=="MVI":
             form=self._v("mvi_formulation","STRONG").get().upper().strip()
             if form not in ("STRONG","VARIATIONAL"):
@@ -6320,6 +6359,13 @@ class FinalSolverGUI(EnhancedSolverGUI):
                          ("BIRGER" if mode.endswith("BIRGER") else "HOOKE"))
             )).upper()
             put("geometry_model",geom);put("material_model",material_model)
+            put("scale_model",cfg.get("scale_model","MACRO"))
+            mdata=cfg.get("micro",{}) if isinstance(cfg.get("micro"),dict) else {}
+            for key,field in (("micro_ell_m","ell_m"),("micro_mu1","mu1_c_per_m"),
+                 ("micro_mu2","mu2_c_per_m"),("micro_kappa","kappa_f_per_m"),
+                 ("micro_rho","rho_kg_m3"),("micro_eta","eta_s"),
+                 ("micro_potential_order","potential_order")):
+                put(key,mdata.get(field,""))
             j2=cfg.get("j2") if isinstance(cfg.get("j2"),dict) else {}
             put("j2_hardening_kind",j2.get("hardening_kind","LINEAR"))
             put("j2_sigma_y0",j2.get("sigma_y0",""))
@@ -6532,7 +6578,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         # are deliberately not invented.
         "theory":"CUF", "cuf_model":"TE1", "method":"MVI",
         "mode":"NONLINEAR_ELASTIC", "geometry_model":"VON_KARMAN",
-        "material_model":"HOOKE", "unit_system":"N_MM_MPA",
+        "material_model":"HOOKE", "scale_model":"MACRO", "unit_system":"N_MM_MPA",
         "material_source":"USER", "bc_mode":"SIMPLE",
         "load_type":"UNIFORM_RADIAL_FACE", "load_coord":"THETA",
         "load_face":"OUTER", "curve_mode":"TABLE", "curve_extrap":"ERROR",
@@ -7125,8 +7171,9 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self._refresh_basic_grid_visibility()
         self._rebuild_visible_tabs()
         pending=self._v("theory","CUF").get() in capreg.PLANNED_THEORIES
+        micro_pending=self._v("scale_model","MACRO").get()=="MICRO"
         retired=self._v("material_model","HOOKE").get()!="HOOKE"
-        if pending or retired:
+        if pending or retired or micro_pending:
             for name in ("top_run_btn","series_btn","bc_left_combo","bc_right_combo","bc_edit_btn"):
                 w=getattr(self,name,None)
                 if w is not None:
@@ -7257,6 +7304,9 @@ class FinalSolverGUI(EnhancedSolverGUI):
                     capreg.LIMITED:"#9a6700",
                     capreg.UNAVAILABLE:"#b42318",
                 }[capability.status]
+                if self._v("scale_model","MACRO").get()=="MICRO":
+                    status_text="MICRO G3D · связанный решатель ещё не реализован"
+                    status_color="#b42318"
                 self.model_info.configure(
                     text=f"{theory}{model} · {matname} · {method}{rank}. {status_text}: {capability.message_ru}",
                     foreground=status_color,

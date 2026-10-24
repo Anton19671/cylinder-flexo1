@@ -22,6 +22,7 @@ CUF_MODELS = ("TE1", "TE2", "TE3", "TE4")
 GEOMETRY_MODELS = ("LINEAR", "VON_KARMAN", "GREEN_LAGRANGE")
 # The flexoelectric model is elastic; Birger/J2 are retired from active routes.
 MATERIAL_MODELS = ("HOOKE",)
+SCALE_MODELS = ("MACRO", "MICRO")
 # Registered for staged implementation, NOT available for numerical runs.
 PLANNED_THEORIES = ("FSDT", "REDDY")
 THEORY_LABELS = {
@@ -151,7 +152,16 @@ def load_capability(theory: str, load_type: str, surface: Optional[str]) -> Capa
 
 
 def case_capability(case: Dict[str, Any]) -> Capability:
-    """Evaluate physics, method, load and surface from a FINAL_CASE dictionary."""
+    """Evaluate physics, method, load, surface and macro/micro route."""
+    scale = _upper(case.get("scale_model", "MACRO"))
+    if scale not in SCALE_MODELS:
+        return Capability(UNAVAILABLE, "SCALE_MODEL_UNKNOWN",
+                          "Допустимы только две физические ветки: MACRO или MICRO.", False)
+    if scale == "MICRO":
+        return Capability(UNAVAILABLE, "MICRO_G3D_COUPLED_SOLVER_PENDING",
+                          "Материальный G3D-блок реализован отдельно, но связанная микрооболочка "
+                          "с высшими ГУ, электрическим потенциалом, МВИ/МКР и динамикой "
+                          "пока не реализована. Подмена макрорешателем запрещена.", False)
     theory = _upper(case.get("theory"))
     if theory == "CUF_TE1":
         theory = "CUF"
@@ -219,7 +229,7 @@ def capability_table() -> Tuple[Dict[str, Any], ...]:
 
 __all__ = (
     "SUPPORTED", "LIMITED", "UNAVAILABLE", "THEORIES", "CUF_MODELS",
-    "GEOMETRY_MODELS", "MATERIAL_MODELS", "PLANNED_THEORIES", "THEORY_LABELS", "METHODS", "MVI_RANKS",
+    "GEOMETRY_MODELS", "MATERIAL_MODELS", "SCALE_MODELS", "PLANNED_THEORIES", "THEORY_LABELS", "METHODS", "MVI_RANKS",
     "LOAD_TYPES", "LOAD_SURFACES", "Capability", "physics_capability",
     "load_capability", "case_capability", "capability_table",
 )
