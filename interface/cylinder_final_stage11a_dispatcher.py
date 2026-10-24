@@ -78,6 +78,7 @@ import final_j2_history_io as j2history
 import final_units as funits
 import final_step_predictor as fpred
 import final_boundary_registry as bcreg
+from cylinder_boundary_case import inspect_variational_case, REFERENCE_STATUS
 import final_capability_registry as capreg
 import flexo_scale_policy as flexoscale
 
@@ -389,6 +390,18 @@ def _load_callable(spec,case_path):
 
 
 def _common(cfg):
+    # Fail closed: reference boundary work is not yet in the spatial PDE.
+    try:
+        readiness=inspect_variational_case(cfg)
+    except ValueError as exc:
+        raise FinalCaseError(f"VARIATIONAL_BC_INVALID: {exc}") from exc
+    if readiness and readiness["status"]==REFERENCE_STATUS:
+        raise FinalCaseError(
+            "VARIATIONAL_BC_SPATIAL_NOT_CONNECTED: "
+            + "; ".join(readiness["reasons"])
+            + ". Saved reference BC terms are not imposed by MVI/MKR. "
+              "No silent fallback."
+        )
     theory_raw=str(_req(cfg,"theory","CASE")).upper()
     legacy_te1=(theory_raw==LEGACY_THEORY_ALIAS)
     theory="CUF" if legacy_te1 else theory_raw

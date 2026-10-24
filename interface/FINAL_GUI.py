@@ -36,6 +36,8 @@ import flexo_scale_policy as flexoscale
 import final_te_basis_provider as tebasis
 import final_run_bundle as runbundle
 import final_boundary_registry as bcreg
+from cylinder_boundary_case import inspect_variational_case
+from cylinder_variational_boundary import boundary_passport, validate_boundary_passport
 
 APP_DIR=Path(__file__).resolve().parent.parent
 
@@ -1860,6 +1862,7 @@ class EnhancedSolverGUI(SolverGUI):
     def _on_theory_change(self):
         self.advanced_bc=None
         self.engineering_bc=None
+        self.variational_bc=None
         self.vars["bc_mode"].set("SIMPLE")
         self._refresh_visibility()
 
@@ -5517,10 +5520,17 @@ class FinalSolverGUI(EnhancedSolverGUI):
                 pass
         if hasattr(self,"grid_info"):
             self.grid_info.configure(text="FDM: Δx = —; Δs = —; число неизвестных = —")
+        if hasattr(self,"bc_summary"):
+            p=self.bc_summary.master
+            ttk.Button(p,text="Механические / G3D / электрические ГУ…",command=self._edit_variational_bc).grid(row=7,column=0,columnspan=2,sticky="w",pady=4)
         if not self._v("stencil","7").get().strip(): self._v("stencil").set("7")
         if hasattr(self,"fdm_grid_frame"):
             self.fdm_stencil_combo=ttk.Combobox(self.fdm_grid_frame,textvariable=self._v("stencil"),values=("7",),state="readonly",width=14)
             self.fdm_stencil_combo.grid(row=2,column=1,sticky="w",padx=6,pady=3)
+
+    def _edit_variational_bc(self):
+        from cylinder_boundary_editor import open_boundary_editor
+        open_boundary_editor(self)
 
     def _build_numeric_tab(self):
         super()._build_numeric_tab()
@@ -6247,6 +6257,9 @@ class FinalSolverGUI(EnhancedSolverGUI):
                 "potential_order":self._v("micro_potential_order").get().strip() if flexo_on else 0,
             }
             flexoscale.micro_material_from_case(cfg)
+        cfg["boundary_conditions"]["variational"]=copy.deepcopy(getattr(self,"variational_bc",None))
+        if cfg["boundary_conditions"]["variational"] is not None:
+            inspect_variational_case(cfg)
         if method=="MVI":
             form=self._v("mvi_formulation","STRONG").get().upper().strip()
             if form not in ("STRONG","VARIATIONAL"):
@@ -6262,7 +6275,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         return cfg
 
     def _gui_state(self):
-        state={"format":"CYLINDER_GUI_PARAMETERS_V2","vars":{k:v.get() for k,v in self.vars.items() if k!="initial_slope_rtol"},"advanced_bc":self.advanced_bc,"engineering_bc":self.engineering_bc,"load_full_circumference":bool(getattr(self,"load_full_var",tk.BooleanVar(value=False)).get())}
+        state={"format":"CYLINDER_GUI_PARAMETERS_V2","vars":{k:v.get() for k,v in self.vars.items() if k!="initial_slope_rtol"},"advanced_bc":self.advanced_bc,"engineering_bc":self.engineering_bc,"variational_bc":copy.deepcopy(getattr(self,"variational_bc",None)),"load_full_circumference":bool(getattr(self,"load_full_var",tk.BooleanVar(value=False)).get())}
         for name,widget in (("curve_points",getattr(self,"curve_points",None)),("curve_parameters",getattr(self,"curve_parameters",None)),("curve_piecewise",getattr(self,"curve_piecewise",None)),("control_points",getattr(self,"control_points_text",None))):
             if widget is not None:state[name]=widget.get("1.0","end-1c")
         return state
@@ -6294,6 +6307,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self._v("initial_slope_rtol","0.05").set("0.05")
         self.advanced_bc=state.get("advanced_bc")
         self.engineering_bc=state.get("engineering_bc")
+        self.variational_bc=copy.deepcopy(state.get("variational_bc"))
         if hasattr(self,"load_full_var"):self.load_full_var.set(bool(state.get("load_full_circumference",False)))
         for name,widget in (("curve_points",getattr(self,"curve_points",None)),("curve_parameters",getattr(self,"curve_parameters",None)),("curve_piecewise",getattr(self,"curve_piecewise",None)),("control_points",getattr(self,"control_points_text",None))):
             if widget is not None:
@@ -6467,6 +6481,8 @@ class FinalSolverGUI(EnhancedSolverGUI):
             put("layer_bounds",", ".join(str(v) for v in bounds) if isinstance(bounds,list) else "")
 
             bc=cfg.get("boundary_conditions") if isinstance(cfg.get("boundary_conditions"),dict) else {}
+            self.variational_bc=copy.deepcopy(bc.get("variational"))
+            if self.variational_bc is not None:inspect_variational_case(cfg)
             advanced=bc.get("advanced")
             if isinstance(advanced,dict):
                 put("bc_mode","INDIVIDUAL")
