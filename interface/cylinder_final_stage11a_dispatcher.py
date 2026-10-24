@@ -394,6 +394,24 @@ def _common(cfg):
     theory="CUF" if legacy_te1 else theory_raw
     method=str(_req(cfg,"method","CASE")).upper()
     mode=str(_req(cfg,"mode","CASE")).upper()
+    # DYNAMIC is never a synonym for static continuation/load increments.
+    # Validate its time/mass/method contract, then block until the actual
+    # coupled FDM or MVI spatial residual and BC assembly is integrated.
+    from cylinder_newmark_mvi import calculation_kind, validate_dynamic_case
+    try:
+        requested_kind=calculation_kind(cfg)
+        if requested_kind=="DYNAMIC":
+            time_contract=validate_dynamic_case(cfg)
+            raise FinalCaseError(
+                "DYNAMIC_SPATIAL_PDE_NOT_CONNECTED: "
+                f"{time_contract['method']} выбран как пространственный метод; "
+                "шаг Ньюмарка и требование полного остатка реализованы, "
+                "но физические уравнения цилиндра с ГУ, массой, "
+                "G3D/флексо и X/Y-МВИ пока не собраны. "
+                "Запуск статического маршрута вместо динамики запрещён."
+            )
+    except ValueError as exc:
+        raise FinalCaseError(f"Неверный CASE Статика/Динамика: {exc}") from exc
     # A micro CASE must never fall through the old classical CUF/KL routes.
     try:
         scale_model=flexoscale.scale_from_case(cfg)

@@ -6201,6 +6201,17 @@ class FinalSolverGUI(EnhancedSolverGUI):
         cfg["geometry_model"]=self._v("geometry_model","VON_KARMAN").get()
         cfg["material_model"]=self._v("material_model","HOOKE").get()
         cfg["scale_model"]=self._v("scale_model","MACRO").get()
+        cfg["calculation_kind"]=self._v("calculation_kind","STATIC").get()
+        if cfg["calculation_kind"]=="DYNAMIC":
+            cfg["dynamics"]={
+                "time_step_s":self._v("dyn_dt").get().strip(),
+                "n_steps":self._v("dyn_steps").get().strip(),
+                "density_kg_m3":self._v("dyn_density").get().strip(),
+                "newmark_beta":0.25,"newmark_gamma":0.5,
+                "damping":"NONE",
+            }
+            from cylinder_newmark_mvi import validate_dynamic_case
+            validate_dynamic_case(cfg)
         if cfg["scale_model"]=="MICRO":
             flexo_on=self._v("micro_flexoelectric","ON").get()=="ON"
             cfg["micro"]={
@@ -6767,6 +6778,30 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self.model_info=ttk.Label(model,text="",foreground="#52687a")
         self.model_info.grid(row=2,column=0,columnspan=4,sticky="w",pady=(7,0))
 
+        timebar=ttk.LabelFrame(self,text="Тип задачи и пространственный метод",padding=5)
+        timebar.pack(fill="x",padx=12,pady=(0,5))
+        ttk.Radiobutton(timebar,text="Статика",value="STATIC",
+                        variable=self._v("calculation_kind","STATIC"),
+                        command=self._refresh_visibility).pack(side="left",padx=(0,12))
+        ttk.Radiobutton(timebar,text="Динамика (Ньюмарк; МВИ/МКР — в разработке)",
+                        value="DYNAMIC",
+                        variable=self._v("calculation_kind","STATIC"),
+                        command=self._refresh_visibility).pack(side="left",padx=(0,12))
+        ttk.Label(timebar,text="Выбранный метод МВИ или МКР сохраняется для обоих режимов.").pack(side="left")
+        dynbar=ttk.LabelFrame(self,text="Динамические параметры (пока расчёт заблокирован)",padding=5)
+        dynbar.pack(fill="x",padx=12,pady=(0,6))
+        self.dynamic_parameters_frame=dynbar
+        for column,(title,key,default) in enumerate((
+            ("Шаг Δt, с","dyn_dt",""),
+            ("Число шагов","dyn_steps",""),
+            ("Плотность, кг/м³","dyn_density",""),
+        )):
+            ttk.Label(dynbar,text=title).grid(row=0,column=2*column,sticky="w",padx=4)
+            ttk.Entry(dynbar,textvariable=self._v(key,default),width=13).grid(
+                row=0,column=2*column+1,sticky="w",padx=4)
+        ttk.Label(dynbar,text="Не используются статические коэффициенты нагрузки вместо времени.",
+                  foreground="#a35a00").grid(row=1,column=0,columnspan=6,sticky="w")
+
         actions=ttk.Frame(self,padding=(12,0,12,7));actions.pack(fill="x")
         ttk.Button(actions,text="Открыть параметры",command=self.open_parameters).pack(side="left",padx=(0,5))
         ttk.Button(actions,text="Сохранить параметры в папку…",command=self.save_parameters_to_folder).pack(side="left",padx=5)
@@ -7264,6 +7299,13 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self._rebuild_visible_tabs()
         pending=self._v("theory","CUF").get() in capreg.PLANNED_THEORIES
         micro_pending=self._v("scale_model","MACRO").get()=="MICRO"
+        dynamics_pending=self._v("calculation_kind","STATIC").get()=="DYNAMIC"
+        frame=getattr(self,"dynamic_parameters_frame",None)
+        if frame is not None:
+            if dynamics_pending and not frame.winfo_manager():
+                frame.pack(fill="x",padx=12,pady=(0,6),before=getattr(self,"parameter_toolbar"))
+            elif not dynamics_pending and frame.winfo_manager():
+                frame.pack_forget()
         if hasattr(self,"micro_flexo_radios"):
             # In MACRO the electric effect is physically OFF; do not leave a
             # disabled "ON" radio highlighted while running classical mechanics.
@@ -7291,7 +7333,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
             self.scale_note.configure(text=status)
             if hasattr(self,"model_info"):self._update_grid_info()
         retired=self._v("material_model","HOOKE").get()!="HOOKE"
-        if pending or retired or micro_pending:
+        if pending or retired or micro_pending or dynamics_pending:
             for name in ("top_run_btn","series_btn","bc_left_combo","bc_right_combo","bc_edit_btn"):
                 w=getattr(self,name,None)
                 if w is not None:
