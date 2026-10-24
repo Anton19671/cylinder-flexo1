@@ -6211,7 +6211,28 @@ class FinalSolverGUI(EnhancedSolverGUI):
                 "damping":"NONE",
             }
             from cylinder_newmark_mvi import validate_dynamic_case
-            validate_dynamic_case(cfg)
+            from cylinder_dynamic_loads import normalize_time_law
+            kind=self._v("dyn_law","HARMONIC").get().upper()
+            law={"kind":kind,"amplitude":1.0}
+            if kind in ("STEP","RAMP","HARMONIC","DAMPED_HARMONIC","MULTIHARMONIC",
+                        "CHIRP_LINEAR","RECTANGULAR_PULSE","HALF_SINE_PULSE",
+                        "TRIANGULAR_PULSE"):
+                law["start_time_s"]=float(self._v("dyn_load_start").get().strip() or "0")
+            if kind in ("HARMONIC","DAMPED_HARMONIC"):
+                law["frequency_hz"]=float(self._v("dyn_load_freq").get().strip())
+                law["phase_rad"]=0.0
+            if kind in ("RAMP","CHIRP_LINEAR","RECTANGULAR_PULSE",
+                        "HALF_SINE_PULSE","TRIANGULAR_PULSE"):
+                law["duration_s"]=float(self._v("dyn_load_duration").get().strip())
+            if kind=="DAMPED_HARMONIC":
+                law["decay_rate_per_s"]=0.0
+            if kind in ("TABULATED","MULTIHARMONIC","CHIRP_LINEAR","GAUSSIAN_PULSE"):
+                raise ValueError("Для этого закона задайте полный динамический CASE JSON с параметрами")
+            cfg["dynamics"]["time_law"]=law
+            validated=validate_dynamic_case(cfg)
+            normalized=normalize_time_law(law)
+            normalized.validate_time_grid(validated["start_time_s"],
+                validated["time_step_s"],validated["n_steps"])
         if cfg["scale_model"]=="MICRO":
             flexo_on=self._v("micro_flexoelectric","ON").get()=="ON"
             cfg["micro"]={
@@ -6611,7 +6632,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         # are deliberately not invented.
         "theory":"CUF", "cuf_model":"TE1", "method":"MVI",
         "mode":"NONLINEAR_ELASTIC", "geometry_model":"VON_KARMAN",
-        "material_model":"HOOKE", "scale_model":"MACRO", "micro_flexoelectric":"OFF", "unit_system":"N_MM_MPA",
+        "material_model":"HOOKE", "scale_model":"MACRO", "micro_flexoelectric":"OFF", "dyn_law":"HARMONIC", "unit_system":"N_MM_MPA",
         "material_source":"USER", "bc_mode":"SIMPLE",
         "load_type":"UNIFORM_RADIAL_FACE", "load_coord":"THETA",
         "load_face":"OUTER", "curve_mode":"TABLE", "curve_extrap":"ERROR",
@@ -6801,6 +6822,21 @@ class FinalSolverGUI(EnhancedSolverGUI):
                 row=0,column=2*column+1,sticky="w",padx=4)
         ttk.Label(dynbar,text="Не используются статические коэффициенты нагрузки вместо времени.",
                   foreground="#a35a00").grid(row=1,column=0,columnspan=6,sticky="w")
+        ttk.Label(dynbar,text="Закон F(t)").grid(row=2,column=0,sticky="w",padx=4,pady=4)
+        self.dyn_law_combo=ttk.Combobox(dynbar,textvariable=self._v("dyn_law","HARMONIC"),
+            values=("CONSTANT","STEP","RAMP","HARMONIC","DAMPED_HARMONIC",
+                    "MULTIHARMONIC","CHIRP_LINEAR","RECTANGULAR_PULSE",
+                    "HALF_SINE_PULSE","TRIANGULAR_PULSE","GAUSSIAN_PULSE",
+                    "TABULATED"),state="readonly",width=22)
+        self.dyn_law_combo.grid(row=2,column=1,columnspan=2,sticky="w",padx=4)
+        for col,title,key in ((3,"Частота, Гц","dyn_load_freq"),
+                              (4,"Начало, с","dyn_load_start"),
+                              (5,"Длительность, с","dyn_load_duration")):
+            holder=ttk.Frame(dynbar);holder.grid(row=3,column=col,sticky="w",padx=3)
+            ttk.Label(holder,text=title).pack(anchor="w")
+            ttk.Entry(holder,textvariable=self._v(key,""),width=11).pack(anchor="w")
+        ttk.Label(dynbar,text="Амплитуда — множитель заданной пространственной нагрузки. Таблицы/многочастотность — через CASE JSON.",
+                  wraplength=700).grid(row=4,column=0,columnspan=6,sticky="w",pady=4)
 
         actions=ttk.Frame(self,padding=(12,0,12,7));actions.pack(fill="x")
         ttk.Button(actions,text="Открыть параметры",command=self.open_parameters).pack(side="left",padx=(0,5))
