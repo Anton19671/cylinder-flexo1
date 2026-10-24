@@ -20,7 +20,16 @@ UNAVAILABLE = "UNAVAILABLE"
 THEORIES = ("CUF", "KL")
 CUF_MODELS = ("TE1", "TE2", "TE3", "TE4")
 GEOMETRY_MODELS = ("LINEAR", "VON_KARMAN", "GREEN_LAGRANGE")
-MATERIAL_MODELS = ("HOOKE", "BIRGER", "J2_INCREMENTAL")
+# The flexoelectric model is elastic; Birger/J2 are retired from active routes.
+MATERIAL_MODELS = ("HOOKE",)
+# Registered for staged implementation, NOT available for numerical runs.
+PLANNED_THEORIES = ("FSDT", "REDDY")
+THEORY_LABELS = {
+    "CUF": "Carrera CUF (TE1-TE4)",
+    "KL": "Kirchhoff-Love",
+    "FSDT": "Timoshenko/Mindlin FSDT",
+    "REDDY": "Reddy TSDT",
+}
 METHODS = ("FDM", "MVI")
 MVI_RANKS = tuple(range(1, 9))
 LOAD_TYPES = (
@@ -87,10 +96,23 @@ def physics_capability(
     method = _upper(method)
     cuf_model = _upper(cuf_model)
 
+    if theory in PLANNED_THEORIES:
+        return Capability(
+            UNAVAILABLE, "THEORY_PENDING_VARIATIONAL_IMPLEMENTATION",
+            f"{THEORY_LABELS[theory]}: кинематическая ветка запланирована; "
+            "функционал, граничные условия, МВИ и МКР ещё не верифицированы.",
+            False,
+        )
     if theory not in THEORIES:
         return Capability(UNAVAILABLE, "THEORY_UNKNOWN", "Неизвестная теория.", False)
     if geometry_model not in GEOMETRY_MODELS:
         return Capability(UNAVAILABLE, "GEOMETRY_UNKNOWN", "Неизвестная геометрическая модель.", False)
+    if material_model in ("BIRGER", "J2_INCREMENTAL"):
+        return Capability(
+            UNAVAILABLE, "MATERIAL_RETIRED_FLEXO",
+            "Биргер и J2-пластичность исключены из cylinder-flexo1; только упругий материал.",
+            False,
+        )
     if material_model not in MATERIAL_MODELS:
         return Capability(UNAVAILABLE, "MATERIAL_UNKNOWN", "Неизвестная модель материала.", False)
     if method not in METHODS:
@@ -99,14 +121,6 @@ def physics_capability(
         return Capability(UNAVAILABLE, "CUF_MODEL_UNKNOWN", "Для CUF необходимо выбрать TE1–TE4.", False)
     if method == "MVI" and rank not in MVI_RANKS:
         return Capability(UNAVAILABLE, "MVI_RANK_INVALID", "Ранг МВИ должен быть от 1 до 8.", False)
-    if material_model == "J2_INCREMENTAL":
-        return Capability(
-            SUPPORTED,
-            "J2_INCREMENTAL_RETURN_MAPPING",
-            "Инкрементальная J2-пластичность с return-mapping, разгрузкой и повторным нагружением.",
-            geometry_model == "GREEN_LAGRANGE",
-        )
-
     return Capability(
         SUPPORTED,
         "FULLY_SUPPORTED",
@@ -126,7 +140,7 @@ def load_capability(theory: str, load_type: str, surface: Optional[str]) -> Capa
         return Capability(SUPPORTED, "EXTERNAL_LOAD", "Внешний массив нагрузки проверяется по форме при чтении.", True)
     if surface not in LOAD_SURFACES:
         return Capability(UNAVAILABLE, "LOAD_SURFACE_MISSING", "Необходимо выбрать срединную, внутреннюю или внешнюю поверхность нагрузки.", False)
-    if theory not in THEORIES:
+    if theory not in THEORIES and theory not in PLANNED_THEORIES:
         return Capability(UNAVAILABLE, "THEORY_UNKNOWN", "Неизвестная теория.", False)
     return Capability(
         SUPPORTED,
@@ -205,7 +219,7 @@ def capability_table() -> Tuple[Dict[str, Any], ...]:
 
 __all__ = (
     "SUPPORTED", "LIMITED", "UNAVAILABLE", "THEORIES", "CUF_MODELS",
-    "GEOMETRY_MODELS", "MATERIAL_MODELS", "METHODS", "MVI_RANKS",
+    "GEOMETRY_MODELS", "MATERIAL_MODELS", "PLANNED_THEORIES", "THEORY_LABELS", "METHODS", "MVI_RANKS",
     "LOAD_TYPES", "LOAD_SURFACES", "Capability", "physics_capability",
     "load_capability", "case_capability", "capability_table",
 )

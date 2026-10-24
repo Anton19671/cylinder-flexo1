@@ -2268,6 +2268,11 @@ class EnhancedSolverGUI(SolverGUI):
         mode=self._v("bc_mode","SIMPLE").get()
         theory=self._v("theory","CUF").get()
         model=self._v("cuf_model","TE1").get()
+        if theory in capreg.PLANNED_THEORIES:
+            self.bc_summary.configure(text=f"{theory}: граничные условия разрабатываются")
+            if hasattr(self,"bc_active_equations"):
+                self.bc_active_equations.configure(text="Нельзя использовать KL/CUF условия для FSDT/REDDY")
+            return
         if mode=="SIMPLE":
             left=self._v("bc_left","").get().upper().strip()
             right=self._v("bc_right","").get().upper().strip()
@@ -6117,6 +6122,12 @@ class FinalSolverGUI(EnhancedSolverGUI):
         return data
 
     def _case_dict(self):
+        theory=self._v("theory","CUF").get()
+        material=self._v("material_model","HOOKE").get()
+        if theory in capreg.PLANNED_THEORIES:
+            raise ValueError(f"{theory}: расчёт недоступен до верификации математической постановки")
+        if material!="HOOKE":
+            raise ValueError("В cylinder-flexo1 отключены Биргер и J2, доступна только упругость")
         self._v("initial_slope_rtol","0.05").set("0.05")
         method=self.vars.get("method",tk.StringVar(value="FDM")).get()
         # Enhanced base expects nx/ns/stencil. For MVI, allow the independent MVI grid even if FDM grid is not filled yet.
@@ -6448,6 +6459,8 @@ class FinalSolverGUI(EnhancedSolverGUI):
         "theory":{
             "Carrera CUF":"CUF",
             "Kirchhoff–Love":"KL",
+            "Тимошенко (FSDT) · в разработке":"FSDT",
+            "Редди (TSDT) · в разработке":"REDDY",
         },
         "method":{
             "МКР / конечные разности":"FDM",
@@ -6456,8 +6469,6 @@ class FinalSolverGUI(EnhancedSolverGUI):
         "mode":{
             "Линейный · упругий":"LINEAR_ELASTIC",
             "Нелинейный · упругий":"NONLINEAR_ELASTIC",
-            "Линейный · Биргер":"LINEAR_BIRGER",
-            "Нелинейный · Биргер":"NONLINEAR_BIRGER",
         },
         "unit_system":{
             "мм · Н · МПа":"N_MM_MPA",
@@ -6669,7 +6680,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         matbox=ttk.Frame(model);matbox.grid(row=0,column=3,sticky="ew",padx=(0,10))
         ttk.Label(matbox,text="Материал",font=("Segoe UI Semibold",9)).pack(anchor="w")
         self.material_model_display=tk.StringVar(value="Закон Гука")
-        self.material_model_combo=ttk.Combobox(matbox,textvariable=self.material_model_display,values=("Закон Гука","Биргер"),state="readonly",width=24)
+        self.material_model_combo=ttk.Combobox(matbox,textvariable=self.material_model_display,values=("Закон Гука",),state="readonly",width=24)
         self.material_model_combo.pack(fill="x",pady=(3,0))
         self.material_model_combo.bind("<<ComboboxSelected>>",lambda _e:self._on_geometry_material_change())
 
@@ -7005,12 +7016,9 @@ class FinalSolverGUI(EnhancedSolverGUI):
             try:self.notebook.forget(tab)
             except Exception:pass
         expert=self._v("ui_level","BASIC").get()=="EXPERT"
-        birger=self._v("mode","LINEAR_ELASTIC").get().endswith("BIRGER")
-        j2=self._v("mode","LINEAR_ELASTIC").get().endswith("J2")
+        # Historical Birger/J2 widgets are not available in the flexo interface.
         tabs=[(self.tab_problem,"1 · Постановка"),(self.tab_load,"2 · Нагрузка")]
         if expert:tabs.append((self.tab_numeric,"Численные настройки"))
-        if birger:tabs.append((self.tab_birger,"3 · Материал Биргера"))
-        if j2:tabs.append((self.tab_j2,"3 · J2 пластичность"))
         tabs.extend(((self.tab_online,"Онлайн-расчёт"),(self.tab_results,"Результаты")))
         if expert:tabs.extend(((self.tab_files,"Файлы и начальные поля"),(self.tab_run,"Журнал")))
         for tab,title in tabs:self.notebook.add(tab,text=title)
@@ -7116,6 +7124,17 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self._sync_display_selectors()
         self._refresh_basic_grid_visibility()
         self._rebuild_visible_tabs()
+        pending=self._v("theory","CUF").get() in capreg.PLANNED_THEORIES
+        retired=self._v("material_model","HOOKE").get()!="HOOKE"
+        if pending or retired:
+            for name in ("top_run_btn","series_btn","bc_left_combo","bc_right_combo","bc_edit_btn"):
+                w=getattr(self,name,None)
+                if w is not None:
+                    try:w.configure(state="disabled")
+                    except Exception:pass
+        else:
+            try:self.top_run_btn.configure(state="normal")
+            except Exception:pass
 
     def _on_theory_change(self):
         self.advanced_bc=None
@@ -7136,14 +7155,11 @@ class FinalSolverGUI(EnhancedSolverGUI):
             "Green–Lagrange (пока ограниченная)":"GREEN_LAGRANGE",
         }.get(geom)
         if geometry_code is None:return
-        birger=material.startswith("Биргер")
-        j2=material.startswith("J2")
+        if material not in ("Закон Гука","Гук S–E (StVK)"):return
         nonlinear=(geometry_code!="LINEAR")
         self._v("geometry_model","VON_KARMAN").set(geometry_code)
-        material_code="J2_INCREMENTAL" if j2 else ("BIRGER" if birger else "HOOKE")
-        self._v("material_model","HOOKE").set(material_code)
-        suffix="_J2" if j2 else ("_BIRGER" if birger else "_ELASTIC")
-        mode=("NONLINEAR" if nonlinear else "LINEAR")+suffix
+        self._v("material_model","HOOKE").set("HOOKE")
+        mode=("NONLINEAR" if nonlinear else "LINEAR")+"_ELASTIC"
         self._v("mode","LINEAR_ELASTIC").set(mode)
         self._refresh_visibility()
         # Refresh the compact model caption immediately.  Previously the
@@ -7172,21 +7188,18 @@ class FinalSolverGUI(EnhancedSolverGUI):
             material_code=("J2_INCREMENTAL" if mode.endswith("J2") else
                            ("BIRGER" if mode.endswith("BIRGER") else "HOOKE"))
             self._v("material_model").set(material_code)
-        j2_caption=(
-            "J2 incremental (finite strain)"
-            if geometry_code=="GREEN_LAGRANGE"
-            else "J2 incremental (small strain)"
-        )
-        if geometry_code=="GREEN_LAGRANGE":
-            material_values=("Гук S–E (StVK)","Биргер S–E",j2_caption)
-        else:
-            material_values=("Закон Гука","Биргер",j2_caption)
+        material_values=("Гук S–E (StVK)",) if geometry_code=="GREEN_LAGRANGE" else ("Закон Гука",)
         self.material_model_combo.configure(values=material_values,width=32)
-        mat_value=(
-            material_values[2] if material_code=="J2_INCREMENTAL"
-            else (material_values[1] if material_code=="BIRGER" else material_values[0])
-        )
+        mat_value=material_values[0] if material_code=="HOOKE" else "Материал исключён из FLEXO"
         if self.material_model_display.get()!=mat_value:self.material_model_display.set(mat_value)
+        if theory in capreg.PLANNED_THEORIES:
+            for key,combo in (("bc_left",self.bc_left_combo),("bc_right",self.bc_right_combo)):
+                display_bc,_old=self._display_bindings[key]
+                note="ГУ ещё не реализованы"
+                self._display_bindings[key]=(display_bc,{note:""})
+                combo.configure(values=(note,),state="disabled")
+                display_bc.set(note)
+            return
 
         # Boundary choices are theory/model dependent.  The same physical
         # support name is expanded differently for KL and CUF TE1..TE4.
@@ -7220,7 +7233,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
                     gname={"LINEAR":"Линейная","VON_KARMAN":"von Kármán","GREEN_LAGRANGE":"Green–Lagrange (полная классическая)"}.get(geom,geom)
                     theory="Carrera CUF · "+gname
                 else:
-                    theory="Kirchhoff–Love · "+{"LINEAR":"Линейная","VON_KARMAN":"von Kármán","GREEN_LAGRANGE":"Green–Lagrange (полная классическая)"}.get(geom,geom)
+                    theory=capreg.THEORY_LABELS.get(theory_code,theory_code)+" · "+{"LINEAR":"Линейная","VON_KARMAN":"von Kármán","GREEN_LAGRANGE":"Green–Lagrange (полная классическая)"}.get(geom,geom)
                 model=(f" · {self._v('cuf_model').get()}" if self._v("theory").get()=="CUF" else "")
                 method="МВИ" if self._v("method").get()=="MVI" else "МКР / конечные разности"
                 matname=("J2 incremental (finite strain)" if geom=="GREEN_LAGRANGE" and material=="J2_INCREMENTAL" else

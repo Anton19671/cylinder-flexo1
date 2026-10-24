@@ -146,14 +146,8 @@ if tuple(CUF_MODELS)!=tuple(capreg.CUF_MODELS):
     raise RuntimeError("CUF capability registry and basis provider disagree")
 LEGACY_THEORY_ALIAS="CUF_TE1"
 METHODS=capreg.METHODS
-MODES=(
-    "LINEAR_ELASTIC",
-    "LINEAR_BIRGER",
-    "LINEAR_J2",
-    "NONLINEAR_ELASTIC",
-    "NONLINEAR_BIRGER",
-    "NONLINEAR_J2",
-)
+# Only elastic cases can be dispatched by cylinder-flexo1.
+MODES=("LINEAR_ELASTIC","NONLINEAR_ELASTIC")
 
 # FDM/MKR operator policy is explicit.  Keep the historical matched
 # high-order discretisation as the backward-compatible production default;
@@ -399,6 +393,12 @@ def _common(cfg):
     theory="CUF" if legacy_te1 else theory_raw
     method=str(_req(cfg,"method","CASE")).upper()
     mode=str(_req(cfg,"mode","CASE")).upper()
+    if theory in capreg.PLANNED_THEORIES:
+        raise FinalCaseError(
+            f"{theory}: теория зарегистрирована, но её вариационные уравнения "
+            "и граничные условия ещё не реализованы. Нельзя использовать CUF/KL "
+            "расчёт под названием FSDT или Reddy."
+        )
     if theory not in THEORIES:
         raise FinalCaseError(f"theory must be one of {THEORIES}; legacy CUF_TE1 is also accepted")
     if theory=="CUF":
@@ -431,9 +431,12 @@ def _common(cfg):
         raise FinalCaseError(
             f"geometry_model for {theory} must be one of {allowed_geometry}"
         )
-    if material_model not in ("HOOKE","BIRGER","J2_INCREMENTAL"):
-        raise FinalCaseError("material_model must be HOOKE, BIRGER or J2_INCREMENTAL")
-    material_suffix={"HOOKE":"_ELASTIC","BIRGER":"_BIRGER","J2_INCREMENTAL":"_J2"}[material_model]
+    if material_model!="HOOKE":
+        raise FinalCaseError(
+            "cylinder-flexo1 допускает только упругий материал HOOKE; "
+            "Биргер и J2-пластичность отключены."
+        )
+    material_suffix="_ELASTIC"
     expected_mode=("LINEAR" if geometry_model=="LINEAR" else "NONLINEAR") + material_suffix
     if mode!=expected_mode:
         raise FinalCaseError(
@@ -441,14 +444,8 @@ def _common(cfg):
             f"and material_model={material_model}; expected mode={expected_mode}"
         )
 
-    # Validate J2's own physical input even while routing remains deliberately
-    # blocked by the capability registry until every solver adapter exists.
+    # Compatibility metadata field; the incremental J2 path is unavailable.
     j2_parameters=None
-    if material_model=="J2_INCREMENTAL":
-        try:
-            j2_parameters=j2case.parse_j2_parameters(cfg)
-        except Exception as exc:
-            raise FinalCaseError(f"invalid J2 material data: {exc}") from exc
 
     capability=capreg.case_capability(cfg)
     if capability.status==capreg.UNAVAILABLE:
