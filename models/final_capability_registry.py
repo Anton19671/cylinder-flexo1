@@ -158,10 +158,18 @@ def case_capability(case: Dict[str, Any]) -> Capability:
         return Capability(UNAVAILABLE, "SCALE_MODEL_UNKNOWN",
                           "Допустимы только две физические ветки: MACRO или MICRO.", False)
     if scale == "MICRO":
-        return Capability(UNAVAILABLE, "MICRO_G3D_COUPLED_SOLVER_PENDING",
-                          "Материальный G3D-блок реализован отдельно, но связанная микрооболочка "
-                          "с высшими ГУ, электрическим потенциалом, МВИ/МКР и динамикой "
-                          "пока не реализована. Подмена макрорешателем запрещена.", False)
+        micro = case.get("micro")
+        flag = micro.get("enable_flexoelectric", True) if isinstance(micro, dict) else True
+        if not isinstance(flag, bool):
+            return Capability(UNAVAILABLE, "MICRO_FLEXO_SWITCH_INVALID",
+                              "Переключатель флексоэффекта должен быть true/false.", False)
+        if flag:
+            return Capability(UNAVAILABLE, "MICRO_G3D_COUPLED_SOLVER_PENDING",
+                              "Связанная механико-электрическая система G3D с высшими ГУ, "
+                              "МВИ/МКР и динамикой пока не завершена. Подмена MACRO запрещена.", False)
+        return Capability(UNAVAILABLE, "MICRO_G3D_GRADIENT_SOLVER_PENDING",
+                          "Флексоэффект отключён (mu1=mu2=kappa=0). Градиентные "
+                          "механические уравнения и высшие ГУ ещё не собраны. MACRO-подмена запрещена.", False)
     theory = _upper(case.get("theory"))
     if theory == "CUF_TE1":
         theory = "CUF"

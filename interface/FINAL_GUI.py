@@ -1487,10 +1487,14 @@ class EnhancedSolverGUI(SolverGUI):
         )
         self.scale_combo.pack(anchor="w")
         self.scale_combo.bind("<<ComboboxSelected>>",lambda _e:self._refresh_visibility())
+        self.micro_flexo_check=ttk.Checkbutton(scale_box,text="Флексоэлектрическая связь: ВКЛ / ВЫКЛ",
+            variable=self._v("micro_flexoelectric","ON"),onvalue="ON",offvalue="OFF",command=self._refresh_visibility)
+        self.micro_flexo_check.pack(anchor="w",pady=4)
         self.scale_note=ttk.Label(scale_box,wraplength=470,justify="left",
-             text="MACRO — классическая упругость; MICRO — полная ковариантная G3D-флексоэлектрическая теория (реализация связанных PDE готовится).")
+             text="MACRO: классическая модель. MICRO: G3D с переключателем флексоэффекта. MICRO пока заблокирован.")
         self.scale_note.pack(fill="x",pady=(5,0))
         micro=ttk.LabelFrame(left,text="MICRO · G3D, параметры СИ",padding=8)
+        self.micro_parameters_frame=micro
         micro.pack(fill="x",pady=(0,8))
         for j,(caption,key) in enumerate((
             ("Градиентная длина ell, м","micro_ell_m"),
@@ -1503,7 +1507,7 @@ class EnhancedSolverGUI(SolverGUI):
         )): self._labeled_entry(micro,j,caption,key)
         ttk.Label(micro,text="Без автоматических физических значений. Gz не подменяет G3D. Микроветка не запускается до реализации связанной системы.",
             wraplength=460).grid(row=7,column=0,columnspan=2,sticky="w")
-        mat=ttk.LabelFrame(left,text="Материал",padding=8); mat.pack(fill="x",pady=(0,8))
+        mat=ttk.LabelFrame(left,text="Материал",padding=8); self.micro_material_frame=mat; mat.pack(fill="x",pady=(0,8))
         ttk.Label(mat,text="Источник").grid(row=0,column=0,sticky="w",pady=3)
         self.material_source_combo=ttk.Combobox(mat,textvariable=self._v("material_source","USER"),values=("USER","REFERENCE"),state="readonly",width=16)
         self.material_source_combo.grid(row=0,column=1,sticky="w",padx=6,pady=3)
@@ -6183,15 +6187,17 @@ class FinalSolverGUI(EnhancedSolverGUI):
         cfg["material_model"]=self._v("material_model","HOOKE").get()
         cfg["scale_model"]=self._v("scale_model","MACRO").get()
         if cfg["scale_model"]=="MICRO":
+            flexo_on=self._v("micro_flexoelectric","ON").get()=="ON"
             cfg["micro"]={
+                "enable_flexoelectric":flexo_on,
                 "gradient_model":"G3D",
                 "ell_m":self._v("micro_ell_m").get().strip(),
-                "mu1_c_per_m":self._v("micro_mu1").get().strip(),
-                "mu2_c_per_m":self._v("micro_mu2").get().strip(),
-                "kappa_f_per_m":self._v("micro_kappa").get().strip(),
+                "mu1_c_per_m":self._v("micro_mu1").get().strip() if flexo_on else 0.0,
+                "mu2_c_per_m":self._v("micro_mu2").get().strip() if flexo_on else 0.0,
+                "kappa_f_per_m":self._v("micro_kappa").get().strip() if flexo_on else 0.0,
                 "rho_kg_m3":self._v("micro_rho").get().strip(),
                 "eta_s":self._v("micro_eta").get().strip(),
-                "potential_order":self._v("micro_potential_order").get().strip(),
+                "potential_order":self._v("micro_potential_order").get().strip() if flexo_on else 0,
             }
             flexoscale.micro_material_from_case(cfg)
         if method=="MVI":
@@ -6361,6 +6367,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
             put("geometry_model",geom);put("material_model",material_model)
             put("scale_model",cfg.get("scale_model","MACRO"))
             mdata=cfg.get("micro",{}) if isinstance(cfg.get("micro"),dict) else {}
+            put("micro_flexoelectric","ON" if mdata.get("enable_flexoelectric",True) else "OFF")
             for key,field in (("micro_ell_m","ell_m"),("micro_mu1","mu1_c_per_m"),
                  ("micro_mu2","mu2_c_per_m"),("micro_kappa","kappa_f_per_m"),
                  ("micro_rho","rho_kg_m3"),("micro_eta","eta_s"),
@@ -7172,6 +7179,16 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self._rebuild_visible_tabs()
         pending=self._v("theory","CUF").get() in capreg.PLANNED_THEORIES
         micro_pending=self._v("scale_model","MACRO").get()=="MICRO"
+        if hasattr(self,"micro_flexo_check"):
+            self.micro_flexo_check.configure(state="normal" if micro_pending else "disabled")
+            frame=getattr(self,"micro_parameters_frame",None)
+            mat=getattr(self,"micro_material_frame",None)
+            if frame is not None and mat is not None:
+                if micro_pending and not frame.winfo_manager():frame.pack(fill="x",pady=(0,8),before=mat)
+                elif not micro_pending and frame.winfo_manager():frame.pack_forget()
+            self.scale_note.configure(text=(
+                "MICRO G3D · флексоэффект "+("ВКЛ" if self._v("micro_flexoelectric","ON").get()=="ON" else "ВЫКЛ")+" · решатель пока не реализован"
+                if micro_pending else "MACRO · классическая упругость · G3D и флексоэффект ВЫКЛ"))
         retired=self._v("material_model","HOOKE").get()!="HOOKE"
         if pending or retired or micro_pending:
             for name in ("top_run_btn","series_btn","bc_left_combo","bc_right_combo","bc_edit_btn"):

@@ -35,8 +35,10 @@ class G3DMaterial:
             object.__setattr__(self, name, value)
         if self.young_pa <= 0 or not -1.0 < self.poisson < 0.5:
             raise ValueError("E > 0 and -1 < nu < 0.5 are required")
-        if self.ell_m < 0 or self.kappa_f_per_m <= 0:
-            raise ValueError("ell >= 0 and kappa > 0 are required")
+        if self.ell_m < 0 or self.kappa_f_per_m < 0:
+            raise ValueError("ell >= 0 and kappa >= 0 are required")
+        if self.kappa_f_per_m == 0 and (self.mu1_c_per_m != 0 or self.mu2_c_per_m != 0):
+            raise ValueError("kappa=0 requires mu1=mu2=0 (electric terms off)")
 
     @property
     def lame_lambda(self):
