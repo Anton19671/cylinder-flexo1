@@ -157,6 +157,15 @@ def load_capability(theory: str, load_type: str, surface: Optional[str]) -> Capa
 
 def case_capability(case: Dict[str, Any]) -> Capability:
     """Evaluate physics, method, load, surface and macro/micro route."""
+    from cylinder_reference_case import selected_backend, BACKEND, prepare_reference_case
+    try:
+        backend=selected_backend(case)
+        if backend==BACKEND:
+            prepare_reference_case(case)
+            return Capability(LIMITED,"REFERENCE_STATIC_FDM",
+                              "Проверочный вариационный МКР на малой сетке; сходимость по сетке не подтверждена.",False)
+    except (ValueError,TypeError,KeyError) as exc:
+        return Capability(UNAVAILABLE,"REFERENCE_CASE_INVALID",str(exc),False)
     scale = _upper(case.get("scale_model", "MACRO"))
     if scale not in SCALE_MODELS:
         return Capability(UNAVAILABLE, "SCALE_MODEL_UNKNOWN",

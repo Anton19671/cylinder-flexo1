@@ -2326,6 +2326,14 @@ def _run_mvi(cfg,case_path,c):
 
 def validate_final_case(case_json,*,dry_run=True):
     cfg,path=_read_json(case_json)
+    from cylinder_reference_case import selected_backend, BACKEND, prepare_reference_case
+    if selected_backend(cfg)==BACKEND:
+        reference=prepare_reference_case(cfg)
+        return {"valid":True,"solver_backend":BACKEND,"experimental":True,
+                "theory":reference.problem.functional.theory,"method":"FDM",
+                "calculation_kind":"STATIC","scale_model":cfg["scale_model"],
+                "field_order":"component,x,s",
+                "validation_warnings":["Small-grid reference solve; mesh convergence not verified."]}
     c=_common(cfg)
     if c["method"]=="MVI":
         # Validation must not populate the requested run folder.  MVI child
@@ -2374,6 +2382,9 @@ def validate_final_case(case_json,*,dry_run=True):
 
 def run_final_case(case_json):
     cfg,path=_read_json(case_json)
+    from cylinder_reference_case import selected_backend, BACKEND, run_reference_case
+    if selected_backend(cfg)==BACKEND:
+        return run_reference_case(cfg,path)
     c=_common(cfg)
     return _run_mvi(cfg,path,c) if c["method"]=="MVI" else _run_fdm(cfg,path,c)
 
@@ -2384,6 +2395,9 @@ def run_mvi_rank_series(case_json,ranks=range(1,9)):
     same deterministic automatic profile policy used by a single MVI run.
     """
     cfg,path=_read_json(case_json)
+    from cylinder_reference_case import selected_backend, BACKEND
+    if selected_backend(cfg)==BACKEND:
+        raise FinalCaseError("reference backend does not implement MVI rank cycles")
     c=_common(cfg)
     if c["method"]!="MVI":
         raise FinalCaseError("run_mvi_rank_series requires method='MVI'")

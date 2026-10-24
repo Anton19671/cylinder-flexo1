@@ -6355,6 +6355,10 @@ class FinalSolverGUI(EnhancedSolverGUI):
         try:
             cfg=json.loads(Path(p).read_text(encoding="utf-8"))
             if not isinstance(cfg,dict):raise ValueError("CASE должен содержать JSON-объект")
+            from cylinder_reference_case import selected_backend, BACKEND
+            if selected_backend(cfg)==BACKEND:
+                raise ValueError("Проверочный вариационный CASE запускается через RUN_FINAL_CASE.py. "
+                                 "Редактор GUI пока не поддерживает его отдельные поля нагрузки и решателя.")
             if cfg.get("format")=="CYLINDER_GUI_PARAMETERS_V2":
                 raise ValueError(
                     "Выбран файл параметров интерфейса, а не FINAL_CASE.json. "
@@ -7548,3 +7552,4 @@ def main():
 
 if __name__=="__main__":
     main()
+
