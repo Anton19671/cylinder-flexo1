@@ -1487,15 +1487,27 @@ class EnhancedSolverGUI(SolverGUI):
         )
         self.scale_combo.pack(anchor="w")
         self.scale_combo.bind("<<ComboboxSelected>>",lambda _e:self._refresh_visibility())
-        self.micro_flexo_check=ttk.Checkbutton(scale_box,text="Флексоэлектрическая связь: ВКЛ / ВЫКЛ",
-            variable=self._v("micro_flexoelectric","ON"),onvalue="ON",offvalue="OFF",command=self._refresh_visibility)
-        self.micro_flexo_check.pack(anchor="w",pady=4)
+        ttk.Label(scale_box,text="MACRO — классическая упругость; MICRO — градиентная упругость G3D.",
+                  wraplength=465).pack(anchor="w",pady=(4,2))
+        flexo_options=ttk.LabelFrame(scale_box,text="Флексоэлектрический эффект — выбрать состояние",padding=6)
+        flexo_options.pack(fill="x",pady=(5,4))
+        self.micro_flexo_radios=[]
+        for label,value in (
+            ("ВЫКЛ — только градиентная упругость G3D","OFF"),
+            ("ВКЛ — G3D + флексоэлектрическая связь","ON"),
+        ):
+            rb=ttk.Radiobutton(flexo_options,text=label,value=value,
+                 variable=self._v("micro_flexoelectric","OFF"),
+                 command=self._refresh_visibility)
+            rb.pack(anchor="w",pady=2)
+            self.micro_flexo_radios.append(rb)
         self.scale_note=ttk.Label(scale_box,wraplength=470,justify="left",
-             text="MACRO: классическая модель. MICRO: G3D с переключателем флексоэффекта. MICRO пока заблокирован.")
-        self.scale_note.pack(fill="x",pady=(5,0))
+             text="MACRO: G3D ВЫКЛ, флексоэффект ВЫКЛ.")
+        self.scale_note.pack(fill="x",pady=(4,0))
         micro=ttk.LabelFrame(left,text="MICRO · G3D, параметры СИ",padding=8)
         self.micro_parameters_frame=micro
         micro.pack(fill="x",pady=(0,8))
+        self.micro_electric_entries=[]
         for j,(caption,key) in enumerate((
             ("Градиентная длина ell, м","micro_ell_m"),
             ("Флексокоэффициент mu1, Кл/м","micro_mu1"),
@@ -1504,7 +1516,10 @@ class EnhancedSolverGUI(SolverGUI):
             ("Плотность rho, кг/м3","micro_rho"),
             ("Вязкий коэффициент eta, с","micro_eta"),
             ("Порядок потенциала P","micro_potential_order"),
-        )): self._labeled_entry(micro,j,caption,key)
+        )):
+            _label,entry=self._labeled_entry(micro,j,caption,key)
+            if key in ("micro_mu1","micro_mu2","micro_kappa","micro_potential_order"):
+                self.micro_electric_entries.append(entry)
         ttk.Label(micro,text="Без автоматических физических значений. Gz не подменяет G3D. Микроветка не запускается до реализации связанной системы.",
             wraplength=460).grid(row=7,column=0,columnspan=2,sticky="w")
         mat=ttk.LabelFrame(left,text="Материал",padding=8); self.micro_material_frame=mat; mat.pack(fill="x",pady=(0,8))
@@ -6585,7 +6600,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         # are deliberately not invented.
         "theory":"CUF", "cuf_model":"TE1", "method":"MVI",
         "mode":"NONLINEAR_ELASTIC", "geometry_model":"VON_KARMAN",
-        "material_model":"HOOKE", "scale_model":"MACRO", "unit_system":"N_MM_MPA",
+        "material_model":"HOOKE", "scale_model":"MACRO", "micro_flexoelectric":"OFF", "unit_system":"N_MM_MPA",
         "material_source":"USER", "bc_mode":"SIMPLE",
         "load_type":"UNIFORM_RADIAL_FACE", "load_coord":"THETA",
         "load_face":"OUTER", "curve_mode":"TABLE", "curve_extrap":"ERROR",
@@ -7179,16 +7194,32 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self._rebuild_visible_tabs()
         pending=self._v("theory","CUF").get() in capreg.PLANNED_THEORIES
         micro_pending=self._v("scale_model","MACRO").get()=="MICRO"
-        if hasattr(self,"micro_flexo_check"):
-            self.micro_flexo_check.configure(state="normal" if micro_pending else "disabled")
+        if hasattr(self,"micro_flexo_radios"):
+            # In MACRO the electric effect is physically OFF; do not leave a
+            # disabled "ON" radio highlighted while running classical mechanics.
+            switch=self._v("micro_flexoelectric","OFF")
+            if not micro_pending and switch.get()!="OFF":switch.set("OFF")
+            flexo_on=micro_pending and switch.get()=="ON"
+            for rb in self.micro_flexo_radios:
+                rb.configure(state="normal" if micro_pending else "disabled")
             frame=getattr(self,"micro_parameters_frame",None)
             mat=getattr(self,"micro_material_frame",None)
             if frame is not None and mat is not None:
                 if micro_pending and not frame.winfo_manager():frame.pack(fill="x",pady=(0,8),before=mat)
                 elif not micro_pending and frame.winfo_manager():frame.pack_forget()
-            self.scale_note.configure(text=(
-                "MICRO G3D · флексоэффект "+("ВКЛ" if self._v("micro_flexoelectric","ON").get()=="ON" else "ВЫКЛ")+" · решатель пока не реализован"
-                if micro_pending else "MACRO · классическая упругость · G3D и флексоэффект ВЫКЛ"))
+            for entry in getattr(self,"micro_electric_entries",()):
+                entry.configure(state="normal" if flexo_on else "disabled")
+            if not micro_pending:
+                status="MACRO · КЛАССИЧЕСКАЯ УПРУГОСТЬ: G3D ВЫКЛ; ФЛЕКСО ВЫКЛ."
+            elif flexo_on:
+                status=("MICRO · G3D ВКЛ; ФЛЕКСО ВКЛ (mu1, mu2, kappa учитываются). "
+                        "Численный микрорасчёт пока недоступен.")
+            else:
+                status=("MICRO · G3D ВКЛ; ФЛЕКСО ВЫКЛ (mu1=mu2=kappa=0, "
+                        "электрический потенциал не решается). "
+                        "Численный микрорасчёт пока недоступен.")
+            self.scale_note.configure(text=status)
+            if hasattr(self,"model_info"):self._update_grid_info()
         retired=self._v("material_model","HOOKE").get()!="HOOKE"
         if pending or retired or micro_pending:
             for name in ("top_run_btn","series_btn","bc_left_combo","bc_right_combo","bc_edit_btn"):
@@ -7322,10 +7353,16 @@ class FinalSolverGUI(EnhancedSolverGUI):
                     capreg.UNAVAILABLE:"#b42318",
                 }[capability.status]
                 if self._v("scale_model","MACRO").get()=="MICRO":
-                    status_text="MICRO G3D · связанный решатель ещё не реализован"
+                    flexo_on=self._v("micro_flexoelectric","OFF").get()=="ON"
+                    status_text=("G3D: ВКЛ; ФЛЕКСО: "+("ВКЛ" if flexo_on else "ВЫКЛ")+
+                                 "; численный микрорасчёт пока недоступен")
                     status_color="#b42318"
+                    capability_message="Подмена микрорасчёта классической моделью запрещена."
+                else:
+                    status_text="MACRO: G3D ВЫКЛ; ФЛЕКСО ВЫКЛ. "+status_text
+                    capability_message=capability.message_ru
                 self.model_info.configure(
-                    text=f"{theory}{model} · {matname} · {method}{rank}. {status_text}: {capability.message_ru}",
+                    text=f"{theory}{model} · {matname} · {method}{rank}. {status_text}: {capability_message}",
                     foreground=status_color,
                 )
             except Exception:pass
