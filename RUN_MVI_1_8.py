@@ -1,12 +1,10 @@
-#!/usr/bin/env python3
-import json,sys
-from cylinder_final_stage11a_dispatcher import run_mvi_rank_series
-if len(sys.argv)!=2:
-    raise SystemExit("Usage: python RUN_MVI_1_8.py FINAL_CASE.json")
-try:
-    r=run_mvi_rank_series(sys.argv[1],range(1,9))
-except Exception as exc:
-    print(f"ERROR: {type(exc).__name__}: {exc}")
-    raise SystemExit(3)
-print(json.dumps(r,indent=2,ensure_ascii=False))
-raise SystemExit(0 if r.get("all_converged",False) else 2)
+# -*- coding: utf-8 -*-
+"""Legacy import/CLI shim. Implementation lives in a topic directory."""
+from pathlib import Path as _CylinderPath
+_cylinder_root = _CylinderPath(__file__).resolve().parent
+_cylinder_name = _CylinderPath(__file__).name
+_cylinder_matches = [p for p in _cylinder_root.iterdir() if p.is_dir() and (p / _cylinder_name).is_file()]
+if len(_cylinder_matches) != 1:
+    raise ImportError("Expected exactly one relocated cylinder module: " + _cylinder_name)
+_cylinder_source = _cylinder_matches[0] / _cylinder_name
+exec(compile(_cylinder_source.read_bytes(), str(_cylinder_source), "exec"), globals())

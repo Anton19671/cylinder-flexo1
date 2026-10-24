@@ -1,0 +1,120 @@
+{
+  "theory": "CUF",
+  "cuf_model": "TE1",
+  "method": "FDM",
+  "mode": "LINEAR_ELASTIC",
+  "geometry_model": "LINEAR",
+  "material_model": "HOOKE",
+  "rank": null,
+  "units": {
+    "system": "N_MM_MPA"
+  },
+  "geometry": {
+    "L": null,
+    "R": null,
+    "h": null
+  },
+  "material": {
+    "E0": null,
+    "nu0": null,
+    "source": "USER",
+    "name": null
+  },
+  "fdm_grid": {
+    "nx": null,
+    "ns": null,
+    "stencil": null
+  },
+  "mvi_grid": {
+    "nx": null,
+    "ns": null,
+    "stencil": null
+  },
+  "grid": {
+    "nx": null,
+    "ns": null,
+    "stencil": null
+  },
+  "quadrature": {
+    "type": "GAUSS",
+    "n_gauss": null,
+    "layer_bounds": null,
+    "n_gauss_per_layer": null
+  },
+  "boundary_conditions": {
+    "registry_version": "BC_REGISTRY_V2",
+    "left": null,
+    "right": null,
+    "advanced": null
+  },
+  "load_definition": {
+    "type": "PATCH_RADIAL_FACE",
+    "q": null,
+    "face": "OUTER",
+    "x1": null,
+    "x2": null,
+    "circumferential_coordinate": "THETA",
+    "c1": null,
+    "c2": null,
+    "full_circumference": false,
+    "load_factors": [],
+    "step_definition": {
+      "mode": "RANGE",
+      "lambda_start": null,
+      "lambda_step": null,
+      "lambda_end": null
+    },
+    "kinematics": "DEAD_REFERENCE"
+  },
+  "loads_npz": null,
+  "initial_profiles_npz": null,
+  "initial_state": {
+    "source": null,
+    "npz": null
+  },
+  "initial_GB": {
+    "source": null,
+    "npz": null
+  },
+  "inner_mvi": {
+    "projected_tolerance": null,
+    "increment_tolerance": null,
+    "tangent_fd_step": null,
+    "max_halfstep_iterations": null,
+    "max_xy_cycles": null
+  },
+  "linear": {
+    "residual_tolerance_relative": 1e-10
+  },
+  "newton": {
+    "residual_tolerance_relative": 1e-09,
+    "increment_tolerance": null,
+    "fd_step": null,
+    "max_iterations": null
+  },
+  "birger": {
+    "epsilon_tol": null,
+    "omega": null,
+    "G_ref": null,
+    "sigma_ref": null,
+    "tol_G": null,
+    "tol_sigma": null,
+    "tol_u": null,
+    "max_outer_iterations": null,
+    "epsilon_i_limit": null,
+    "delta_J_limit": null,
+    "limit_policy": "REJECT",
+    "curve": {
+      "mode": "FORMULA",
+      "formula": "",
+      "parameters": {}
+    },
+    "initial_slope_rtol": 0.05
+  },
+  "postprocess": {
+    "deformation_scale": 1.0,
+    "gb_ratio_thresholds": [],
+    "control_points": []
+  },
+  "output_dir": null
+}

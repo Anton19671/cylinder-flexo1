@@ -1,26 +1,10 @@
-"""
-Final-only postprocessor.
-Does not save every load step.
-Reads one final solution file and creates basic 2D/3D views.
-"""
-
-import numpy as np
-
-
-def load_solution(path):
-    data = np.load(path, allow_pickle=True)
-    return {k: data[k] for k in data.files}
-
-
-def summary(data):
-    print('FIELDS:', list(data.keys()))
-    for k, v in data.items():
-        try:
-            print(k, v.shape)
-        except Exception:
-            pass
-
-
-if __name__ == '__main__':
-    print('FINAL_POSTPROCESS_2D_3D')
-    print('Usage: load final NPZ and generate plots from final state only.')
+# -*- coding: utf-8 -*-
+"""Legacy import/CLI shim. Implementation lives in a topic directory."""
+from pathlib import Path as _CylinderPath
+_cylinder_root = _CylinderPath(__file__).resolve().parent
+_cylinder_name = _CylinderPath(__file__).name
+_cylinder_matches = [p for p in _cylinder_root.iterdir() if p.is_dir() and (p / _cylinder_name).is_file()]
+if len(_cylinder_matches) != 1:
+    raise ImportError("Expected exactly one relocated cylinder module: " + _cylinder_name)
+_cylinder_source = _cylinder_matches[0] / _cylinder_name
+exec(compile(_cylinder_source.read_bytes(), str(_cylinder_source), "exec"), globals())
