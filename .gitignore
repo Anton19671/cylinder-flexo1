@@ -1,0 +1,12 @@
+# Local GUI/runtime journals (generated every time the program starts)
+/GUI_RUNTIME_LOG.txt
+/STARTUP_LOG.txt
+
+# Python-generated files
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local regression outputs and temporary run files
+/SELF_CHECK_WORK/
+/TEST_WORK/
