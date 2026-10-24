@@ -37,7 +37,7 @@ import final_te_basis_provider as tebasis
 import final_run_bundle as runbundle
 import final_boundary_registry as bcreg
 
-APP_DIR=Path(__file__).resolve().parent
+APP_DIR=Path(__file__).resolve().parent.parent
 
 
 def _default_results_root():
@@ -1859,7 +1859,7 @@ class EnhancedSolverGUI(SolverGUI):
     def _load_material_library(self):
         if hasattr(self,"_material_library_cache"):
             return self._material_library_cache
-        path=APP_DIR/"MATERIAL_LIBRARY.json"
+        path=APP_DIR/"config"/"MATERIAL_LIBRARY.json"
         data={"materials":[]}
         try:
             data=json.loads(path.read_text(encoding="utf-8"))
@@ -7025,7 +7025,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
             nu=_float(self._v("nu0").get(),"ν0")
             if not (-1.0<nu<0.5):raise ValueError("Для изотропного материала требуется -1 < ν0 < 0.5")
             Epa=E*1.0e6 if self._v("unit_system","N_MM_MPA").get()=="N_MM_MPA" else E
-            path=APP_DIR/"MATERIAL_LIBRARY.json"
+            path=APP_DIR/"config"/"MATERIAL_LIBRARY.json"
             data=json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"version":1,"materials":[]}
             items=list(data.get("materials") or [])
             matches=[i for i,m in enumerate(items) if str(m.get("name","")).casefold()==name.casefold()]

@@ -2178,7 +2178,7 @@ def _make_mvi_child_case(cfg,case_path,c):
         child["cuf_basis"]={
             "module":"final_te_basis_provider",
             "callable":provider,
-            "python_path":str(Path(__file__).resolve().parent),
+            "python_path":str(Path(__file__).resolve().parent.parent),
         }
         child["cuf_model"]=c["cuf_model"]
     if c["mode"] in ("LINEAR_BIRGER","NONLINEAR_BIRGER"):

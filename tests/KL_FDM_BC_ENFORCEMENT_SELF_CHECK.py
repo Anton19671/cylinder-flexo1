@@ -20,7 +20,7 @@ import cylinder_kl_stage8a_elastic_mechanics as kl
 import cylinder_kl_stage8b1_boundary as kb
 from cylinder_final_stage11a_dispatcher import run_final_case, validate_final_case
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 WORK = ROOT / "KL_FDM_BC_ENFORCEMENT_WORK"
 
 

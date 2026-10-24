@@ -23,7 +23,7 @@ from cylinder_final_stage11a_dispatcher import (
     run_final_case, run_mvi_rank_series, validate_final_case,
 )
 
-ROOT=Path(__file__).resolve().parent
+ROOT=Path(__file__).resolve().parent.parent
 WORK=ROOT/'RELEASE_REGRESSION_WORK'
 RESULTS=ROOT/'FINAL_RELEASE_REGRESSION_RESULTS.json'
 

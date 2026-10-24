@@ -12,7 +12,7 @@ import cylinder_kl_stage9e_strong_fdm_gl_elastic as gle
 import cylinder_kl_stage9f_strong_fdm_gl_birger as glb
 import cylinder_final_stage11a_dispatcher as dispatch
 
-ROOT=Path(__file__).resolve().parent
+ROOT=Path(__file__).resolve().parent.parent
 WORK=ROOT/'KL_GL_BIRGER_FDM_SELF_CHECK_WORK'
 
 def _rel_flat(a,b):

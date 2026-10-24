@@ -9,7 +9,7 @@ import final_excel_export as xe
 import FINAL_POSTPROCESS as pp
 from cylinder_final_stage11a_dispatcher import validate_final_case, run_final_case
 
-ROOT=Path(__file__).resolve().parent
+ROOT=Path(__file__).resolve().parent.parent
 WORK=ROOT/'OUTPUT_BUNDLE_EXCEL_SELF_CHECK_WORK'
 
 def case_cfg(root):

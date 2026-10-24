@@ -64,7 +64,7 @@ from cylinder_final_stage11a_dispatcher import (
 )
 
 
-BASE = Path(__file__).resolve().parent
+BASE = Path(__file__).resolve().parent.parent
 WORK = BASE / "SELF_CHECK_WORK"
 
 # Reference values fixed from the verified Stage-12 + K1 + K8 build.
@@ -235,7 +235,7 @@ def _test_reviewer_v8_kl_face_rejection():
 
     # GUI contract: KL omits face from saved/generated load definition and the
     # face widgets are actually removed from the grid, not merely left active.
-    gui=(BASE/"FINAL_GUI.py").read_text(encoding="utf-8")
+    gui=(BASE/"interface"/"FINAL_GUI.py").read_text(encoding="utf-8")
     required=(
         'if self.vars["theory"].get()=="CUF":spec["face"]=self.vars["load_face"].get()',
         'self.vars["load_face"].set("")',
