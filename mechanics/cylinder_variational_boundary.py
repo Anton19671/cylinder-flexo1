@@ -40,9 +40,14 @@ def _number(value,label):
 
 def _vector(value,n,label):
     if value is None:return np.zeros(n)
+    if not isinstance(value,(list,tuple,np.ndarray)):
+        raise ValueError(f"{label}: expected exactly {n} finite entries")
+    raw=np.asarray(value,dtype=object)
+    if raw.shape!=(n,) or any(isinstance(x,(bool,np.bool_)) for x in raw.ravel()):
+        raise ValueError(f"{label}: expected exactly {n} finite numeric entries")
     a=np.asarray(value,float)
     if a.shape!=(n,) or not np.isfinite(a).all():
-        raise ValueError(f"{label}: expected {n} finite entries")
+        raise ValueError(f"{label}: expected exactly {n} finite entries")
     return a.copy()
 
 
@@ -116,6 +121,7 @@ class BoundaryResult:
     gauge_required: bool
     free_electric_charge_c: float
     status: str="REFERENCE_BC_ONLY_GLOBAL_SOLVER_NOT_VERIFIED"
+    absolute_free_electric_charge_c: float=0.
 
     def constraint_max_defect(self,mechanical,electrical):
         return max((abs(row.defect(mechanical,electrical))
@@ -157,6 +163,8 @@ def validate_boundary_passport(spec,*,electrical_enabled,calculation_kind="STATI
         raise ValueError("electrical_enabled must be boolean")
     mechanical=_object(spec,"mechanical")
     electrical=_object(spec,"electrical")
+    n=(3 if theory=="KL" else 5 if theory in ("FSDT","REDDY")
+       else 3*(int(theory[-1])+1))
     for side in ENDS:
         site=_object(mechanical,side)
         support=str(site.get("support","FREE")).upper().strip()
@@ -167,6 +175,17 @@ def validate_boundary_passport(spec,*,electrical_enabled,calculation_kind="STATI
             raise ValueError("second normal derivative trace unavailable in CUF_TE")
         if support=="CUSTOM" and "fixed_components" not in site:
             raise ValueError("CUSTOM needs explicit fixed_components")
+        _fixed_components(support,theory,n,site)
+        if support!="CUSTOM" and "fixed_components" in site:
+            raise ValueError(side+": fixed_components requires CUSTOM")
+        for key in ("prescribed","traction","double_traction","triple_traction",
+                    "spring","spring_reference"):
+            if key in site:
+                values=_vector(site[key],n,side+"."+key)
+                if key=="spring" and np.any(values<0):
+                    raise ValueError(side+": spring must be nonnegative")
+                if key=="triple_traction" and theory.startswith("CUF_") and np.any(values):
+                    raise ValueError("triple_traction requires third surface jets")
         if "time_law" in site:
             parsed=normalize_time_law(site["time_law"])
             if kind=="STATIC" and parsed.kind!="CONSTANT":
@@ -174,6 +193,8 @@ def validate_boundary_passport(spec,*,electrical_enabled,calculation_kind="STATI
     for side in ELECTRIC_SITES:
         site=_object(electrical,side)
         mode=_electric_mode(site)
+        if mode=="INSULATED" and ("value" in site or "time_law" in site):
+            raise ValueError(side+": INSULATED must not specify charge/voltage/time law")
         if not electrical_enabled and mode!="INSULATED":
             raise ValueError("electric BC requires electric model ON")
         if mode!="INSULATED":_number(site.get("value"),f"{side} voltage/charge")
@@ -208,7 +229,8 @@ def _row_weights(order,k,nx,ns,side,j,ops):
 
 
 def compile_boundary_program(functional,mechanical,electrical=None,*,spec=None,
-                             calculation_kind="STATIC",time_s=None):
+                             calculation_kind="STATIC",time_s=None,
+                             check_charge_balance=True):
     """Return exact additive first variations of conservative prescribed work.
 
     Constraints MUST be imposed by a later spatial MVI/FDM solver; here their
@@ -238,7 +260,7 @@ def compile_boundary_program(functional,mechanical,electrical=None,*,spec=None,
     mech=_object(data,"mechanical");electric=_object(data,"electrical")
     result_m=np.zeros_like(q)
     result_e=None if phi is None else np.zeros_like(phi)
-    rows=[];energy=0.;total_charge=0.;has_electrode=False
+    rows=[];energy=0.;total_charge=0.;absolute_charge=0.;has_electrode=False
     dx=ops.Dx;dxx=dx@dx
 
     def add(field,ids,weights,value,label):
@@ -250,7 +272,8 @@ def compile_boundary_program(functional,mechanical,electrical=None,*,spec=None,
         higher=str(site.get("higher","NATURAL")).upper().strip()
         loc=0 if side=="left" else nx-1
         selected=_fixed_components(support,functional.theory,n,site)
-        prescribed=_vector(site.get("prescribed"),n,side+" prescribed")
+        factor=_time_factor(site,kind,time_s)
+        prescribed=factor*_vector(site.get("prescribed"),n,side+" prescribed")
         for j in range(ns):
             for k in selected:
                 ids,w=_row_weights(0,k,nx,ns,side,j,ops)
@@ -267,7 +290,6 @@ def compile_boundary_program(functional,mechanical,electrical=None,*,spec=None,
                         ids,w=_row_weights(2,k,nx,ns,side,j,ops)
                         add("mechanical",ids,w,0.,f"{side} micro d_xx q{k} s{j}")
 
-        factor=_time_factor(site,kind,time_s)
         traction=factor*_vector(site.get("traction"),n,side+" traction")
         double=factor*_vector(site.get("double_traction"),n,side+" double")
         triple=factor*_vector(site.get("triple_traction"),n,side+" triple")
@@ -331,6 +353,7 @@ def compile_boundary_program(functional,mechanical,electrical=None,*,spec=None,
                     energy-=float(charge@phi[:,loc,j])
                     result_e[:,loc,j]-=charge
                     total_charge+=float(charge[0])
+                    absolute_charge+=abs(float(charge[0]))
             else:
                 z=h/2 if side=="outer" else -h/2
                 H=1+z/R
@@ -341,8 +364,9 @@ def compile_boundary_program(functional,mechanical,electrical=None,*,spec=None,
                         energy-=float(charge@phi[:,i,j])
                         result_e[:,i,j]-=charge
                         total_charge+=float(charge[0])
-        if not has_electrode and abs(total_charge)>1e-9*max(
-            1.,float(np.sum(abs(result_e)))):
+                        absolute_charge+=abs(float(charge[0]))
+        if check_charge_balance and not has_electrode and abs(total_charge)>1e-10*max(
+            1.e-30,absolute_charge):
             raise ValueError("isolated electric system requires zero total free charge")
 
     # Duplicate trace rows can result from KL clamp plus gradient clamp.
@@ -355,16 +379,27 @@ def compile_boundary_program(functional,mechanical,electrical=None,*,spec=None,
             raise ValueError("conflicting prescriptions for the same boundary trace")
         unique.setdefault(key,row)
     return BoundaryResult(float(energy),result_m,result_e,tuple(unique.values()),
-                          phi is not None and not has_electrode,float(total_charge))
+                          phi is not None and not has_electrode,float(total_charge),
+                          absolute_free_electric_charge_c=float(absolute_charge))
 
 
 def combine_functional_and_boundary(functional,mechanical,electrical=None,*,bc_spec=None,
-                                    dead_load=None,calculation_kind="STATIC",time_s=None):
+                                    dead_load=None,free_charge=None,
+                                    calculation_kind="STATIC",time_s=None):
     """Stationary bulk enthalpy plus conservative end/face work (no PDE solve)."""
     bulk=functional.evaluate(mechanical,electrical,dead_load=dead_load,
-                             energy_breakdown=False)
+                             free_charge=free_charge,energy_breakdown=False,
+                             check_charge_balance=False)
     edge=compile_boundary_program(functional,mechanical,electrical,spec=bc_spec,
-                                  calculation_kind=calculation_kind,time_s=time_s)
+                                  calculation_kind=calculation_kind,time_s=time_s,
+                                  check_charge_balance=False)
+    if edge.gauge_required:
+        volume=(np.zeros(functional.ops.shape) if free_charge is None else
+                functional.W*np.asarray(free_charge,float)[0])
+        net=float(np.sum(volume))+edge.free_electric_charge_c
+        scale=float(np.sum(abs(volume)))+edge.absolute_free_electric_charge_c
+        if abs(net)>1.e-10*max(1.e-30,scale):
+            raise ValueError("isolated electric system requires zero total free charge (bulk + boundary)")
     rm=bulk.mechanical_residual+edge.mechanical_residual_correction
     re=(None if bulk.electrical_residual is None else
         bulk.electrical_residual+edge.electrical_residual_correction)
@@ -374,3 +409,4 @@ def combine_functional_and_boundary(functional,mechanical,electrical=None,*,bc_s
 __all__=("MECHANICAL_SUPPORTS","HIGHER_TRACES","ELECTRIC_MODES","ConstraintRow",
          "BoundaryResult","boundary_passport","validate_boundary_passport",
          "compile_boundary_program","combine_functional_and_boundary")
+

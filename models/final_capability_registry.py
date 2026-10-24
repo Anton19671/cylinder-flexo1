@@ -51,6 +51,10 @@ class Capability:
     message_ru: str
     full_classical_green_lagrange: bool
 
+    @property
+    def can_run(self) -> bool:
+        return self.status in (SUPPORTED, LIMITED)
+
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
 
@@ -241,3 +245,4 @@ __all__ = (
     "LOAD_TYPES", "LOAD_SURFACES", "Capability", "physics_capability",
     "load_capability", "case_capability", "capability_table",
 )
+

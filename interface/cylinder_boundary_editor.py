@@ -11,6 +11,32 @@ from cylinder_variational_boundary import (
 )
 
 
+def merge_boundary_controls(spec, mechanical, electrical, previous=None):
+    """Apply changed controls while retaining independent edits in full JSON."""
+    if not isinstance(spec,dict):
+        raise ValueError("variational BC must be an object")
+    data=copy.deepcopy(spec)
+    old_m,old_e=previous if previous is not None else ({},{})
+    for side,selection in mechanical.items():
+        for key,value in selection.items():
+            if previous is None or value!=old_m.get(side,{}).get(key):
+                data.setdefault("mechanical",{}).setdefault(side,{})[key]=value
+    for side,selection in electrical.items():
+        mode_changed=previous is None or selection["mode"]!=old_e.get(side,{}).get("mode")
+        value_changed=previous is None or selection["value"]!=old_e.get(side,{}).get("value")
+        if not mode_changed and not value_changed:continue
+        item=data.setdefault("electrical",{}).setdefault(side,{})
+        if mode_changed:item["mode"]=selection["mode"]
+        if item.get("mode","INSULATED")=="INSULATED":
+            item.pop("value",None)
+            item.pop("time_law",None)
+        elif selection["value"].strip():
+            item["value"]=float(selection["value"])
+        elif value_changed or "value" not in item:
+            raise ValueError(side+": введите значение")
+    return data
+
+
 def open_boundary_editor(gui):
     spec=copy.deepcopy(getattr(gui,"variational_bc",None) or boundary_passport())
     win=tk.Toplevel(gui)
@@ -65,29 +91,28 @@ def open_boundary_editor(gui):
     editor.insert("1.0",json.dumps(spec,ensure_ascii=False,indent=2))
     ttk.Label(full,text="В этом поле можно добавить time_law, traction, double_traction, spring и CUSTOM.").grid(row=1,column=0,sticky="w",pady=6)
 
+    def selections():
+        return ({side:{"support":support.get(),"higher":higher.get()}
+                 for side,(support,higher) in m.items()},
+                {side:{"mode":mode.get(),"value":value.get()}
+                 for side,(mode,value) in e.items()})
+
+    previous=selections()
+
     def sync():
+        nonlocal previous
         try:
-            data=json.loads(editor.get("1.0","end"))
-            for side,(support,higher) in m.items():
-                item=data.setdefault("mechanical",{}).setdefault(side,{})
-                item.update(support=support.get(),higher=higher.get())
-            for side,(mode,value) in e.items():
-                item=data.setdefault("electrical",{}).setdefault(side,{})
-                item["mode"]=mode.get()
-                if mode.get()=="INSULATED":
-                    item.pop("value",None)
-                    item.pop("time_law",None)
-                else:
-                    if value.get().strip():item["value"]=float(value.get())
-                    elif "value" not in item:raise ValueError(side+": введите значение")
+            data=merge_boundary_controls(json.loads(editor.get("1.0","end")),*selections())
             editor.delete("1.0","end")
             editor.insert("1.0",json.dumps(data,ensure_ascii=False,indent=2))
+            previous=selections()
         except Exception as exc:
             messagebox.showerror("ГУ",str(exc),parent=win)
 
     def apply():
         try:
-            data=json.loads(editor.get("1.0","end"))
+            data=merge_boundary_controls(json.loads(editor.get("1.0","end")),
+                                         *selections(),previous=previous)
             theory=gui._v("theory","CUF").get().upper()
             if theory=="CUF":theory="CUF_"+gui._v("cuf_model","TE1").get().upper()
             enabled=gui._v("scale_model","MACRO").get()=="MICRO" and gui._v("micro_flexoelectric","OFF").get()=="ON"
@@ -102,7 +127,8 @@ def open_boundary_editor(gui):
     buttons=ttk.Frame(win,padding=8)
     buttons.grid(row=1,column=0,sticky="ew")
     ttk.Button(buttons,text="Перенести выбор в JSON",command=sync).pack(side="left",padx=4)
-    ttk.Button(buttons,text="Применить JSON",command=apply).pack(side="left",padx=4)
+    ttk.Button(buttons,text="Применить",command=apply).pack(side="left",padx=4)
     ttk.Button(buttons,text="Убрать дополнительный паспорт",
                command=lambda:(setattr(gui,"variational_bc",None),win.destroy())).pack(side="left",padx=4)
     ttk.Button(buttons,text="Отмена",command=win.destroy).pack(side="right")
+

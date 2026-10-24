@@ -11,9 +11,10 @@ kinematics but ONE G3D material enthalpy. For electric ON, a global gauge
 constraint is available. Electric OFF drops all electric unknowns altogether.
 
 This is a reproducible reference variational assembler, NOT a verified
-engineering production solver. Higher-order end traces, actual MVI alternating
-profile solves, spatial boundary enforcement and time-dependent KL inertia
-are NOT implemented here. No existing static solver route is changed.
+engineering production solver. Reference trace enforcement and projected
+FDM/MVI assembly are provided separately by cylinder_boundary_spatial.
+Actual MVI alternating profile solves and time-dependent KL inertia are NOT
+implemented here. No existing static solver route is changed.
 
 Reference coordinates x,s=R*theta; area dA=dx ds. Units are SI throughout.
 See Krysko--Zhong corrected manuscript, sections 8, 18--24, 31--39, 48.
@@ -268,7 +269,7 @@ class CylinderFunctional:
                 for _,ax,bs in spec]
 
     def evaluate(self,mechanical,electrical=None,*,dead_load=None,
-                 free_charge=None,energy_breakdown=True):
+                 free_charge=None,energy_breakdown=True,check_charge_balance=True):
         """Discrete Π and EXACT (for fixed quadrature) coefficient gradients.
 
         Mechanical nodal fields have shape (n_mechanical,nx,ns). Electrical
@@ -279,6 +280,8 @@ class CylinderFunctional:
         conjugate to the respective nodal fields, not pressures in Pa. Real
         face-pressure pullbacks require a separately verified follower-load
         virtual work and are not interchangeable with these dead loads.
+        check_charge_balance=False is reserved for a combined bulk/boundary
+        assembler that checks TOTAL charge, including electrode supply.
         """
         nx,ns=self.ops.shape
         mech=_check_fields(mechanical,(self.n_mechanical,nx,ns),"mechanical")
@@ -296,11 +299,11 @@ class CylinderFunctional:
            _check_fields(dead_load,mech.shape,"dead_load"))
         charge=(np.zeros_like(phi) if free_charge is None else
                 _check_fields(free_charge,phi.shape,"free_charge"))
-        if self.electrical_on:
+        if self.electrical_on and check_charge_balance:
             # In fully insulated mode a nonzero integral of the constant-mode
             # free charge cannot be balanced by div D; gauge must NOT hide it.
             net=float(np.sum(self.W*charge[0]))
-            if abs(net)>1.e-9*max(1.,float(np.sum(np.abs(self.W*charge[0])))):
+            if abs(net)>1.e-10*max(1.e-30,float(np.sum(np.abs(self.W*charge[0])))):
                 raise ValueError("incompatible insulated free charge: nonzero net charge")
         spec=MECHANICAL_DERIVATIVES[:self.n_derivatives]
         mder=self._field_derivatives(mech,spec)
@@ -397,3 +400,4 @@ class CylinderFunctional:
 __all__=("CylinderFunctional","SurfaceOperators","FunctionalResult",
          "surface_trapezoid","periodic_face_gradient","axial_fd_gradient",
          "MECHANICAL_DERIVATIVES","ELECTRICAL_DERIVATIVES")
+
