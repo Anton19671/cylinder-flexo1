@@ -6808,6 +6808,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self.tab_j2=ttk.Frame(self.notebook,padding=10)
         self.tab_online=ttk.Frame(self.notebook,padding=8)
         self.tab_results=ttk.Frame(self.notebook,padding=10)
+        self.tab_dynamics=ttk.Frame(self.notebook,padding=10)
         self.tab_files=ttk.Frame(self.notebook,padding=10)
         self.tab_run=ttk.Frame(self.notebook,padding=10)
 
@@ -6818,6 +6819,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self._build_j2_tab()
         self._build_online_tab()
         self._build_results_tab()
+        self._build_dynamics_tab()
         self._build_files_tab()
         self._build_run_tab()
         self._prepare_basic_problem_grid()
@@ -7076,18 +7078,86 @@ class FinalSolverGUI(EnhancedSolverGUI):
             self.user_material_save_btn.configure(state="normal" if user else "disabled")
         except Exception:pass
 
+    def _build_dynamics_tab(self):
+        """Real temporal CSV postprocessing; no invented dynamic simulation."""
+        p=self.tab_dynamics
+        ttk.Label(p,text="Анализ нелинейной динамики",font=("Segoe UI Semibold",13)).pack(anchor="w")
+        ttk.Label(p,text="Только временные ряды CSV (time_s,w[,velocity]). Статические шаги нагрузки не подходят.",
+                  wraplength=940).pack(anchor="w",fill="x",pady=7)
+        f=ttk.LabelFrame(p,text="Параметры анализа",padding=8);f.pack(fill="x")
+        f.columnconfigure(1,weight=1)
+        settings=(
+            ("CSV временного ряда","dyn_csv","file"),("Время: колонка","dyn_time",""),
+            ("Сигнал: колонка","dyn_signal",""),("Скорость: колонка (необяз.)","dyn_velocity",""),
+            ("Отбросить переходный процесс, с","dyn_discard",""),
+            ("Частота возбуждения, Гц (для Пуанкаре)","dyn_frequency",""),
+            ("Фаза возбуждения, рад","dyn_phase",""),
+            ("CSV бифуркационной серии (необяз.)","dyn_bif_csv","file"),
+            ("Папка результатов анализа","dyn_output","dir"))
+        defaults={"dyn_time":"time_s","dyn_signal":"w","dyn_discard":"0","dyn_phase":"0"}
+        for row,(name,key,kind) in enumerate(settings):
+            ttk.Label(f,text=name).grid(row=row,column=0,sticky="w",padx=5,pady=3)
+            var=self._v(key,defaults.get(key,""))
+            ttk.Entry(f,textvariable=var,width=65).grid(row=row,column=1,sticky="ew",padx=5,pady=3)
+            if kind:
+                def pick(v=var,k=kind):
+                    name=(filedialog.askdirectory(title="Папка графиков") if k=="dir"
+                          else filedialog.askopenfilename(title="CSV временного ряда",filetypes=[("CSV","*.csv")]))
+                    if name:v.set(name)
+                ttk.Button(f,text="Обзор...",command=pick).grid(row=row,column=2,padx=4)
+        actions=ttk.Frame(p);actions.pack(fill="x",pady=8)
+        ttk.Button(actions,text="Построить графики",command=self._analyze_time_series).pack(side="left")
+        ttk.Button(actions,text="Открыть результаты",command=self._open_dynamics_results).pack(side="left",padx=7)
+        self.dyn_status=ttk.Label(p,text="Готов к анализу CSV. Показатели Ляпунова пока не вычисляются.",
+                                  wraplength=950)
+        self.dyn_status.pack(fill="x",anchor="w")
+        self.dyn_text=tk.Text(p,height=9,wrap="word");self.dyn_text.pack(fill="both",expand=True,pady=5)
+
+    def _open_dynamics_results(self):
+        value=self._v("dyn_output").get().strip()
+        if not value or not Path(value).is_dir():
+            messagebox.showerror("Результаты","Папка результатов ещё не создана.");return
+        try:
+            if os.name=="nt":os.startfile(str(Path(value)))
+            elif sys.platform=="darwin":subprocess.Popen(["open",value])
+            else:subprocess.Popen(["xdg-open",value])
+        except Exception as exc:messagebox.showerror("Открытие папки",str(exc))
+
+    def _analyze_time_series(self):
+        try:
+            from nonlinear_dynamics import save_analysis
+            csvpath=self._v("dyn_csv").get().strip()
+            out=self._v("dyn_output").get().strip()
+            if not csvpath:raise ValueError("Укажите CSV с временными рядами")
+            if not out:raise ValueError("Укажите папку результатов")
+            f=self._v("dyn_frequency").get().strip()
+            result=save_analysis(csvpath,out,
+                time_column=self._v("dyn_time","time_s").get().strip(),
+                signal_column=self._v("dyn_signal","w").get().strip(),
+                velocity_column=self._v("dyn_velocity").get().strip(),
+                discard_s=float(self._v("dyn_discard","0").get()),
+                excitation_hz=float(f) if f else None,
+                phase_rad=float(self._v("dyn_phase","0").get()),
+                bifurcation_csv=self._v("dyn_bif_csv").get().strip() or None)
+            self.dyn_text.delete("1.0","end")
+            self.dyn_text.insert("end",json.dumps(result,ensure_ascii=False,indent=2))
+            self.dyn_status.configure(text=f"Готово: {len(result['images'])} графиков. PNG/CSV сохранены в {out}.")
+        except Exception as exc:
+            self.dyn_status.configure(text="Ошибка: "+str(exc))
+            messagebox.showerror("Нелинейная динамика",str(exc))
+
     def _rebuild_visible_tabs(self):
         if not hasattr(self,"notebook"):return
         try:selected=str(self.notebook.select())
         except Exception:selected=""
-        for tab in (self.tab_problem,self.tab_load,self.tab_numeric,self.tab_birger,self.tab_j2,self.tab_online,self.tab_results,self.tab_files,self.tab_run):
+        for tab in (self.tab_problem,self.tab_load,self.tab_numeric,self.tab_birger,self.tab_j2,self.tab_online,self.tab_results,self.tab_dynamics,self.tab_files,self.tab_run):
             try:self.notebook.forget(tab)
             except Exception:pass
         expert=self._v("ui_level","BASIC").get()=="EXPERT"
         # Historical Birger/J2 widgets are not available in the flexo interface.
         tabs=[(self.tab_problem,"1 · Постановка"),(self.tab_load,"2 · Нагрузка")]
         if expert:tabs.append((self.tab_numeric,"Численные настройки"))
-        tabs.extend(((self.tab_online,"Онлайн-расчёт"),(self.tab_results,"Результаты")))
+        tabs.extend(((self.tab_online,"Онлайн-расчёт"),(self.tab_results,"Результаты"),(self.tab_dynamics,"Нелинейная динамика")))
         if expert:tabs.extend(((self.tab_files,"Файлы и начальные поля"),(self.tab_run,"Журнал")))
         for tab,title in tabs:self.notebook.add(tab,text=title)
         visible={str(tab) for tab,_ in tabs}
