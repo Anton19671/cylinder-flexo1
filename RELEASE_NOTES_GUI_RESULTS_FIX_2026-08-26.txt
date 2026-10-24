@@ -1,0 +1,47 @@
+CYL_SOLVER — GUI / RESULTS FIX, 2026-08-26
+==========================================
+
+Scope
+-----
+Only GUI and postprocessing/output layers were changed.
+Solver mechanics, constitutive kernels and MVI algorithms were NOT modified.
+
+Fixed / added
+-------------
+1. Online load-deflection:
+   - plots both |w(center)| and |w|max versus the physical load axis;
+   - uses the saved/current run load definition and unit system rather than stale edited GUI values;
+   - either curve can be clicked to select the corresponding accepted step.
+
+2. Result browsing:
+   - STEP_xxxx_DERIVED.npz is now saved for every accepted load step;
+   - earlier accepted steps can therefore be viewed directly, not only the final step;
+   - heavy PNG suites remain final-step-only to avoid excessive output/time.
+
+3. FAST -> FULL:
+   - FULL requested while FAST is running is queued automatically;
+   - after successful FAST, queued FULL starts automatically.
+
+4. Birger/result inspection:
+   - direct 2D field viewer remains available;
+   - through-thickness profile, x-z and s-z cuts remain available;
+   - added interactive 3D volumetric field viewer for saved z-s-x fields (GB/G0, epsilon_i,
+     sigma_i, Birger/plastic masks, detF, E/S and KL fields where available).
+
+5. Scrolling:
+   - mouse wheel is routed to the scrollable Problem/Load pane even when the cursor is over
+     Entry, Combobox, Label or another child control;
+   - Windows MouseWheel and Linux Button-4/Button-5 are supported.
+
+Preserved
+---------
+- parameter save/open workflow;
+- Pause / Resume / Stop process controls;
+- visually closed cylinder (circumferential first row duplicated only for plotting);
+- existing solver/MVI files and mechanics.
+
+Checks performed
+----------------
+- Python compile/import check for the full source tree;
+- 3-step KL/FDM linear run: FAST then FULL; derived files verified for all 3 accepted steps;
+- OUTPUT_BUNDLE_EXCEL_SELF_CHECK: PASS, including FULL_RESULTS.xlsx and named result exports.

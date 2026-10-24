@@ -1,0 +1,48 @@
+{
+  "cases": {
+    "CUF_ELASTIC": {
+      "iterations": 3,
+      "residual_relative_mm": 2.3318779167599668e-12,
+      "residual_relative_si": 2.449404788001035e-12,
+      "residual_scale_mm": 1.01,
+      "residual_scale_si": 1010000.0,
+      "w_mm": 0.03507918064909902,
+      "w_rel_difference": 4.153938868745893e-15,
+      "w_si_as_mm": 0.035079180649099165
+    },
+    "CUF_FROZEN_GB": {
+      "iterations": 3,
+      "residual_relative_mm": 2.3318779167599668e-12,
+      "residual_relative_si": 2.449404788001035e-12,
+      "residual_scale_mm": 1.01,
+      "residual_scale_si": 1010000.0,
+      "w_mm": 0.03507918064909902,
+      "w_rel_difference": 4.153938868745893e-15,
+      "w_si_as_mm": 0.035079180649099165
+    },
+    "KL_ELASTIC": {
+      "iterations": 3,
+      "residual_relative_mm": 9.644833613107157e-16,
+      "residual_relative_si": 8.222079735798087e-16,
+      "residual_scale_mm": 1.0,
+      "residual_scale_si": 1000000.0,
+      "w_mm": 0.03364565565233864,
+      "w_rel_difference": 2.0623446829531227e-16,
+      "w_si_as_mm": 0.033645655652338645
+    },
+    "KL_FROZEN_GB": {
+      "iterations": 3,
+      "residual_relative_mm": 8.456427192193659e-16,
+      "residual_relative_si": 6.248304633670003e-16,
+      "residual_scale_mm": 1.0,
+      "residual_scale_si": 1000000.0,
+      "w_mm": 0.03364565565233863,
+      "w_rel_difference": 4.1246893659062454e-16,
+      "w_si_as_mm": 0.033645655652338645
+    }
+  },
+  "criterion": "||R||inf <= tol_rel * max(||load||inf, ||R_initial||inf, 1)",
+  "legacy_case_key_rejected": true,
+  "recommended_default": 1e-09,
+  "status": "PASS"
+}

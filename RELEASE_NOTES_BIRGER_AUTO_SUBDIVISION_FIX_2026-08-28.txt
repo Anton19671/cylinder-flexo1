@@ -1,0 +1,22 @@
+CYL_SOLVER — Birger automatic load-step subdivision fix, 2026-08-28
+
+Scope: load-series driver only. Solver equations, STRICT MVI, Birger constitutive update,
+convergence tolerances, BCs, loads and postprocessing are unchanged.
+
+Fixed:
+1) MAX_BIRGER_OUTER_ITERATIONS is now recognized as a numerical step failure eligible
+   for automatic load-step subdivision when automatic_step_subdivision=true.
+2) The failed target's subdivision depth is advanced together with the inserted midpoint,
+   so max_subdivision_depth correctly bounds successive halvings toward the same target.
+
+Validation:
+- Focused status classification self-check: PASS.
+- Focused adaptive subdivision queue self-check: PASS.
+- FINAL_RELEASE_REGRESSION: PASS (the pre-existing Z2 warning from
+  BC_AUDIT_SELF_CHECK_2026_08_27.py was excluded during regression exactly as before;
+  the file is preserved unchanged in the release).
+
+GUI note:
+No Birger-outer display change was made. The later completed-step table showing 74 outer
+iterations confirmed that intermediate values such as 22 and 33 can be real iteration
+counts rather than duplicated digits.

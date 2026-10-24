@@ -1,0 +1,186 @@
+{
+  "stage": "11B",
+  "status": "INTEGRATION_AND_GUI_CORE_PASS",
+  "cuf_fdm_linear": {
+    "converged": true,
+    "residual_inf": 5.928590951498336e-14,
+    "qmax": 3.255177860565969e-08
+  },
+  "kl_fdm_linear": {
+    "converged": true,
+    "residual_inf": 1.0297318553398327e-14,
+    "Umax": 1.1098822697248733e-08,
+    "dispatcher_vs_direct_stage9b_relative": 0.0
+  },
+  "kl_advanced_bc_vs_simple_relative": 0.0,
+  "free_free_validation_rejected": true,
+  "kl_mvi_rank_series": {
+    "all_converged": true,
+    "max_wmax_relative_error_vs_stage8e2": 4.937038641481325e-13,
+    "rows": [
+      {
+        "rank": 1,
+        "converged": true,
+        "status": "CONVERGED_LOAD_SERIES",
+        "wmax": 8.447763138511494e-09,
+        "reference_wmax": 8.447763138511494e-09,
+        "wmax_relative_error": 0.0
+      },
+      {
+        "rank": 2,
+        "converged": true,
+        "status": "CONVERGED_LOAD_SERIES",
+        "wmax": 8.47800149221714e-09,
+        "reference_wmax": 8.478001492217146e-09,
+        "wmax_relative_error": 5.854072660725886e-16
+      },
+      {
+        "rank": 3,
+        "converged": true,
+        "status": "CONVERGED_LOAD_SERIES",
+        "wmax": 8.47788480067148e-09,
+        "reference_wmax": 8.477884800671485e-09,
+        "wmax_relative_error": 5.854153237521072e-16
+      },
+      {
+        "rank": 4,
+        "converged": true,
+        "status": "CONVERGED_LOAD_SERIES",
+        "wmax": 8.477850806564165e-09,
+        "reference_wmax": 8.477850806564921e-09,
+        "wmax_relative_error": 8.917862523459563e-14
+      },
+      {
+        "rank": 5,
+        "converged": true,
+        "status": "CONVERGED_LOAD_SERIES",
+        "wmax": 8.477837710664847e-09,
+        "reference_wmax": 8.47783771066521e-09,
+        "wmax_relative_error": 4.2735556006508886e-14
+      },
+      {
+        "rank": 6,
+        "converged": true,
+        "status": "CONVERGED_LOAD_SERIES",
+        "wmax": 8.477822847796357e-09,
+        "reference_wmax": 8.477822847792171e-09,
+        "wmax_relative_error": 4.937038641481325e-13
+      },
+      {
+        "rank": 7,
+        "converged": true,
+        "status": "CONVERGED_LOAD_SERIES",
+        "wmax": 8.477820807942496e-09,
+        "reference_wmax": 8.47782080794451e-09,
+        "wmax_relative_error": 2.374852755872553e-13
+      },
+      {
+        "rank": 8,
+        "converged": true,
+        "status": "CONVERGED_LOAD_SERIES",
+        "wmax": 8.477820872429854e-09,
+        "reference_wmax": 8.477820872429854e-09,
+        "wmax_relative_error": 0.0
+      }
+    ]
+  },
+  "cuf_mvi_launcher": {
+    "converged": true,
+    "accepted_steps": 3,
+    "requested_steps": 3
+  },
+  "gui": {
+    "py_compile": true,
+    "import_without_window": true,
+    "individual_bc_editor_present": true,
+    "mvi_1_8_button_present": true,
+    "no_physical_geometry_material_defaults": true,
+    "explicit_bc_selection_required": true,
+    "explicit_mvi_rank_selection_required": true,
+    "xvfb_window_creation_from_clean_zip": true,
+    "window_size": "1120x780",
+    "physical_defaults_observed": {
+      "L": "",
+      "R": "",
+      "E0": "",
+      "bc_left": "",
+      "bc_right": "",
+      "rank": ""
+    }
+  },
+  "postprocess": {
+    "cuf_fdm_png_count": 6,
+    "kl_fdm_png_count": 3,
+    "kl_mvi_png_count": 3,
+    "cuf_mvi_png_count": 18,
+    "graphs_subfolder": "GRAPHS",
+    "numeric_results_zip": true,
+    "load_wmax_plot": true,
+    "final_w_profiles": true,
+    "final_w_surface_3d": true,
+    "birger_GB_ratio_3d": true,
+    "mvi_rank_wmax_plot": true
+  },
+  "start_program_cmd_ascii_no_bom": true,
+  "solver_mechanics_modified_by_stage11": false,
+  "fdm_route_smoke_tests": {
+    "CUF_TE1": {
+      "NONLINEAR_ELASTIC": {
+        "converged": true,
+        "status": "CONVERGED_FINAL_FDM_SERIES",
+        "step_status": "CONVERGED_CUF_STRONG_FDM_FULL_GL_ELASTIC"
+      },
+      "NONLINEAR_BIRGER": {
+        "converged": true,
+        "status": "CONVERGED_FINAL_FDM_SERIES",
+        "step_status": "CONVERGED_BIRGER"
+      },
+      "LINEAR_BIRGER": {
+        "converged": true,
+        "status": "CONVERGED_FINAL_FDM_SERIES",
+        "step_status": "CONVERGED_BIRGER"
+      },
+      "LINEAR_ELASTIC": {
+        "converged": true,
+        "covered_by_nonzero_regression": true
+      }
+    },
+    "KL": {
+      "NONLINEAR_ELASTIC": {
+        "converged": true,
+        "status": "CONVERGED_FINAL_FDM_SERIES",
+        "step_status": "CONVERGED_STRONG_FDM_VK_ELASTIC"
+      },
+      "NONLINEAR_BIRGER": {
+        "converged": true,
+        "status": "CONVERGED_FINAL_FDM_SERIES",
+        "step_status": "CONVERGED_BIRGER"
+      },
+      "LINEAR_BIRGER": {
+        "converged": true,
+        "status": "CONVERGED_FINAL_FDM_SERIES",
+        "step_status": "CONVERGED_BIRGER"
+      },
+      "LINEAR_ELASTIC": {
+        "converged": true,
+        "covered_by_nonzero_regression": true
+      }
+    }
+  },
+  "all_8_fdm_routes_invoked_through_final_dispatcher": true,
+  "final_self_check_pass": true,
+  "clean_zip_recheck": {
+    "final_self_check_pass": true,
+    "cuf_zero_residual": 0.0,
+    "kl_zero_residual": 0.0
+  },
+  "clean_zip_nonzero_nonlinear_check": {
+    "theory": "KL",
+    "method": "FDM",
+    "mode": "NONLINEAR_ELASTIC",
+    "converged": true,
+    "iterations": 2,
+    "residual_inf": 1.249406293701849e-09,
+    "increment_inf": 9.965024150498812e-14
+  }
+}

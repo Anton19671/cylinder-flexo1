@@ -1,0 +1,95 @@
+{
+  "release_date": "2026-08-26",
+  "scope": "Cylinder shell solver audit remediation and regression",
+  "status": "PASS",
+  "critical": {
+    "K1": "PASS - algebraic row/column equilibration",
+    "K2": "PASS - dependency-safe coloring, periodic s respected",
+    "K2b": "PASS - vectorized CUF thickness integration",
+    "K3": "PASS - linear operator cache across load series",
+    "K4": "PASS - no default-path SVD condition diagnostic",
+    "K5": "PASS - Birger intensity-curve elastic slope guard",
+    "K6": "PASS - Birger near-origin/secant guard",
+    "K7": "PASS - nonzero mechanical FINAL_SELF_CHECK",
+    "K8": "PASS - non-contiguous MVI write-through"
+  },
+  "important": {
+    "V1": "PASS - physical-width LINE load with mesh guard",
+    "V2": "PASS - relative residual stopping criterion",
+    "V3": "PASS - scaled central FD reference and analytic elastic/frozen-GB tangents",
+    "V4": "PASS - no needless converged-state Jacobian assembly",
+    "V5": "PASS - explicit checked unit systems",
+    "V6": "PASS - GAUSS and LAYERED thickness quadrature",
+    "V7": "PASS - quadrature/H-weighted plastic volume fraction",
+    "V8": "PASS - explicit DEAD_REFERENCE semantics; follower is rejected, not faked",
+    "V9": "PASS - strict CSV parser with delimiter and line diagnostics",
+    "V10": "PASS - nondecreasing Birger curve guard",
+    "V11": "PASS - smoothed PATCH front plus region-aware residual convergence"
+  },
+  "desirable": {
+    "Z1": "PASS - scaled FD Vandermonde coordinates",
+    "Z2": "PASS - production static-hygiene guard; real fg tangent dependency retained",
+    "Z3": "PASS - strong-collocation nonsymmetry documented",
+    "Z4": "PASS - GB thickness/quadrature metadata compatibility guard",
+    "Z5": "PASS - dead validator variables removed"
+  },
+  "release_regression": {
+    "FINAL_SELF_CHECK": "PASS",
+    "FDM_CUF_TE1_TE4_LINEAR": "PASS",
+    "FDM_CUF_TE1_FOUR_MODES": "PASS",
+    "FDM_KL_FOUR_MODES": "PASS",
+    "MVI_CUF_TE1_FOUR_MODES": "PASS",
+    "MVI_KL_FOUR_MODES": "PASS",
+    "MVI_CUF_TE2_TE4_LINEAR": "PASS",
+    "POSTPROCESS_REPORT": "PASS",
+    "GUI_IMPORT": "PASS"
+  },
+  "physics_note": "Verified surface load kinematics is DEAD_REFERENCE. Follower/current-normal pressure is not implemented because it requires deformation-dependent normal/area and a consistent nonsymmetric load tangent.",
+  "validation_note": "Software/mechanics regression plus generic harmonic-load self-check. Published benchmark comparison remains external to the solver and is not embedded into the computational kernel.",
+  "post_audit_additions": {
+    "HARMONIC_RADIAL_FACE": "PASS - generic q*cos(n*s/R)*sin(m*pi*x/L), GUI/CASE/load_builder; m>=1, n>=0",
+    "HARMONIC_LOAD_SELF_CHECK": "PASS - exact analytic grid field, KL/CUF-TE1 identity, invalid-mode guards",
+    "mechanics_kernel_changed": false,
+    "benchmark_embedded": false
+  },
+  "post_release_verification": {
+    "Z2_dead_local_cleanup": "PASS - removed unused local b from end_mechanical_quantities; no mechanics formula changed",
+    "Z2_SELF_CHECK": "PASS",
+    "FINAL_SELF_CHECK": "PASS (exit code 0 after patch)",
+    "PY_COMPILE": "PASS - all 101 .py files compile",
+    "verified_on": "2026-08-26"
+  },
+  "latest_output_patch_verification": {
+    "patch": "THROUGH_THICKNESS + Excel field labels/diagnostics",
+    "mechanics_kernel_changed": false,
+    "green_lagrange_no_birger_4step_full": "PASS - 4 states, derived_error=None, 18 physical through-thickness PNG profiles, 18 CSV profiles, no GB/GB_ratio user outputs",
+    "birger_through_thickness": "PASS - GB and GB_ratio retained when Birger is enabled",
+    "OUTPUT_BUNDLE_EXCEL_SELF_CHECK": "PASS",
+    "SHORT_ROOT_RESULTS_SELF_CHECK": "PASS",
+    "Z2_SELF_CHECK": "PASS",
+    "PY_COMPILE": "PASS - all 102 .py files compile (including optional FINAL_VIDEO_EXPORT.py)",
+    "GUI_POSTPROCESS_EXCEL_IMPORT": "PASS",
+    "Excel_formula_error_scan": "PASS - 0 matches for #REF/#DIV0/#VALUE/#NAME/#N/A in tested GL workbook",
+    "FINAL_SELF_CHECK_after_latest_patch": "PASS - exit code 0 on current output/GUI/video branch",
+    "verified_on": "2026-08-26"
+  },
+  "latest_gui_video_verification": {
+    "mechanics_kernel_changed": false,
+    "calculation_python_hash_diff_vs_control": "NONE outside FINAL_GUI.py / FINAL_POSTPROCESS.py / new FINAL_VIDEO_EXPORT.py",
+    "progress_gui": "PASS - accepted step count and percent rendered inside progress bar",
+    "through_thickness_gui": "PASS - physical THROUGH_THICKNESS group populated and visible",
+    "intermediate_step_reconstruction": "PASS - STEP 2 field/profile/3D cutaway reconstructed in memory without FULL",
+    "video_optional_only": "PASS - no automatic video generation; writes only RUN/VIDEO/*.mp4 when requested",
+    "video_non_birger_modes": "PASS - 9 main modes, no Birger and no J2 entries",
+    "video_birger_visibility": "PASS - Birger GB/G0 appears only for saved Birger runs",
+    "video_all_modes_smoke": "PASS - 9/9 MP4 files valid H.264 on 4 accepted-step non-Birger run",
+    "video_output_isolation": "PASS - SHA-256 of EXCEL/GRAPHS/NUMERIC/CSV/REPORT unchanged before/after VIDEO export",
+    "video_cancel_cleanup": "PASS - no final or temporary MP4 remains after cancellation",
+    "Z2_SELF_CHECK": "PASS",
+    "OUTPUT_BUNDLE_EXCEL_SELF_CHECK": "PASS",
+    "SHORT_ROOT_RESULTS_SELF_CHECK": "PASS",
+    "FINAL_SELF_CHECK": "PASS - exit code 0",
+    "PY_COMPILE": "PASS - 102 .py files",
+    "verified_on": "2026-08-26"
+  }
+}

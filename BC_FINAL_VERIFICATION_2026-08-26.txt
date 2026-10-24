@@ -1,0 +1,31 @@
+BC MODEL / CASE ROUTING FINAL VERIFICATION — 2026-08-26
+
+Baseline: CYL_SOLVER_BC_MODELS_INTERMEDIATE_STEP50.zip
+
+Changes kept intentionally:
+1. FINAL_GUI.py
+   - strict preflight validation of ELASTIC_ENGINEERING BCs for active KL/CUF model;
+   - strict preflight validation of CUSTOM BCs, including CUF tau count;
+   - CASE-load guard for boundary_conditions.model mismatch.
+2. cylinder_final_stage11a_dispatcher.py
+   - batch MVI rank-series AUTO-profile generation receives the already active BC object;
+   - no change to MVI/FDM numerical formulas or constitutive mechanics.
+3. KL_MVI_D2_CONSISTENCY_SELF_CHECK_V15.py
+   - updated regression call to provide the active KL BC to BC-aware auto profiles.
+4. FINAL_RELEASE_REGRESSION.py
+   - smoke tolerances adjusted only inside the regression test;
+   - postprocess smoke uses FAST/no-ZIP because the release test checks report semantics, not FULL rendering throughput.
+
+Verification performed:
+- standard/model BC route matrix: 60/60 PASS;
+- CUSTOM mixed GEOMETRIC/NATURAL/ELASTIC routes: 10/10 PASS;
+- python compileall: PASS;
+- Z2_SELF_CHECK: PASS (77 production modules; 0 dead locals; 0 unresolved names);
+- CUF_FOUR_MODE_SELF_CHECK: PASS;
+- KL_FOUR_MODE_SELF_CHECK: PASS;
+- MVI_1_8_COMMON_LOAD_SELF_CHECK: PASS;
+- KL_MVI_D2_CONSISTENCY_SELF_CHECK_V15: PASS;
+- FINAL_RELEASE_REGRESSION: PASS, elapsed about 22.6 s.
+
+Important qualification:
+FULL postprocessing was observed to be much heavier than the release-smoke and is NOT represented by the FAST postprocess timing. The release regression uses FAST only to verify DEAD_REFERENCE report semantics and derived-field integrity. This does not alter the user's FULL postprocessing function.

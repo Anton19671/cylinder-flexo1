@@ -1,0 +1,22 @@
+PATCH: restore KL + FDM + Green-Lagrange + Birger (Stage9F)
+Date: 2026-08-30
+Base archive: 95fae18a-81c8-4375-b442-2e54cc0b566a.zip
+
+Changes made ONLY for the missing Stage9F branch:
+1. Added cylinder_kl_stage9f_strong_fdm_gl_birger.py from the verified ae8907... build.
+2. Enabled dispatcher routing for KL / FDM / GREEN_LAGRANGE / BIRGER.
+3. Added KL_GL_BIRGER_FDM_SELF_CHECK.py.
+4. Added Stage9F smoke coverage to FINAL_RELEASE_REGRESSION.py.
+5. Added Stage9F release/provenance notes when present.
+
+Not changed:
+- MVI Birger solver core.
+- Existing KL MVI Green-Lagrange + Birger path.
+- Existing FDM linear/von-Karman Birger paths.
+- Output-contract/postprocessing rollback was NOT merged as part of this patch.
+
+Verification:
+- Python compile: PASS.
+- Dispatcher route: PASS.
+- KL_GL_BIRGER_FDM_SELF_CHECK: PASS.
+- Dedicated FINAL_RELEASE_REGRESSION Stage9F smoke: PASS.

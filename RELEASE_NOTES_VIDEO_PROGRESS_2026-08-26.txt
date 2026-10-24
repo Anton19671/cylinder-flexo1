@@ -1,0 +1,31 @@
+CYL SOLVER — VIDEO + persistent progress display
+Date: 2026-08-26
+
+Added (postprocessing only):
+- FINAL_VIDEO_EXPORT.py
+- VIDEO button/export dialog
+- MP4 modes: 3D deformation, selected 3D field, 3D through-thickness cutaway,
+  3D + load-deflection, XZ section, SZ section, through-thickness profile, Birger GB/G0.
+- Video reads accepted STEP files and writes only RUN/VIDEO/*.mp4.
+- No temporary PNG frames are generated.
+- Fixed color scale is used across a video.
+
+GUI regression fix:
+- Calculation progress moved to a dedicated row so toolbar buttons cannot clip it.
+- Persistent accepted-step counter: "Принято i/N · XX%".
+- Separate live status: "Считается шаг j/N", "Принят шаг j/N", Pause/Stop state.
+- Green activity animation remains visible during a long current step.
+
+Verification after the patch:
+- Live FinalSolverGUI 1380x900: counter visible; progress bar visible and animated.
+- VIDEO modes regression: PASS for all 7 general modes.
+- Birger GB/G0 VIDEO regression: PASS.
+- Existing run output integrity: 304 pre-existing files byte-identical before/after VIDEO export;
+  only RUN/VIDEO/*.mp4 added.
+- Z2_SELF_CHECK: PASS.
+- SHORT_ROOT_RESULTS_SELF_CHECK: PASS.
+- OUTPUT_BUNDLE_EXCEL_SELF_CHECK: PASS.
+- All release .py files compile with py_compile.
+
+Calculation kernels, MVI/FDM mechanics, FINAL_POSTPROCESS, Excel/sections/THROUGH_THICKNESS
+were not modified for VIDEO export or this progress-layout regression fix.

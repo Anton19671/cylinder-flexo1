@@ -1,0 +1,11 @@
+CRASH-SAFE RESULTS FIX
+======================
+
+1. Mechanics/equations are unchanged. No solver calculation was run while preparing this patch.
+2. FDM accepted/attempted STEP state and JSON are published atomically (temporary file + fsync + os.replace).
+3. RECOVERY_CHECKPOINT.json is rewritten after every FDM step so an abnormal stop preserves all prior accepted steps and load history.
+4. Postprocessor can use RECOVERY_CHECKPOINT.json when FINAL_RUN_SUMMARY.json does not exist.
+5. CUF/KL MVI accepted STEP NPZ/JSON writes are also atomic.
+6. FAST postprocess now creates NUMERIC_RESULTS.zip; it no longer silently disables ZIP creation.
+7. User graph/load axis uses positive load magnitude; signed q/p_line remains in CASE for mechanics and pressure direction.
+8. Default results root remains a separate RESULTS folder next to the program C folder (not inside solver sources).

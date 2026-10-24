@@ -1,0 +1,51 @@
+CYLINDER SOLVER — AUDIT-FIX RELEASE — 17.08.2026
+
+Закрыты все пункты аудита K1–K8, V1–V11 и Z1–Z5.
+
+Ключевые правила этой release-сборки:
+- CUF TE1–TE4 и KL остаются отдельными ветвями;
+- MVI и FDM остаются независимыми методами; FEM не добавлен;
+- np.linalg.solve остаётся рабочим плотным решателем; SVD/pinv/lstsq/QR/Cholesky/regularization не добавлялись как solver fallback;
+- нелинейный Elastic FDM использует аналитический tangent;
+- Birger inner Newton использует аналитический frozen-GB tangent; GB обновляется только во внешнем Birger-cycle;
+- PATCH задаётся физической площадкой с сглаженным фронтом для сильной постановки;
+- LINE требует физическую ширину полосы и не является сеточной delta-нагрузкой;
+- проверенная нагрузка DEAD_REFERENCE. Follower/current-normal load намеренно не имитируется;
+- plastic_volume_fraction является физически взвешенной долей объёма по квадратуре и H=1+z/R;
+- initial_GB из NPZ принимается только при совместимых h, quadrature_z и quadrature_w.
+
+Основные проверки:
+  python FINAL_SELF_CHECK.py
+  python FINAL_RELEASE_REGRESSION.py
+  python CUF_FOUR_MODE_SELF_CHECK.py
+  python KL_FOUR_MODE_SELF_CHECK.py
+  python Z1_SELF_CHECK.py
+  python Z2_SELF_CHECK.py
+  python Z4_SELF_CHECK.py
+
+Подробный машинный статус: AUDIT_FIX_STATUS_FINAL.json
+
+Post-audit addition: HARMONIC_RADIAL_FACE with q0, integer m,n; GUI + CASE + load builder. Mechanics unchanged.
+
+GUI load-tab visibility fix (2026-08-17):
+- Left load-control column is vertically scrollable on Windows/high-DPI displays.
+- HARMONIC_RADIAL_FACE hides unused PATCH/LINE controls, so load stepping is directly visible below m/n.
+- PATCH/LINE show their coordinate block only when selected.
+- EXTERNAL_NPZ shows its file block only when selected.
+- Mechanical kernel and load equations are unchanged.
+
+PRAVKA 05 / reviewer V-7 (2026-08-19)
+----------------------------------------
+- CASE validation rejects even ns because the centred periodic D1s has an exact
+  sawtooth (-1)^j null mode for even node counts.
+- CylinderSpatialOperators now builds genuine second-derivative matrices D2x/D2s.
+- KL curvature and bending terms use Dxx/Dss instead of composing D1 with itself.
+- KL exact nonlinear tangent uses the same D2 discretisation.
+- KL software-regression REFERENCE values were re-recorded after this intentional
+  discretisation change; the linear change is at round-off level and the nonlinear
+  smoke value changes by about 3.8e-9 relative.
+
+V-9 reviewer fix — boundary-layer resolution warning
+- Preflight computes beta=[3(1-nu^2)/(R^2 h^2)]^(1/4), decay=1/beta.
+- If dx > 0.5*decay, the run is NOT blocked; validation_warnings and GUI show BOUNDARY_LAYER_UNRESOLVED with recommended nx=ceil(2 L beta)+1.
+- Regression references are explicitly labelled as software anchors, not mesh-converged physical answers.

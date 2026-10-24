@@ -1,0 +1,24 @@
+CYLINDER SOLVER — START HERE / НАЧАТЬ ЗДЕСЬ
+================================================
+
+ENGLISH
+-------
+Start the solver with one of these files in this folder:
+
+1. START_PROGRAM.bat   <- recommended
+2. START_PROGRAM.cmd
+3. START_SOLVER.bat
+
+All three launch the same solver startup sequence.
+Fully extract the ZIP archive before running the program. Do not start the solver directly from inside the ZIP viewer.
+
+РУССКИЙ
+-------
+Запустите решатель одним из следующих файлов в этой папке:
+
+1. START_PROGRAM.bat   <- рекомендуется
+2. START_PROGRAM.cmd
+3. START_SOLVER.bat
+
+Все три файла запускают одну и ту же последовательность старта решателя.
+Перед запуском полностью распакуйте ZIP-архив в обычную папку. Не запускайте решатель непосредственно из окна просмотра ZIP.

@@ -1,0 +1,81 @@
+{
+  "cuf_15x15_coloring": {
+    "colored_s": 0.4434481449998202,
+    "dense_s": 0.7995472809998319,
+    "max_abs": 0.0,
+    "rel_inf": 0.0,
+    "stats": {
+      "action_reduction_factor": 2.142857142857143,
+      "dense_reference_action_evaluations": 1350,
+      "dependency_layers": 2,
+      "method": "EXACT_ANALYTIC_K2_COLORED",
+      "n_columns": 1350,
+      "n_spatial_colors": 105,
+      "overlap_check": "PASS",
+      "tangent_action_evaluations": 630
+    }
+  },
+  "cuf_basis_directional": {
+    "TE1": 7.736182163335976e-11,
+    "TE2": 6.714473462757814e-11,
+    "TE3": 7.578927176329906e-11
+  },
+  "directional": {
+    "CUF_TE1": 1.1422789897267264e-10,
+    "KL_ANALYTIC": 2.606630746051956e-12,
+    "KL_QUADRATURE": 2.15813325678957e-12
+  },
+  "matrix_vs_fd": {
+    "CUF": {
+      "analytic_s": 0.12809918299990386,
+      "analytic_stats": {
+        "action_reduction_factor": 1.0,
+        "dense_reference_action_evaluations": 294,
+        "dependency_layers": 2,
+        "method": "EXACT_ANALYTIC_K2_COLORED",
+        "n_columns": 294,
+        "n_spatial_colors": 49,
+        "overlap_check": "PASS",
+        "tangent_action_evaluations": 294
+      },
+      "fd_s": 0.34537061999981233,
+      "rel_inf": 2.415278098216974e-09
+    },
+    "KL": {
+      "analytic_s": 0.016688908999640262,
+      "analytic_stats": {
+        "action_reduction_factor": 1.0,
+        "dense_reference_action_evaluations": 147,
+        "dependency_layers": null,
+        "method": "EXACT_ANALYTIC_DENSE_ACTION",
+        "n_columns": 147,
+        "n_spatial_colors": null,
+        "overlap_check": "NOT_APPLICABLE",
+        "tangent_action_evaluations": 147
+      },
+      "fd_s": 0.04730782199931127,
+      "rel_inf": 2.092283074567996e-12
+    }
+  },
+  "newton": {
+    "CUF": {
+      "analytic_iterations": 3,
+      "analytic_residual": 6.762310446791997e-13,
+      "analytic_s": 0.34549554899967916,
+      "fd_iterations": 3,
+      "fd_residual": 7.287098174184805e-13,
+      "fd_s": 1.0030557440004486,
+      "state_rel": 1.5765447939834598e-13
+    },
+    "KL": {
+      "analytic_iterations": 3,
+      "analytic_residual": 9.644833613107157e-16,
+      "analytic_s": 0.05353116100013722,
+      "fd_iterations": 3,
+      "fd_residual": 1.739021157304844e-15,
+      "fd_s": 0.1552457220004726,
+      "state_rel": 8.249378731812495e-16
+    }
+  },
+  "status": "PASS"
+}

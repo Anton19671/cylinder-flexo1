@@ -1,0 +1,98 @@
+{
+  "active_outer_cycle": {
+    "CUF": {
+      "GB_min_over_G0": 0.34029982113749696,
+      "GB_rel": 1.554979435913785e-13,
+      "analytic_s": 4.992117509999844,
+      "epsilon_rel": 1.860814634405104e-13,
+      "fd_s": 13.867161269999997,
+      "outer_iterations": 15,
+      "state_rel": 5.154577365881118e-14
+    },
+    "KL": {
+      "GB_min_over_G0": 0.34391347603842254,
+      "GB_rel": 3.883494932575535e-15,
+      "analytic_s": 0.8677046830000563,
+      "epsilon_rel": 1.4933773709631557e-15,
+      "fd_s": 2.46578624100016,
+      "outer_iterations": 14,
+      "state_rel": 7.616297596976657e-16
+    }
+  },
+  "cuf_15x15_coloring": {
+    "colored_s": 0.42696626399992965,
+    "dense_s": 0.7520527629999378,
+    "max_abs": 0.0,
+    "rel_inf": 0.0,
+    "stats": {
+      "action_reduction_factor": 2.142857142857143,
+      "dense_reference_action_evaluations": 1350,
+      "dependency_layers": 2,
+      "method": "EXACT_ANALYTIC_K2_COLORED",
+      "n_columns": 1350,
+      "n_spatial_colors": 105,
+      "overlap_check": "PASS",
+      "tangent_action_evaluations": 630
+    }
+  },
+  "directional": {
+    "CUF": 1.0193115328289438e-10,
+    "GB_max_over_G0": 0.7882449538527276,
+    "GB_min_over_G0": 0.46670660275215137,
+    "KL": 5.2271339495866924e-12
+  },
+  "matrix_vs_fd": {
+    "CUF": {
+      "analytic_s": 0.10731355500001882,
+      "analytic_stats": {
+        "action_reduction_factor": 1.0,
+        "dense_reference_action_evaluations": 294,
+        "dependency_layers": 2,
+        "method": "EXACT_ANALYTIC_K2_COLORED",
+        "n_columns": 294,
+        "n_spatial_colors": 49,
+        "overlap_check": "PASS",
+        "tangent_action_evaluations": 294
+      },
+      "fd_s": 0.3080145530000209,
+      "rel_inf": 2.784732760105668e-09
+    },
+    "KL": {
+      "analytic_s": 0.03741866600012145,
+      "analytic_stats": {
+        "action_reduction_factor": 1.0,
+        "dense_reference_action_evaluations": 147,
+        "dependency_layers": null,
+        "method": "EXACT_ANALYTIC_DENSE_ACTION",
+        "n_columns": 147,
+        "n_spatial_colors": null,
+        "overlap_check": "NOT_APPLICABLE",
+        "tangent_action_evaluations": 147
+      },
+      "fd_s": 0.11557377799999813,
+      "rel_inf": 1.7716198179319222e-12
+    }
+  },
+  "newton": {
+    "CUF": {
+      "analytic_iterations": 4,
+      "analytic_residual": 1.8873658061760445e-12,
+      "analytic_s": 0.42211295299989615,
+      "fd_iterations": 4,
+      "fd_residual": 1.8448716404377563e-12,
+      "fd_s": 1.1728417099998296,
+      "state_rel": 1.948532570979177e-13
+    },
+    "KL": {
+      "analytic_iterations": 3,
+      "analytic_residual": 1.0316725772285817e-15,
+      "analytic_s": 0.10602360400002908,
+      "fd_iterations": 3,
+      "fd_residual": 1.0480169249788007e-15,
+      "fd_s": 0.30583110299994587,
+      "state_rel": 4.773349550184275e-16
+    }
+  },
+  "principle": "INNER_DERIVATIVE_AT_FIXED_GB",
+  "status": "PASS"
+}

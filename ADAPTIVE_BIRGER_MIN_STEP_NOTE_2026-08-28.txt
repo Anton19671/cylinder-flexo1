@@ -1,0 +1,20 @@
+Adaptive Birger load stepping update (2026-08-28)
+
+Only load-series driver logic changed.
+Solver equations, STRICT MVI, Birger constitutive update, tangent, BCs, tolerances and omega are unchanged.
+
+Proactive adaptation:
+- outer <= 8: no proactive refinement
+- 9..20: refine next interval by 2
+- >20: refine next interval by 4
+- proactive refinement depth is tracked independently and capped at 3 levels
+  => no proactive increment smaller than 1/8 of the original requested interval.
+- emergency failure-driven subdivision remains independent and may still use max_subdivision_depth (default 8).
+
+For 60 requested steps to qmax=2.5, original dq=0.0416667 N/mm^2,
+so proactive minimum is approximately 0.00520833 N/mm^2.
+
+Checks:
+- proactive cap synthetic self-check: PASS
+- emergency subdivision independence self-check: PASS
+- FINAL_RELEASE_REGRESSION: PASS

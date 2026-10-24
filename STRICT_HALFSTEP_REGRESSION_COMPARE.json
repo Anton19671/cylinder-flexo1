@@ -1,0 +1,254 @@
+{
+  "legacy": {
+    "TE1": {
+      "elapsed": 0.4668982979999896,
+      "converged": true,
+      "status": "CONVERGED_LOAD_SERIES",
+      "accepted_steps": 1,
+      "solver_iterations": 1,
+      "residual_inf_by_block": {
+        "u0": 7.601268337228305e-21,
+        "u1": 1.6527730383299537e-21,
+        "v0": 3.849609678344773e-21,
+        "v1": 2.767979245961701e-22,
+        "w0": 2.879912020664621e-20,
+        "w1": 9.232659125071874e-22
+      },
+      "u_maxabs": 1.711589214050803e-08,
+      "v_maxabs": 1.0513781046039575e-22,
+      "w_maxabs": 3.5142451240353705e-07,
+      "field_file": "/mnt/data/cyl_baseline/CYL_SOLVER_BC_MODELS_FINAL_VERIFIED/REG_COMPARE_LEGACY_TE1/STEP_0001.npz"
+    },
+    "TE2": {
+      "elapsed": 0.5585722039999723,
+      "converged": true,
+      "status": "CONVERGED_LOAD_SERIES",
+      "accepted_steps": 1,
+      "solver_iterations": 1,
+      "residual_inf_by_block": {
+        "u0": 1.1480768324812633e-20,
+        "u1": 2.4675128544701836e-21,
+        "u2": 1.3939130694860778e-24,
+        "v0": 4.489649016547657e-21,
+        "v1": 3.5653926174368166e-22,
+        "v2": 4.6085824439337435e-26,
+        "w0": 1.8634724839594607e-20,
+        "w1": 1.5500702934753697e-21,
+        "w2": 2.032879073410321e-24
+      },
+      "u_maxabs": 1.7114333571173438e-08,
+      "v_maxabs": 7.410856219526512e-23,
+      "w_maxabs": 3.514567298231277e-07,
+      "field_file": "/mnt/data/cyl_baseline/CYL_SOLVER_BC_MODELS_FINAL_VERIFIED/REG_COMPARE_LEGACY_TE2/STEP_0001.npz"
+    },
+    "TE3": {
+      "elapsed": 0.8926438000000303,
+      "converged": true,
+      "status": "CONVERGED_LOAD_SERIES",
+      "accepted_steps": 1,
+      "solver_iterations": 1,
+      "residual_inf_by_block": {
+        "u0": 1.5012277764211222e-20,
+        "u1": 3.8185304053407925e-21,
+        "u2": 7.633843078098754e-25,
+        "u3": 9.492062965168503e-26,
+        "v0": 9.405442442388658e-21,
+        "v1": 6.641391099616424e-22,
+        "v2": 6.972075641296472e-26,
+        "v3": 1.6811656709228602e-26,
+        "w0": 4.573977915173222e-20,
+        "w1": 1.8719428134320037e-21,
+        "w2": 1.6517142471458858e-24,
+        "w3": 4.9339669177562994e-26
+      },
+      "u_maxabs": 1.7114331081964083e-08,
+      "v_maxabs": 6.506349916015468e-23,
+      "w_maxabs": 3.514568444853093e-07,
+      "field_file": "/mnt/data/cyl_baseline/CYL_SOLVER_BC_MODELS_FINAL_VERIFIED/REG_COMPARE_LEGACY_TE3/STEP_0001.npz"
+    },
+    "TE4": {
+      "elapsed": 1.4948161949999985,
+      "converged": true,
+      "status": "CONVERGED_LOAD_SERIES",
+      "accepted_steps": 1,
+      "solver_iterations": 1,
+      "residual_inf_by_block": {
+        "u0": 1.0786012281959489e-20,
+        "u1": 4.1689902872672595e-21,
+        "u2": 2.3299617530349618e-24,
+        "u3": 1.122318655111948e-25,
+        "u4": 7.15270750499335e-29,
+        "v0": 6.595537498378746e-21,
+        "v1": 7.190949958833185e-22,
+        "v2": 1.2383842885798435e-25,
+        "v3": 1.9094825107118107e-26,
+        "v4": 2.1481439078152337e-30,
+        "w0": 2.371692252312041e-20,
+        "w1": 2.625802136488331e-21,
+        "w2": 5.912289971835016e-23,
+        "w3": 1.052438436963468e-25,
+        "w4": 1.7713576509455557e-27
+      },
+      "u_maxabs": 1.7080379410490156e-08,
+      "v_maxabs": 4.2027148238873356e-22,
+      "w_maxabs": 3.51230804184456e-07,
+      "field_file": "/mnt/data/cyl_baseline/CYL_SOLVER_BC_MODELS_FINAL_VERIFIED/REG_COMPARE_LEGACY_TE4/STEP_0001.npz"
+    }
+  },
+  "strict": {
+    "TE1": {
+      "elapsed": 0.11555670500001725,
+      "converged": true,
+      "status": "CONVERGED_LOAD_SERIES",
+      "accepted_steps": 1,
+      "solver_iterations": 1,
+      "residual_inf_by_block": {
+        "u0": 8.878631318049203e-20,
+        "u1": 3.545891675443315e-21,
+        "v0": 2.5194188810037265e-20,
+        "v1": 1.8104351015121734e-21,
+        "w0": 5.251604272976662e-20,
+        "w1": 5.3532482266471784e-21
+      },
+      "u_maxabs": 1.7115892140508265e-08,
+      "v_maxabs": 4.1994518927800953e-22,
+      "w_maxabs": 3.514245124035375e-07,
+      "field_file": "/mnt/data/cyl_strict_work/CYL_SOLVER_BC_MODELS_FINAL_VERIFIED/REG_COMPARE_STRICT_TE1/STEP_0001.npz",
+      "field_diff_vs_legacy": {
+        "u": {
+          "abs_inf": 2.6800651846718097e-22,
+          "rel_inf": 1.5658343501294468e-14
+        },
+        "v": {
+          "abs_inf": 4.470091404413728e-22,
+          "rel_inf": 4.251649701319929
+        },
+        "w": {
+          "abs_inf": 2.3822801641527197e-21,
+          "rel_inf": 6.778924292615003e-15
+        }
+      },
+      "speedup_vs_legacy": 4.0404258498017915
+    },
+    "TE2": {
+      "elapsed": 0.17866508100001965,
+      "converged": true,
+      "status": "CONVERGED_LOAD_SERIES",
+      "accepted_steps": 1,
+      "solver_iterations": 1,
+      "residual_inf_by_block": {
+        "u0": 3.920457462064916e-20,
+        "u1": 6.454391058077769e-21,
+        "u2": 1.2138844469942711e-23,
+        "v0": 4.5344207416764035e-20,
+        "v1": 2.4943356673910888e-21,
+        "v2": 2.4431404425468474e-25,
+        "w0": 1.3213713977167085e-19,
+        "w1": 3.2695471764015992e-21,
+        "w2": 2.6639186191147745e-23
+      },
+      "u_maxabs": 1.7114333571173557e-08,
+      "v_maxabs": 6.923037685338874e-22,
+      "w_maxabs": 3.514567298231288e-07,
+      "field_file": "/mnt/data/cyl_strict_work/CYL_SOLVER_BC_MODELS_FINAL_VERIFIED/REG_COMPARE_STRICT_TE2/STEP_0001.npz",
+      "field_diff_vs_legacy": {
+        "u": {
+          "abs_inf": 2.620094590261715e-22,
+          "rel_inf": 1.5309357968076985e-14
+        },
+        "v": {
+          "abs_inf": 7.664123307291525e-22,
+          "rel_inf": 10.341751452548346
+        },
+        "w": {
+          "abs_inf": 2.8587361969832636e-21,
+          "rel_inf": 8.133963456673418e-15
+        }
+      },
+      "speedup_vs_legacy": 3.1263647091728624
+    },
+    "TE3": {
+      "elapsed": 0.2704088319999869,
+      "converged": true,
+      "status": "CONVERGED_LOAD_SERIES",
+      "accepted_steps": 1,
+      "solver_iterations": 1,
+      "residual_inf_by_block": {
+        "u0": 3.5637713701292397e-17,
+        "u1": 3.642014033088917e-18,
+        "u2": 1.579260535694904e-21,
+        "u3": 1.2351835454023172e-22,
+        "v0": 2.811468245953677e-20,
+        "v1": 2.6060338877749093e-21,
+        "v2": 3.353510720172298e-25,
+        "v3": 6.737965230273067e-26,
+        "w0": 4.875521644395753e-17,
+        "w1": 3.1582470471323844e-19,
+        "w2": 2.3171009788615012e-21,
+        "w3": 1.530207370862256e-23
+      },
+      "u_maxabs": 1.711433108203821e-08,
+      "v_maxabs": 4.020777674773118e-22,
+      "w_maxabs": 3.5145684448517977e-07,
+      "field_file": "/mnt/data/cyl_strict_work/CYL_SOLVER_BC_MODELS_FINAL_VERIFIED/REG_COMPARE_STRICT_TE3/STEP_0001.npz",
+      "field_diff_vs_legacy": {
+        "u": {
+          "abs_inf": 9.934294400154666e-20,
+          "rel_inf": 5.804664145257719e-12
+        },
+        "v": {
+          "abs_inf": 3.4613641252645937e-22,
+          "rel_inf": 5.319978436364757
+        },
+        "w": {
+          "abs_inf": 1.1510118962001874e-18,
+          "rel_inf": 3.274973625526587e-12
+        }
+      },
+      "speedup_vs_legacy": 3.3010896626337765
+    },
+    "TE4": {
+      "elapsed": 0.33486852800001543,
+      "converged": true,
+      "status": "CONVERGED_LOAD_SERIES",
+      "accepted_steps": 1,
+      "solver_iterations": 1,
+      "residual_inf_by_block": {
+        "u0": 9.30164164383735e-14,
+        "u1": 8.691171937180831e-14,
+        "u2": 1.2080773597098892e-16,
+        "u3": 1.6285783176635324e-18,
+        "u4": 3.75915666868856e-21,
+        "v0": 3.534283983405001e-18,
+        "v1": 8.485843883242935e-21,
+        "v2": 6.566611099564683e-23,
+        "v3": 2.813687015695255e-25,
+        "v4": 1.8944939579565015e-27,
+        "w0": 3.341686482242383e-13,
+        "w1": 5.398438052717247e-15,
+        "w2": 4.1255749189887236e-17,
+        "w3": 1.8960122477743652e-19,
+        "w4": 1.1348916108991321e-21
+      },
+      "u_maxabs": 1.7080381911265918e-08,
+      "v_maxabs": 9.04682170823662e-21,
+      "w_maxabs": 3.512308511079901e-07,
+      "field_file": "/mnt/data/cyl_strict_work/CYL_SOLVER_BC_MODELS_FINAL_VERIFIED/REG_COMPARE_STRICT_TE4/STEP_0001.npz",
+      "field_diff_vs_legacy": {
+        "u": {
+          "abs_inf": 4.392352061966618e-12,
+          "rel_inf": 0.0002571577572374647
+        },
+        "v": {
+          "abs_inf": 9.068719350395867e-21,
+          "rel_inf": 21.57824104279262
+        },
+        "w": {
+          "abs_inf": 5.5389549708174416e-12,
+          "rel_inf": 1.577012865850043e-05
+        }
+      },
+      "speedup_vs_legacy": 4.463889765717039
+    }
+  }
+}

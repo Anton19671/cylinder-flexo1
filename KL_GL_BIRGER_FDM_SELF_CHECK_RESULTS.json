@@ -1,0 +1,51 @@
+{
+  "status": "PASS",
+  "tangent_rel_inf": 2.251650191867901e-12,
+  "jacobian_rel_inf": 3.5128083984465913e-12,
+  "elastic_limit_state_rel_inf": 0.0,
+  "elastic_limit_GB_rel": 2.220446049250313e-16,
+  "elastic_limit_outer_iterations": 1,
+  "plastic_outer_iterations": 16,
+  "plastic_GB_ratio_min": 0.2894560208782388,
+  "plastic_GB_ratio_max": 0.3660989218354487,
+  "support_smoke": {
+    "CLAMPED": {
+      "status": "CONVERGED_BIRGER",
+      "residual_relative": 6.34308356191374e-11
+    },
+    "SIMPLY_SUPPORTED": {
+      "status": "CONVERGED_BIRGER",
+      "residual_relative": 5.2421096009865555e-11
+    },
+    "FREE": {
+      "status": "CONVERGED_BIRGER",
+      "residual_relative": 8.279953623596292e-10
+    },
+    "SYMMETRY": {
+      "status": "CONVERGED_BIRGER",
+      "residual_relative": 4.8116492697647976e-11
+    },
+    "GUIDED": {
+      "status": "CONVERGED_BIRGER",
+      "residual_relative": 7.89197605452449e-11
+    },
+    "PINNED_S1": {
+      "status": "CONVERGED_BIRGER",
+      "residual_relative": 2.16353136290123e-09
+    },
+    "PINNED_S2": {
+      "status": "CONVERGED_BIRGER",
+      "residual_relative": 5.242109604256659e-11
+    },
+    "PINNED_S3": {
+      "status": "CONVERGED_BIRGER",
+      "residual_relative": 5.2421096009865555e-11
+    },
+    "PINNED_S4": {
+      "status": "CONVERGED_BIRGER",
+      "residual_relative": 2.163531338848195e-09
+    }
+  },
+  "dispatcher_status": "CONVERGED_FINAL_FDM_SERIES",
+  "dispatcher_residual_relative": 6.343083589306784e-11
+}

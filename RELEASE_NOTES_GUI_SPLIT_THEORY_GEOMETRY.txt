@@ -1,0 +1,24 @@
+GUI SPLIT THEORY / GEOMETRY / MATERIAL
+2026-08-21
+
+Changed only FINAL_GUI.py (FinalSolverGUI presentation/routing layer).
+Solver mechanics and launchers are unchanged.
+
+Top model selectors are now separated:
+1. Theory: Carrera CUF / Kirchhoff-Love
+2. Geometry:
+   - CUF: Linear / Green-Lagrange
+   - KL: Linear / von Karman
+3. Material: Elastic / Birger
+4. Numerical method: FDM / MVI
+
+The GUI-only split is translated back to the legacy solver CASE mode:
+- Linear + Elastic -> LINEAR_ELASTIC
+- Nonlinear + Elastic -> NONLINEAR_ELASTIC
+- Linear + Birger -> LINEAR_BIRGER
+- Nonlinear + Birger -> NONLINEAR_BIRGER
+
+Backward compatibility:
+Existing CASE files containing the legacy mode values are preserved and displayed through the new split selectors.
+
+No solver calculation was executed during this change.

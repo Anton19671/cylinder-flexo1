@@ -1,0 +1,32 @@
+3D SHELL + 3D CUTAWAY VIEW — 2026-08-26
+
+Scope: GUI/postprocessing VIEW ONLY. Solver core, MVI/FDM mechanics, established FULL,
+Excel, sections and THROUGH_THICKNESS output are unchanged.
+
+Added in Results:
+1) "3D оболочка"
+   - colours the closed cylindrical shell by the currently selected result field;
+   - honours selected accepted STEP and selected z layer;
+   - closes the circumferential seam only for visualization;
+   - uses the existing deformation-scale setting.
+
+2) "3D разрез"
+   - removes a 60-degree sector centred at the selected circumferential index is;
+   - displays all available through-thickness integration layers;
+   - displays both radial cut faces, so the field variation through z is visible;
+   - colours by the same selected result field.
+
+Intermediate accepted steps:
+- if STEP_xxxx_DERIVED.npz is absent (FULL is intentionally kept only for the last
+  accepted step), the GUI reconstructs the selected intermediate step in memory
+  using the exact FINAL_POSTPROCESS reconstruction routines;
+- no solver/MVI call is made and no FULL files are written by this operation.
+
+Regression checks after this GUI-only patch:
+- intermediate STEP 2, CUF + Green-Lagrange + Hooke: E_rr reconstructed as 5x11x11;
+- 3D shell render: PASS;
+- 3D cutaway render: PASS;
+- Z2_SELF_CHECK: PASS;
+- OUTPUT_BUNDLE_EXCEL_SELF_CHECK: PASS;
+- SHORT_ROOT_RESULTS_SELF_CHECK: PASS;
+- py_compile: 101 Python files PASS.

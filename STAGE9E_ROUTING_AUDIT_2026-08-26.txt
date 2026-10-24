@@ -1,0 +1,40 @@
+Stage9E / solver routing audit — 2026-08-26
+
+Intentional solver changes relative to supplied baseline:
+1) cylinder_final_stage11a_dispatcher.py
+2) cylinder_kl_stage9e_strong_fdm_gl_elastic.py (new)
+3) KL_GL_STAGE9E_SELF_CHECK.py (new)
+
+Validated routing:
+KL + FDM + LINEAR + HOOKE -> Stage9B
+KL + FDM + LINEAR + BIRGER -> Stage9D1
+KL + FDM + VON_KARMAN + HOOKE -> Stage9C
+KL + FDM + VON_KARMAN + BIRGER -> Stage9D2
+KL + FDM + GREEN_LAGRANGE + HOOKE -> Stage9E
+KL + FDM + GREEN_LAGRANGE + BIRGER -> explicit ERROR; no VK fallback
+
+KL MVI routing remains separated into LINEAR, VK, GL and Hooke/Birger child modes.
+CUF MVI/FDM routing remains unchanged and separated for LINEAR, VK, GL and Hooke/Birger.
+
+Regression checks passed on modified tree:
+- KL_GL_STAGE9E_SELF_CHECK.py: PASS
+  analytic tangent directional relative error ~3.646e-12
+  analytic/central-FD Jacobian relative error ~4.206e-12
+  Newton: 3 iterations, relative residual ~1.401e-15
+  GL+Birger FDM ban: PASS
+- KL_FOUR_MODE_SELF_CHECK.py: PASS
+- CUF_FOUR_MODE_SELF_CHECK.py: PASS
+- CUF_VK_MODE_SELF_CHECK_V14.py: PASS
+- V3B_SELF_CHECK.py: PASS
+- V3C_SELF_CHECK.py: PASS
+- MVI_1_8_COMMON_LOAD_SELF_CHECK.py: PASS
+- MVI_1_8_PROFILE_BANK_SELF_CHECK_V10.py: PASS (MVI1..MVI8)
+- MVI_HALFSTEP_RESIDUAL_ALIGNMENT_SELF_CHECK_V11.py: PASS
+- KL_MVI_D2_CONSISTENCY_SELF_CHECK_V15.py: PASS
+- MVI_LIMIT_SELF_CHECK.py: PASS
+- PLATE_STYLE_MVI_SELF_CHECK_V13.py: PASS
+
+No GUI source file was modified.
+No existing CUF solver module was modified.
+No existing KL Stage9B/9C/9D1/9D2 module was modified.
+No MVI solver module was modified.

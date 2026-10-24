@@ -1,0 +1,46 @@
+KL HINGE VARIANTS AUDIT — 2026-08-27
+
+Purpose
+-------
+Clarify the former generic KL "SIMPLY_SUPPORTED" GUI choice without changing
+numerical mechanics.
+
+GUI semantics
+-------------
+S1 = PINNED_S1: Tu=0, v=0, w=0, Mx=0  (axial sliding)
+S2 = PINNED_S2: u=0, Tv=0, w=0, Mx=0  (circumferential sliding)
+S3 = SIMPLY_SUPPORTED -> PINNED_S3: u=0, v=0, w=0, Mx=0  (immovable)
+S4 = PINNED_S4: Tu=0, Tv=0, w=0, Mx=0  (in-plane sliding)
+
+Backward compatibility
+----------------------
+Existing CASE files with SIMPLY_SUPPORTED remain valid and resolve to PINNED_S3.
+No boundary operators, residual equations, FDM stencils, MVI equations,
+constitutive laws, or nonlinear mechanics were changed.
+
+Postprocess
+-----------
+FINAL_W_PROFILES.png now states theory, geometric model, method and exact
+resolved left/right support codes, e.g.
+  KL · GREEN-LAGRANGE · FDM · PINNED_S3–PINNED_S3
+
+Verification
+------------
+BC_HINGE_VARIANTS_SELF_CHECK: PASS
+Controlled real KL + Green-Lagrange FDM CASE path for S1/S2/S3/S4: PASS
+FINAL_RELEASE_REGRESSION: PASS
+compileall: PASS
+Z2_SELF_CHECK: PASS
+KL_FOUR_MODE_SELF_CHECK: PASS
+CUF_FOUR_MODE_SELF_CHECK: PASS
+MVI_1_8_COMMON_LOAD_SELF_CHECK: PASS
+KL_MVI_D2_CONSISTENCY_SELF_CHECK_V15: PASS
+
+Controlled small-load FDM smoke w_abs_max:
+  PINNED_S1       3.666293794772087e-07
+  PINNED_S2       3.3514833058992055e-07
+  SIMPLY_SUPPORTED(S3) 3.351483305895299e-07
+  PINNED_S4       3.666293794800281e-07
+The S1/S4 and S2/S3 pairing in this axisymmetric tiny-load smoke is expected
+from symmetry; the mathematical BC kinds remain distinct and are explicitly
+guarded by the registry self-check.

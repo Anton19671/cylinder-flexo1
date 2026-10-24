@@ -1,0 +1,18 @@
+CYLINDER SOLVER — RELEASE STATUS / СТАТУС РЕЛИЗА
+================================================
+
+ENGLISH
+-------
+Release package: 2026-09-01.
+Postprocessing is manual only: FAST, STANDARD and FULL are independent GUI actions.
+3D output includes deformed shape, von Mises stress intensity and von Mises strain intensity, with isometric, side and end views and a common physical colour scale within each result row.
+Plot display smoothing is visualization-only; calculated numerical arrays and extrema are not modified.
+Result documentation and user-facing README files are bilingual (English first, Russian second).
+
+РУССКИЙ
+-------
+Релизная сборка: 2026-09-01.
+Постобработка запускается только вручную: FAST, STANDARD и FULL являются независимыми действиями GUI.
+3D-вывод включает деформированную форму, интенсивность напряжений по Мизесу и интенсивность деформаций по Мизесу, с аксонометрией, боковым видом и видом на торец и общей физической цветовой шкалой внутри каждой строки результата.
+Сглаживание графического отображения применяется только для визуализации; расчётные численные массивы и экстремумы не изменяются.
+Документация результатов и пользовательские README двуязычные (сначала английский, затем русский).

@@ -1,0 +1,35 @@
+CYL_SOLVER — STRICT_HALFSTEP + LOAD STEP SUBDIVISION
+Date: 2026-08-27
+
+Source archive:
+  67ded789-9c94-4b6c-b25d-5f81f5346b1d.zip
+Original archive was not modified.
+
+Changed files:
+  cylinder_cuf_stage7d_general_internal_mvi.py
+  cylinder_cuf_stage7e_general_driver.py
+  cylinder_cuf_stage7g_general_launcher.py
+  cylinder_final_stage11a_dispatcher.py
+
+Main changes:
+1. Added selectable CUF internal MVI algorithm:
+   - STRICT_HALFSTEP
+   - PLATE_STYLE_ONE_CORRECTION (legacy retained)
+2. Standard CASE/launcher path selects STRICT_HALFSTEP while low-level API remains backward-compatible.
+3. STRICT_HALFSTEP uses one fixed reference scale for the raw reduced residual T^T W R across the Y->X solve.
+4. Added guarded automatic load-step subdivision in the common CUF load-series driver.
+   On a numerical failure, the solver inserts the midpoint between the last accepted and requested load factor, then retries the original target after an accepted midpoint.
+5. Added metadata for accepted states:
+   requested_step_index, subdivision_depth, is_substep.
+6. Subdivision settings are propagated from FINAL_CASE through the dispatcher.
+
+Verification:
+- FINAL_RELEASE_REGRESSION.py: PASS
+- CUF TE1-TE4 regression: PASS
+- CUF MVI four modes: PASS
+- KL four modes: PASS
+- GUI import/postprocess/BC checks: PASS
+- Heavy TE3 GREEN_LAGRANGE+BIRGER case that stopped in legacy at the first step converged with STRICT_HALFSTEP.
+- detF guard case verified: subdivision intercepts the failed target and inserts smaller load steps; it still stops safely if the deformation mapping remains nonphysical at deeper substeps.
+
+Numeric comparison is saved in STRICT_HALFSTEP_REGRESSION_COMPARE.json.

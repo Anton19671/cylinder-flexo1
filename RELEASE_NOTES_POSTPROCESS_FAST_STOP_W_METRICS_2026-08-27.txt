@@ -1,0 +1,21 @@
+CYL_SOLVER postprocessor-only correction, 2026-08-27
+
+Base: CYL_SOLVER_BC_AUDITED_STRICT_START_VISIBLE_2026-08-27.zip
+Solver/STRICT MVI/BC/load mechanics were not changed.
+
+Changes:
+1. Automatic normal completion -> FAST.
+2. User STOP with accepted steps -> FAST.
+3. Partial/nonconverged termination with accepted steps -> FAST.
+4. FULL remains manual (button); existing FAST->FULL queue is only used if FULL is explicitly requested while FAST is running.
+5. FAST no longer calls _derive_step_and_save(): no reconstructed stresses/strains/sections/derived NPZ.
+6. FAST no longer exports VTK or stress/strain 3-D fields.
+7. Three displacement metrics are separated:
+   - |w|max: global midsurface maximum;
+   - w_center: diagnostic array-center w[Ns//2,Nx//2];
+   - w_reference: fixed x=L/2, theta=0 control point.
+8. CALCULATION_SUMMARY.json, RESULTS_INDEX.json and GRAPHS_MANIFEST.json record selected_state_file and selected_step.
+9. Load_Deflection Excel explicitly exports and plots all three displacement metrics.
+10. Final w(x) profile includes the circumferential generator containing the global |w|max and labels reference/index-center generators.
+
+Important: accepted STEP_xxxx.npz / STEP_xxxx_STATE.npz remains authoritative. *_NOT_CONVERGED.npz is excluded.

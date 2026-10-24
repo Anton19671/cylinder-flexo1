@@ -1,0 +1,20 @@
+{
+  "audit_gauss3_example": {
+    "expected": 0.5555555555555556,
+    "unweighted_point_fraction": 0.6666666666666666,
+    "weighted_volume_fraction": 0.5555555555555556
+  },
+  "cylindrical_metric_example": {
+    "manual": 0.3853606485057617,
+    "weighted": 0.3853606485057616,
+    "without_H": 0.2777777777777778
+  },
+  "diagnostic_key": "plastic_point_fraction_unweighted",
+  "layered_example": {
+    "manual": 0.6020626738450567,
+    "points": 7,
+    "weighted": 0.6020626738450567
+  },
+  "report_key": "plastic_volume_fraction",
+  "status": "PASS"
+}

@@ -1,0 +1,23 @@
+EXCEL / FIELD DISPLAY CLARITY FIX — 2026-08-26
+
+Scope: output/GUI only. Solver equations, MVI algorithms and constitutive mechanics are unchanged.
+
+1. Excel workbooks now include sheet "Описание_полей":
+   - x/s/r/z coordinate definitions;
+   - u/v/w meanings;
+   - E_xx...E_sr component descriptions;
+   - S_xx...S_sr component descriptions;
+   - epsilon_i, sigma_i, detF, GB/G0 and masks;
+   - for GREEN_LAGRANGE explicitly states E = Green-Lagrange strain and S = second Piola-Kirchhoff stress.
+
+2. FULL_RESULTS and STRAINS_STRESSES include "Диагностика_полей":
+   min/max/range and maximum variation along theta/s, x and z, with an automatic interpretation of axisymmetry or numerical-zero components.
+
+3. Sections_XZ, Sections_SZ and Profiles_Z now contain both the technical field code and a full readable Russian name plus units.
+
+4. 2-D field plots and GUI previews show min/max/range and explicitly mark fields that are axisymmetric along theta/s.
+
+Validated on a 4-step CUF TE1 / GREEN_LAGRANGE / HOOKE / no-Birger case with uniform external radial pressure:
+   - accepted steps: 4/4;
+   - E/S/epsilon_i/sigma_i arrays are non-flat along x and/or z;
+   - circumferential variation is at numerical roundoff level, as expected for the axisymmetric problem.

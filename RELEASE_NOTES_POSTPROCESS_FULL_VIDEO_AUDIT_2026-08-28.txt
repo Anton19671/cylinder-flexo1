@@ -1,0 +1,50 @@
+CYL_SOLVER — POSTPROCESS FULL / VIDEO AUDIT — 2026-08-28
+
+Base working point:
+  CYL_SOLVER_POSTPROCESS_FAST_STOP_W_METRICS_FIXED_2026-08-27.zip
+which itself was produced from:
+  CYL_SOLVER_BC_AUDITED_STRICT_START_VISIBLE_2026-08-27.zip
+
+Scope:
+  Postprocessor / GUI result presentation only.
+  Solver, STRICT MVI, boundary conditions and load formulation were not changed.
+
+FULL postprocessor fixes:
+1. Canonical PNG names are preserved. The final publishing stage no longer renames
+   every graph to RUN_... prefixed PNG names. Old prefixed PNGs are removed only
+   when the matching canonical PNG exists.
+2. Removed duplicate through-thickness PNG generation. A through-thickness profile
+   is now stored once under GRAPHS/THROUGH_THICKNESS; SECTIONS keeps actual XZ/SZ cuts.
+3. Excel resultants are separated correctly:
+   - KL RESULTANTS: Nx, Ns, Nxs only.
+   - KL MOMENTS: Mx, Ms, Mxs only.
+   - CUF: RESULTANTS contains generalized resultants; misleading MOMENTS.xlsx is not created.
+4. Added explicit FULL progress messages for displacement maps, stress/strain
+   reconstruction, sections, final maps/3D/control points, Excel and numeric ZIP.
+
+VIDEO fixes:
+1. VIDEO reference deflection now uses the same fixed reference point as static
+   postprocessing: x=L/2, theta=0.
+2. VIDEO field lists are theory-aware (KL vs CUF).
+3. 'ALL main videos' job list is de-duplicated; selected-field 3D video is not
+   repeated when the same field is already represented by stress/strain/deformation.
+4. Provider data are cached per step/mode/field within each video job, avoiding
+   duplicate reconstruction during scan and encoding.
+5. A failure of one video no longer aborts the entire ALL-video queue; remaining
+   videos continue, and failures are reported at the end.
+6. Accepted early STEP states can reconstruct required physical fields in memory;
+   no STEP_xxxx_DERIVED.npz files are created by VIDEO.
+
+Verification performed:
+- Python compilation: FINAL_GUI.py, FINAL_POSTPROCESS.py, final_excel_export.py,
+  FINAL_VIDEO_EXPORT.py — PASS.
+- OUTPUT_BUNDLE_EXCEL_SELF_CHECK.py — PASS.
+- V7_SELF_CHECK.py — PASS.
+- Fresh FULL smoke on real TE1 von Karman 20-step result:
+  selected STEP_0020.npz, derived_error=None, VTK and Excel generated.
+- PNG SHA-256 audit after FULL: 133 PNG, 0 duplicate-content groups.
+- KL Excel check: RESULTANTS contains Nx/Ns/Nxs; MOMENTS contains Mx/Ms/Mxs.
+- VIDEO reference vs static LOAD_DEFLECTION.csv over 20 steps: max difference 0.0.
+- Early-step CUF and KL physical-field reconstruction in memory: PASS; no DERIVED file written.
+- Real MP4 smoke (stress sigma_i, STEP 1-2): PASS.
+- VIDEO output-name uniqueness for CUF, CUF+Birger, KL, KL+Birger: PASS.
