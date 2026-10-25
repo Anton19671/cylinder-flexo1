@@ -1442,36 +1442,62 @@ class EnhancedSolverGUI(SolverGUI):
         self.problem_left_canvas.bind("<MouseWheel>",_problem_mousewheel)
         left.bind("<MouseWheel>",_problem_mousewheel)
 
-        # The boundary-condition block and cylinder scheme can be taller than
-        # a scaled Windows display.  Keep the complete right-hand side reachable
-        # through its own scrollbar rather than clipping the scheme below screen.
+        # Product-style right-side workspace: BC editing and the live cylinder
+        # occupy independent tabs, instead of compressing one another vertically.
         right_host=ttk.Frame(f)
         right_host.grid(row=0,column=1,sticky="nsew")
-        right_host.columnconfigure(0,weight=1); right_host.rowconfigure(0,weight=0); right_host.rowconfigure(1,weight=1)
-        self.problem_right_canvas=tk.Canvas(right_host,highlightthickness=0,borderwidth=0)
+        right_host.columnconfigure(0,weight=1)
+        right_host.rowconfigure(0,weight=1)
+        self.problem_right_tabs=ttk.Notebook(right_host,style="Workspace.TNotebook")
+        self.problem_right_tabs.grid(row=0,column=0,sticky="nsew")
+        bc_page=ttk.Frame(self.problem_right_tabs,padding=(10,10,10,10))
+        scheme_page=ttk.Frame(self.problem_right_tabs,padding=(10,10,10,10))
+        self.problem_right_bc_tab=bc_page
+        self.problem_right_scheme_tab=scheme_page
+        self.problem_right_tabs.add(bc_page,text="  Краевые условия  ")
+        self.problem_right_tabs.add(scheme_page,text="  Схема цилиндра  ")
+        self.problem_right_tabs.bind("<<NotebookTabChanged>>",
+            lambda _e:self._schedule_problem_scheme_redraw(60))
+
+        bc_page.columnconfigure(0,weight=1)
+        bc_page.rowconfigure(1,weight=1)
+        bc_toolbar=ttk.Frame(bc_page)
+        bc_toolbar.grid(row=0,column=0,columnspan=2,sticky="ew",pady=(1,11))
+        bc_toolbar.columnconfigure(0,weight=1)
+        ttk.Label(bc_toolbar,text="Граничные условия",
+                  font=("Segoe UI Semibold",13),foreground="#17324d").grid(
+                      row=0,column=0,sticky="w")
+        ttk.Label(bc_toolbar,text="Опоры, допускаемые перемещения и реакции на торцах",
+                  font=("Segoe UI",9),foreground="#52687a").grid(
+                      row=1,column=0,sticky="w",pady=(3,0))
+        ttk.Button(bc_toolbar,text="Показать цилиндр",
+                   command=lambda:self.problem_right_tabs.select(scheme_page)).grid(
+                       row=0,column=1,rowspan=2,sticky="e",padx=(12,0))
+
+        # Keep the BC editor independently scrollable; it owns the full
+        # remaining height, even at Windows display scaling >100%.
+        self.problem_right_canvas=tk.Canvas(
+            bc_page,highlightthickness=0,borderwidth=0,background="#f4f6f8")
         self.problem_right_canvas.grid(row=1,column=0,sticky="nsew")
         self.problem_right_scroll=ttk.Scrollbar(
-            right_host,orient="vertical",command=self.problem_right_canvas.yview,
+            bc_page,orient="vertical",command=self.problem_right_canvas.yview,
             style="Green.Vertical.TScrollbar"
         )
         self.problem_right_scroll.grid(row=1,column=1,sticky="ns")
         self.problem_right_canvas.configure(yscrollcommand=self.problem_right_scroll.set)
-        right=ttk.Frame(self.problem_right_canvas)
+        right=ttk.Frame(self.problem_right_canvas,padding=(4,4,14,16))
+        right.columnconfigure(0,weight=1)
         self.problem_right_inner=right
         self._problem_right_window=self.problem_right_canvas.create_window(
             (0,0),window=right,anchor="nw"
         )
-        right.bind(
-            "<Configure>",
-            lambda _e:self.problem_right_canvas.configure(
-                scrollregion=self.problem_right_canvas.bbox("all")
-            )
-        )
+        right.bind("<Configure>",
+                   lambda _e:self.problem_right_canvas.configure(
+                       scrollregion=self.problem_right_canvas.bbox("all")))
         self.problem_right_canvas.bind(
             "<Configure>",
             lambda e:self.problem_right_canvas.itemconfigure(
-                self._problem_right_window,width=max(1,e.width)
-            )
+                self._problem_right_window,width=max(1,e.width))
         )
 
         geom=ttk.LabelFrame(left,text="Геометрия замкнутого цилиндра",padding=8); geom.pack(fill="x",pady=(0,8))
@@ -1558,38 +1584,127 @@ class EnhancedSolverGUI(SolverGUI):
         self.grid_info=ttk.Label(grid,text="Δx = —; Δs = —; число неизвестных = —",wraplength=470)
         self.grid_info.grid(row=8,column=0,columnspan=2,sticky="w",pady=(7,0))
 
-        bc=ttk.LabelFrame(right,text="Краевые условия на торцах x=0 и x=L",padding=8); bc.pack(fill="x",pady=(0,8))
-        ttk.Label(bc,text="Режим КУ").grid(row=0,column=0,sticky="w")
-        bcm=ttk.Combobox(bc,textvariable=self._v("bc_mode","SIMPLE"),values=("SIMPLE","INDIVIDUAL"),state="readonly",width=24)
-        bcm.grid(row=0,column=1,padx=6,sticky="w"); bcm.bind("<<ComboboxSelected>>",lambda e:self._refresh_visibility())
-        ttk.Label(bc,text="Левый торец").grid(row=1,column=0,sticky="w")
-        self.bc_left_combo=ttk.Combobox(bc,textvariable=self._v("bc_left",""),values=("","CLAMPED","FREE"),state="readonly",width=52)
-        self.bc_left_combo.grid(row=1,column=1,padx=6,sticky="ew")
-        ttk.Label(bc,text="Правый торец").grid(row=2,column=0,sticky="w")
-        self.bc_right_combo=ttk.Combobox(bc,textvariable=self._v("bc_right",""),values=("","CLAMPED","FREE"),state="readonly",width=52)
-        self.bc_right_combo.grid(row=2,column=1,padx=6,sticky="ew")
+        # Full-width, grouped BC controls. All pre-existing widget references
+        # and StringVars are retained for solver routing and preset translation.
+        bc=ttk.LabelFrame(right,text="01  ·  Тип закрепления торцов",padding=(14,13))
+        bc.pack(fill="x",pady=(0,12))
         bc.columnconfigure(1,weight=1)
-        buttons=ttk.Frame(bc); buttons.grid(row=3,column=0,columnspan=2,sticky="w",pady=(8,4))
-        self.bc_edit_btn=ttk.Button(buttons,text="Ручные / Custom КУ…",command=self._edit_individual_bc)
-        self.bc_edit_btn.pack(side="left",padx=(0,6))
-        self.bc_engineering_btn=ttk.Button(buttons,text="Инженерные жёсткости k…",command=self._edit_engineering_bc)
-        self.bc_engineering_btn.pack(side="left")
-        self.bc_summary=ttk.Label(bc,text="PRESET: требуется явный выбор",justify="left",wraplength=520)
-        self.bc_summary.grid(row=4,column=0,columnspan=2,sticky="w")
-        self.bc_active_equations=ttk.Label(bc,text="Активные уравнения ГУ: —",justify="left",wraplength=520,foreground="#17324d")
-        self.bc_active_equations.grid(row=5,column=0,columnspan=2,sticky="w",pady=(5,0))
-        ttk.Label(bc,text="Preset выбирает физический тип опоры, а решатель автоматически разворачивает его в формулы текущей модели KL/TE1–TE4. Custom позволяет задавать каждую DOF вручную. FREE–FREE без обработки жёстких мод отклоняется.",wraplength=520).grid(row=6,column=0,columnspan=2,sticky="w",pady=(8,0))
+        ttk.Label(bc,text="Режим задания").grid(
+            row=0,column=0,sticky="w",padx=(0,14),pady=(1,9))
+        bcm=ttk.Combobox(
+            bc,textvariable=self._v("bc_mode","SIMPLE"),
+            values=("SIMPLE","INDIVIDUAL"),state="readonly",width=25
+        )
+        bcm.grid(row=0,column=1,sticky="ew",pady=(1,9))
+        bcm.bind("<<ComboboxSelected>>",lambda _e:self._refresh_visibility())
+        ttk.Separator(bc,orient="horizontal").grid(
+            row=1,column=0,columnspan=2,sticky="ew",pady=(2,10))
+        ttk.Label(bc,text="Левый торец · x = 0",
+                  font=("Segoe UI Semibold",10)).grid(
+                      row=2,column=0,sticky="w",padx=(0,14),pady=(3,10))
+        self.bc_left_combo=ttk.Combobox(
+            bc,textvariable=self._v("bc_left",""),
+            values=("","CLAMPED","FREE"),state="readonly",width=26
+        )
+        self.bc_left_combo.grid(row=2,column=1,sticky="ew",pady=(3,10))
+        ttk.Label(bc,text="Правый торец · x = L",
+                  font=("Segoe UI Semibold",10)).grid(
+                      row=3,column=0,sticky="w",padx=(0,14),pady=(3,6))
+        self.bc_right_combo=ttk.Combobox(
+            bc,textvariable=self._v("bc_right",""),
+            values=("","CLAMPED","FREE"),state="readonly",width=26
+        )
+        self.bc_right_combo.grid(row=3,column=1,sticky="ew",pady=(3,6))
+        ttk.Label(
+            bc,text="Для ручного задания используйте подробный редактор ниже.",
+            foreground="#52687a",justify="left"
+        ).grid(row=4,column=0,columnspan=2,sticky="w",pady=(9,0))
 
-        scheme=ttk.LabelFrame(right_host,text="Интерактивный цилиндр · нагрузки и закрепления",padding=8)
-        scheme.grid(row=0,column=0,columnspan=2,sticky="ew",pady=(0,8))
-        self.scheme_canvas=tk.Canvas(scheme,height=215,background="white",highlightthickness=1,highlightbackground="#aaa")
-        self.scheme_canvas.pack(fill="both",expand=True)
-        self.scheme_canvas.bind("<Configure>",lambda _e:self._schedule_problem_scheme_redraw(70))
-        actions=ttk.Frame(scheme);actions.pack(fill="x",pady=(5,0))
-        ttk.Label(actions,text="ЛКМ: повернуть · Ctrl+колесо: масштаб",
-                  foreground="#52687a").pack(side="left")
-        ttk.Button(actions,text="Крупно…",command=self._open_cylinder_popup).pack(side="right")
-        ttk.Button(actions,text="Обновить",command=self._draw_problem_scheme).pack(side="right",padx=5)
+        editors=ttk.LabelFrame(right,text="02  ·  Подробная настройка условий",padding=(14,12))
+        editors.pack(fill="x",pady=(0,12))
+        self.bc_actions_frame=ttk.Frame(editors)
+        self.bc_actions_frame.pack(fill="x")
+        self.bc_edit_btn=ttk.Button(
+            self.bc_actions_frame,text="Ручные / Custom условия по степеням свободы…",
+            command=self._edit_individual_bc
+        )
+        self.bc_edit_btn.pack(fill="x",pady=(0,7))
+        self.bc_engineering_btn=ttk.Button(
+            self.bc_actions_frame,text="Инженерные жёсткости и упругие опоры…",
+            command=self._edit_engineering_bc
+        )
+        self.bc_engineering_btn.pack(fill="x")
+
+        status_card=ttk.LabelFrame(
+            right,text="03  ·  Применяемые ограничения и уравнения",padding=(14,12))
+        status_card.pack(fill="x",pady=(0,12))
+        self.bc_summary=ttk.Label(
+            status_card,text="Выберите тип закрепления для обоих торцов.",
+            justify="left",wraplength=440,foreground="#243447"
+        )
+        self.bc_summary.pack(fill="x",anchor="w")
+        ttk.Separator(status_card,orient="horizontal").pack(fill="x",pady=(11,10))
+        self.bc_active_equations=ttk.Label(
+            status_card,text="Активные уравнения ГУ: —",
+            justify="left",wraplength=440,foreground="#17324d"
+        )
+        self.bc_active_equations.pack(fill="x",anchor="w")
+
+        self.bc_help_note=ttk.Label(
+            right,text=(
+                "Готовые условия автоматически разворачиваются в ограничения "
+                "текущей теории KL / CUF TE1–TE4. Ручной редактор позволяет "
+                "задавать степени свободы индивидуально. Свободные оба торца "
+                "без обработки жёстких мод решателем не допускаются."
+            ),
+            wraplength=440,justify="left",foreground="#52687a"
+        )
+        self.bc_help_note.pack(fill="x",anchor="w",pady=(0,12))
+
+        def _reflow_boundary_labels(event):
+            # Width tracks the working pane; avoid clipped status text.
+            available=max(200,event.width-44)
+            for label in (self.bc_summary,self.bc_active_equations,self.bc_help_note):
+                label.configure(wraplength=available)
+        right.bind("<Configure>",_reflow_boundary_labels,add="+")
+
+        # Scheme gets its own entire page. The previous fixed-height schematic
+        # is intentionally not above the BC editor.
+        scheme_page.columnconfigure(0,weight=1)
+        scheme_page.rowconfigure(0,weight=1)
+        scheme=ttk.LabelFrame(
+            scheme_page,text="Интерактивная схема постановки",padding=(12,11))
+        scheme.grid(row=0,column=0,sticky="nsew")
+        scheme.columnconfigure(0,weight=1)
+        scheme.rowconfigure(0,weight=1)
+        self.scheme_canvas=tk.Canvas(
+            scheme,background="white",height=310,
+            highlightthickness=1,highlightbackground="#bbc7d1")
+        self.scheme_canvas.grid(row=0,column=0,sticky="nsew")
+        self.scheme_canvas.bind(
+            "<Configure>",lambda _e:self._schedule_problem_scheme_redraw(75))
+        scheme_bar=ttk.Frame(scheme)
+        scheme_bar.grid(row=1,column=0,sticky="ew",pady=(11,0))
+        scheme_bar.columnconfigure(0,weight=1)
+        ttk.Label(
+            scheme_bar,text="ЛКМ: поворот  ·  Ctrl+колесо: масштаб",
+            foreground="#52687a",font=("Segoe UI",9)
+        ).grid(row=0,column=0,sticky="w")
+        ttk.Button(
+            scheme_bar,text="Крупно…",command=self._open_cylinder_popup
+        ).grid(row=0,column=2,sticky="e",padx=(7,0))
+        ttk.Button(
+            scheme_bar,text="Обновить",command=self._draw_problem_scheme
+        ).grid(row=0,column=1,sticky="e")
+        ttk.Label(
+            scheme,text="Эскиз заданной задачи; вычисленная деформация отображается "
+                        "в результатах расчёта.",
+            foreground="#52687a",justify="left"
+        ).grid(row=2,column=0,sticky="w",pady=(10,0))
+        ttk.Button(
+            scheme_page,text="Вернуться к краевым условиям",
+            command=lambda:self.problem_right_tabs.select(bc_page)
+        ).grid(row=1,column=0,sticky="e",pady=(8,0))
 
     def _build_load_tab(self):
         f=self.tab_load
@@ -5526,9 +5641,12 @@ class FinalSolverGUI(EnhancedSolverGUI):
                 pass
         if hasattr(self,"grid_info"):
             self.grid_info.configure(text="FDM: Δx = —; Δs = —; число неизвестных = —")
-        if hasattr(self,"bc_summary"):
-            p=self.bc_summary.master
-            ttk.Button(p,text="Механические / G3D / электрические ГУ…",command=self._edit_variational_bc).grid(row=7,column=0,columnspan=2,sticky="w",pady=4)
+        if hasattr(self,"bc_actions_frame"):
+            ttk.Button(
+                self.bc_actions_frame,
+                text="Механические / G3D / электрические условия…",
+                command=self._edit_variational_bc,
+            ).pack(fill="x",pady=(0,7),before=self.bc_edit_btn)
         if not self._v("stencil","7").get().strip(): self._v("stencil").set("7")
         if hasattr(self,"fdm_grid_frame"):
             self.fdm_stencil_combo=ttk.Combobox(self.fdm_grid_frame,textvariable=self._v("stencil"),values=("7",),state="readonly",width=14)
@@ -6829,6 +6947,12 @@ class FinalSolverGUI(EnhancedSolverGUI):
         style.configure("TNotebook",background="#f4f6f8",borderwidth=0)
         style.configure("TNotebook.Tab",padding=(15,8),font=("Segoe UI Semibold",9))
         style.map("TNotebook.Tab",background=[("selected","#ffffff"),("active","#eaf1f7")],foreground=[("selected","#0d4f7c")])
+        style.configure("Workspace.TNotebook",background="#f4f6f8",borderwidth=0)
+        style.configure("Workspace.TNotebook.Tab",padding=(17,11),
+                        font=("Segoe UI Semibold",10))
+        style.map("Workspace.TNotebook.Tab",
+                  background=[("selected","#ffffff"),("active","#eaf1f7")],
+                  foreground=[("selected","#075f96")])
         style.configure("TButton",padding=(11,6))
         style.configure("Accent.TButton",padding=(18,8),font=("Segoe UI Semibold",10),foreground="white",background="#0877bd",bordercolor="#0877bd")
         style.map("Accent.TButton",background=[("active","#075f96"),("disabled","#9fb8c8")])
