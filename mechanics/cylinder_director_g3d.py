@@ -23,6 +23,7 @@ implied by this kinematic restriction of the 3D StVK material law.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 import math
 import numpy as np
 
@@ -145,6 +146,7 @@ def reddy_thickness_functions(z_m, radius_m, thickness_m):
     return axial, np.array((a,da,dda),float)
 
 
+@lru_cache(maxsize=512)
 def _warp(theory,z,R,h):
     if theory not in THEORIES:
         raise ValueError("theory must be FSDT or REDDY")
@@ -258,6 +260,35 @@ def thickness_enthalpy(jets: DirectorSurfaceJets, material: G3DMaterial, *,
     return float(total)
 
 
+@lru_cache(maxsize=192)
+def _director_virtual_f_jets(theory,z,R,h):
+    zeros=np.zeros(5)
+    electric=np.zeros(1)
+    state=DirectorSurfaceJets(*(zeros.copy() for _ in FIELDS),
+                              *(electric.copy() for _ in ELECTRICAL_FIELDS))
+    result=np.empty((len(FIELDS),5,4,3,3))
+    for k,name in enumerate(FIELDS):
+        for i in range(5):
+            result[k,i]=np.stack(_F_jets(
+                _unit(state,name,i),theory,z,R,h,virtual=True))
+    result.setflags(write=False)
+    return result
+
+
+@lru_cache(maxsize=192)
+def _director_virtual_velocity(theory,z,R,h):
+    zeros=np.zeros(5)
+    electric=np.zeros(1)
+    state=DirectorSurfaceJets(*(zeros.copy() for _ in FIELDS),
+                              *(electric.copy() for _ in ELECTRICAL_FIELDS))
+    result=np.empty((3,5,3))
+    for k,name in enumerate(FIELDS[:3]):
+        for i in range(5):
+            result[k,i]=_displacement(_unit(state,name,i),theory,z,R,h)
+    result.setflags(write=False)
+    return result
+
+
 def thickness_weak_coefficients(jets: DirectorSurfaceJets, material: G3DMaterial, *,
                                 theory, radius_m, thickness_m, n_gauss=12):
     """Exact local Gateaux coefficients of the thickness-integrated enthalpy.
@@ -269,15 +300,15 @@ def thickness_weak_coefficients(jets: DirectorSurfaceJets, material: G3DMaterial
     elec=np.zeros((jets.potential_order+1,len(ELECTRICAL_FIELDS)))
     total=0.
     zs,ws=gauss_thickness(h,n_gauss)
-    directions=[_unit(jets,name,i) for name in FIELDS for i in range(5)]
     for z,w in zip(zs,ws):
+        library=_director_virtual_f_jets(theory,float(z),R,h)
         p=director_point(jets,theory=theory,z_m=z,radius_m=R,thickness_m=h)
         F,Fx,Fs,Fz=_F_jets(jets,theory,z,R,h)
         sigma,hyper,D=enthalpy_derivatives(p.strain6,p.gradient6x3,p.electric3,material)
         total+=w*p.H*enthalpy_parts(p.strain6,p.gradient6x3,p.electric3,material)["total"]
         for k in range(len(FIELDS)):
             for i in range(5):
-                dF,dFx,dFs,dFz=_F_jets(directions[5*k+i],theory,z,R,h,virtual=True)
+                dF,dFx,dFs,dFz=library[k,i]
                 de,der=_strain_virtual(F,Fx,Fs,Fz,dF,dFx,dFs,dFz)
                 dg=covariant_strain_gradients(de,*der,radius_m=R,z_m=z)
                 mech[i,k]+=w*p.H*(sigma@de + np.sum(hyper*dg))
@@ -322,12 +353,12 @@ def kinetic_weak_coefficients(velocity_jets: DirectorSurfaceJets, *, theory,
     if not math.isfinite(rho) or rho<=0:raise ValueError("rho must be positive and finite")
     zs,ws=gauss_thickness(h,n_gauss)
     coeff=np.zeros((5,3))
-    directions=[_unit(velocity_jets,name,i) for name in FIELDS[:3] for i in range(5)]
     for z,w in zip(zs,ws):
+        library=_director_virtual_velocity(theory,float(z),R,h)
         vel=_displacement(velocity_jets,theory,z,R,h)
         for k in range(3):
             for i in range(5):
-                dvel=_displacement(directions[5*k+i],theory,z,R,h)
+                dvel=library[k,i]
                 coeff[i,k]+=rho*w*(1+z/R)*float(vel@dvel)
     return coeff
 
