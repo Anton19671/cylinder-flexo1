@@ -73,15 +73,16 @@ def _normal_data(q, v, a, Dx, Ds, R):
     return n,nt,ntt,A,B,mag
 
 
-def kl_inertial_weak_action(mechanical, velocity, acceleration, *,
-                            Dx, Ds, wx, ws, radius_m, thickness_m,
-                            density_kg_m3):
-    """Exact nonlinear inertia residual with surface derivatives assembled by IBP.
+def kl_inertial_jet_coefficients(mechanical, velocity, acceleration, *,
+                                  Dx, Ds, wx, ws, radius_m, thickness_m,
+                                  density_kg_m3):
+    """Return exact KL inertial virtual-work coefficients before surface IBP.
 
-    Inputs and return: (3,nx,ns); density in kg/m^3. Inertia is
-    configuration- and velocity-dependent:
-      I(q,v,a)=M(q)a+G(q)[v,v].
-    The same physical normal n is used by the KL Green-Lagrange enthalpy.
+    Order: (q,q_x,q_s), each coefficient (3,nx,ns). They are the
+    *unweighted* local density per unit reference midsurface area.
+    Thus they can be used both in the exact discrete adjoint and in
+    the continuum-form natural-end diagnostic. Includes the
+    D2n(q)[qdot,qdot] (gyroscopic/geometric) acceleration term.
     """
     Dx=np.asarray(Dx,float)
     Ds=np.asarray(Ds,float)
@@ -105,28 +106,45 @@ def kl_inertial_weak_action(mechanical, velocity, acceleration, *,
     a=_state(acceleration,shape,"KL acceleration")
     n,nt,ntt,A,B,mag=_normal_data(q,v,a,Dx,Ds,R)
     a_vec=np.moveaxis(a,0,-1)
-    # Exact curved thickness moments of rho H(z).
     m0=rho*h
     m1=rho*h**3/(12.*R)
     m2=rho*h**3/12.
     g0=m0*a_vec+m1*ntt
     gn=m1*a_vec+m2*ntt
-    # d n=P_n dN/|N|; the adjoint converts a normal virtual
-    # variation into independent variations of q, q_x, q_s.
     projected=(gn-n*np.sum(n*gn,axis=-1)[...,None])/mag[...,None]
     gx=np.cross(B,projected)
     gs=np.cross(projected,A)
     gq=g0.copy()
     gq[...,1]-=gs[...,2]/R
     gq[...,2]+=gs[...,1]/R
-    weights=wx[:,None]*ws[None,:]
-    # Discrete surface adjoints match the exact variation of the
-    # trapezoidal weak integral and include natural edge work.
-    gq_c=np.moveaxis(gq*weights[...,None],-1,0)
-    gx_c=np.moveaxis(gx*weights[...,None],-1,0)
-    gs_c=np.moveaxis(gs*weights[...,None],-1,0)
-    out=(gq_c+np.einsum("ki,ckj->cij",Dx,gx_c,optimize=True)
-         +np.einsum("kj,cik->cij",Ds,gs_c,optimize=True))
+    out=np.stack((np.moveaxis(gq,-1,0),
+                  np.moveaxis(gx,-1,0),
+                  np.moveaxis(gs,-1,0)),axis=0)
+    if not np.isfinite(out).all():
+        raise ValueError("INVALID_KL_INERTIAL_WEAK_COEFFICIENTS")
+    return out
+
+
+def kl_inertial_weak_action(mechanical, velocity, acceleration, *,
+                            Dx, Ds, wx, ws, radius_m, thickness_m,
+                            density_kg_m3):
+    """Assemble the same full finite-rotation inertial virtual work by adjoints.
+
+    This and natural end diagnostics share one exact local inertial
+    coefficient map: no separately approximated KL inertia is introduced.
+    """
+    coefficients=kl_inertial_jet_coefficients(
+        mechanical,velocity,acceleration,Dx=Dx,Ds=Ds,wx=wx,ws=ws,
+        radius_m=radius_m,thickness_m=thickness_m,
+        density_kg_m3=density_kg_m3)
+    W=np.asarray(wx,float)[:,None]*np.asarray(ws,float)[None,:]
+    Dx=np.asarray(Dx,float)
+    Ds=np.asarray(Ds,float)
+    out=(coefficients[0]*W[None,...]
+         +np.einsum("ki,ckj->cij",Dx,coefficients[1]*W[None,...],
+                    optimize=True)
+         +np.einsum("kj,cik->cij",Ds,coefficients[2]*W[None,...],
+                    optimize=True))
     if not np.isfinite(out).all():
         raise ValueError("INVALID_KL_INERTIAL_WEAK_RESIDUAL")
     return out
@@ -158,4 +176,5 @@ def kl_kinetic_energy(mechanical, velocity, *, Dx, Ds, wx, ws,
     return total
 
 
-__all__=("kl_inertial_weak_action","kl_kinetic_energy")
+__all__=("kl_inertial_weak_action","kl_inertial_jet_coefficients",
+         "kl_kinetic_energy")
