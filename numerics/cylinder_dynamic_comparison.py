@@ -14,6 +14,7 @@ from pathlib import Path
 import csv
 import math
 import numpy as np
+from cylinder_newmark_audit import audit_newmark_step
 
 FIELDS = ("mechanical", "radial_displacement", "electrical", "velocity",
           "acceleration", "damping_force", "full_residual", "constraint_reaction")
@@ -74,6 +75,43 @@ def _read_completed_run(folder, method):
     case = _read_json(folder / "REFERENCE_CASE.json")
     if str(case.get("method", "")).upper() != method:
         raise ValueError(f"{method}: CASE/summary method mismatch")
+    # A converged summary flag is not proof that the NPZ files contain the
+    # Newmark state. Independently re-audit every accepted step against the
+    # previous saved state, beginning with the mandatory initial state.
+    integrator = summary.get("newmark")
+    if not isinstance(integrator, dict):
+        raise ValueError(f"{method}: missing Newmark integrator passport")
+    t0 = _finite_number(integrator.get("start_time_s"), "Newmark initial time")
+    dt = _finite_number(integrator.get("dt_s"), "Newmark step size")
+    beta = _finite_number(integrator.get("beta"), "Newmark beta")
+    gamma = _finite_number(integrator.get("gamma"), "Newmark gamma")
+    if dt <= 0 or beta <= 0 or gamma < 0:
+        raise ValueError(f"{method}: invalid Newmark time integration settings")
+    case_dyn = case.get("dynamics")
+    if not isinstance(case_dyn, dict):
+        raise ValueError(f"{method}: missing physical CASE dynamics")
+    if not math.isclose(dt, _finite_number(case_dyn.get("time_step_s"), "CASE time step"),
+                        rel_tol=1.e-12, abs_tol=0.) or not math.isclose(
+        t0, _finite_number(case_dyn.get("start_time_s", 0.), "CASE start time"),
+        rel_tol=1.e-12, abs_tol=1.e-13):
+        raise ValueError(f"{method}: Newmark time grid disagrees with physical CASE")
+    with np.load(folder / "REFERENCE_DYNAMIC_INITIAL.npz", allow_pickle=False) as saved:
+        initial_keys = {"time_s", "mechanical", "velocity", "acceleration"}
+        if not initial_keys.issubset(saved.files):
+            raise ValueError(f"{method}: initial Newmark state missing mechanical kinematics")
+        previous = {key: np.asarray(saved[key], dtype=float).copy()
+                    for key in initial_keys}
+        if bool(summary.get("electrical_enabled")) != ("electrical" in saved.files):
+            raise ValueError(f"{method}: initial electric state missing/inconsistent")
+    if any(not np.isfinite(value).all() for value in previous.values()):
+        raise ValueError(f"{method}: nonfinite initial Newmark state")
+    if (previous["mechanical"].ndim != 3 or previous["mechanical"].size == 0 or
+        any(previous[key].shape != previous["mechanical"].shape
+            for key in ("velocity", "acceleration")) or
+        previous["time_s"].shape != () or
+        not math.isclose(float(previous["time_s"]), t0,
+                         rel_tol=1.e-12, abs_tol=1.e-13)):
+        raise ValueError(f"{method}: invalid initial Newmark state shape/time")
     frames = []
     required = {"mechanical", "velocity", "acceleration", "time_s", "load_factor",
                 "full_residual", "constraint_reaction"}
@@ -119,6 +157,20 @@ def _read_completed_run(folder, method):
         for key in ("full_residual", "constraint_reaction"):
             if frame[key].shape != (state_size,):
                 raise ValueError(f"{method} step {idx}: {key} vector shape mismatch")
+        # Cross-method agreement is insufficient if BOTH stored histories
+        # disagree with the declared Newmark physical time grid.
+        expected_time = t0 + idx*dt
+        time_roundoff = 16*np.finfo(float).eps*max(
+            1., abs(time), abs(expected_time))
+        if abs(time-expected_time) > time_roundoff:
+            raise ValueError(
+                f"{method} step {idx}: saved time grid differs from Newmark CASE")
+        audit_newmark_step(previous["mechanical"], previous["velocity"],
+                           previous["acceleration"], frame["mechanical"],
+                           frame["velocity"], frame["acceleration"],
+                           dt_s=dt, beta=beta, gamma=gamma)
+        previous = {key: frame[key]
+                    for key in ("mechanical", "velocity", "acceleration")}
         frames.append(frame)
     return summary, case, frames
 
