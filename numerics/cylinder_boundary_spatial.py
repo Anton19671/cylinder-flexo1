@@ -228,11 +228,13 @@ class BoundarySpatialProblem:
         if acceleration is not None:
             # Electric coefficients remain quasi-static; they acquire no mass.
             # The functional explicitly rejects unsupported nonlinear KL mass.
-            rm = rm+self.functional.mass_action(acceleration, density_kg_m3=density_kg_m3)
+            rm = rm+self.functional.mass_action(acceleration, density_kg_m3=density_kg_m3,
+                mechanical=mechanical,velocity=velocity)
         if velocity is not None:
             rm = rm+self.functional.mass_proportional_damping_action(
                 velocity,density_kg_m3=density_kg_m3,
-                mass_damping_rate_per_s=mass_damping_rate_per_s)
+                mass_damping_rate_per_s=mass_damping_rate_per_s,
+                mechanical=mechanical)
         residual = rm.ravel() if re is None else np.concatenate(
             (rm.ravel(), re.ravel()))
         if not np.isfinite(residual).all():
