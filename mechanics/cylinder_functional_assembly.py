@@ -29,6 +29,10 @@ from flexo_gradient_g3d import G3DMaterial, enthalpy_parts
 from cylinder_kl_exact_inertia import kl_inertial_weak_action, kl_inertial_jet_coefficients
 from cylinder_kelvin_voigt import kelvin_voigt_thickness_weak, KelvinVoigtGlobal
 from cylinder_g3d_natural_edges import axial_natural_end_tractions
+from cylinder_sbp_derivatives import (
+    SBP_OPERATOR_SCHEME, axial_sbp21_gradient, periodic_sbp_odd_gradient,
+    require_green_identity,
+)
 from cuf_g3d_weak import (
     CUFSurfaceJets, mass_matrix_te, gauss_thickness,
     thickness_weak_coefficients as _cuf_weak,
@@ -95,6 +99,17 @@ def surface_trapezoid(n_axial,n_circumference,length_m,radius_m):
     wx=np.full(n_axial,L/(n_axial-1))
     wx[[0,-1]]*=.5
     ws=np.full(n_circumference,2*math.pi*R/n_circumference)
+    return SurfaceOperators(Dx,Ds,wx,ws)
+
+
+def surface_sbp21(n_axial,n_circumference,length_m,radius_m):
+    """Explicit SBP21 / odd periodic verification discretization in SI."""
+    R=float(radius_m)
+    if not math.isfinite(R) or R<=0:
+        raise ValueError("R must be finite positive")
+    Dx,wx=axial_sbp21_gradient(n_axial,length_m)
+    Ds,ws=periodic_sbp_odd_gradient(n_circumference,2*math.pi*R)
+    require_green_identity(Dx,Ds,wx,ws)
     return SurfaceOperators(Dx,Ds,wx,ws)
 
 
@@ -545,6 +560,6 @@ class CylinderFunctional:
 
 
 __all__=("CylinderFunctional","SurfaceOperators","FunctionalResult",
-         "surface_trapezoid","periodic_face_gradient","axial_fd_gradient",
+         "surface_trapezoid","surface_sbp21","periodic_face_gradient","axial_fd_gradient",
          "MECHANICAL_DERIVATIVES","ELECTRICAL_DERIVATIVES")
 
