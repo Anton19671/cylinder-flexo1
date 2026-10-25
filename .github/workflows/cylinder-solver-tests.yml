@@ -1,22 +1,9 @@
 name: Cylinder Flexo Solver Tests
 
+# GitHub Actions quota is exhausted for this repository.
+# Keep manual dispatch available when a runner quota is restored;
+# regular development commits must not enqueue failed jobs.
 on:
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/cylinder-solver-tests.yml"
-      - "interface/**"
-      - "mechanics/**"
-      - "numerics/**"
-      - "physics/**"
-      - "flexoelectric/**"
-      - "models/**"
-      - "mvi/**"
-      - "mkr/**"
-      - "tests/**"
-      - "config/**"
-      - "requirements.txt"
-      - "cylinder_paths.py"
   workflow_dispatch:
 
 permissions:
