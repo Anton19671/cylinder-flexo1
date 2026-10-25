@@ -200,15 +200,19 @@ class BoundarySpatialProblem:
         if self.kind not in ("STATIC", "DYNAMIC"):
             raise ValueError("calculation_kind must be STATIC/DYNAMIC")
 
-    def assemble(self, mechanical, electrical=None, *, method="FDM", directions=None,
-                 dead_load=None, free_charge=None, time_s=None,
-                 acceleration=None, density_kg_m3=None,
-                 velocity=None, mass_damping_rate_per_s=0.0):
-        method = str(method).upper()
-        if method not in ("FDM", "MVI"):
-            raise ValueError("method must be FDM/MVI")
-        if (method == "MVI") != (directions is not None):
-            raise ValueError("MVI requires frozen-partner directions; FDM uses all nodes")
+    def evaluate_effective_residual(self, mechanical, electrical=None, *,
+                                    dead_load=None, free_charge=None, time_s=None,
+                                    acceleration=None, density_kg_m3=None,
+                                    velocity=None, mass_damping_rate_per_s=0.0):
+        """Exact full bulk+edge+mass+damping residual without a trace-space SVD.
+
+        The Newton corrector builds its affine admissible space once at each
+        physical time, then calls this method for every tangent perturbation
+        and line search. Boundary work and electric gauge compatibility are
+        still evaluated at every trial; no residual row is replaced or
+        boundary constraint relaxed. This path returns the *full* residual,
+        not a projected MVI residual.
+        """
         if self.kind == "STATIC" and acceleration is not None:
             raise ValueError("STATIC cannot include inertia")
         if (acceleration is None) != (density_kg_m3 is None):
@@ -229,9 +233,28 @@ class BoundarySpatialProblem:
             rm = rm+self.functional.mass_proportional_damping_action(
                 velocity,density_kg_m3=density_kg_m3,
                 mass_damping_rate_per_s=mass_damping_rate_per_s)
+        residual = rm.ravel() if re is None else np.concatenate(
+            (rm.ravel(), re.ravel()))
+        if not np.isfinite(residual).all():
+            raise ValueError("nonfinite full variational residual")
+        return energy, residual, edge
+
+    def assemble(self, mechanical, electrical=None, *, method="FDM", directions=None,
+                 dead_load=None, free_charge=None, time_s=None,
+                 acceleration=None, density_kg_m3=None,
+                 velocity=None, mass_damping_rate_per_s=0.0):
+        method = str(method).upper()
+        if method not in ("FDM", "MVI"):
+            raise ValueError("method must be FDM/MVI")
+        if (method == "MVI") != (directions is not None):
+            raise ValueError("MVI requires frozen-partner directions; FDM uses all nodes")
+        energy, residual, edge = self.evaluate_effective_residual(
+            mechanical, electrical, dead_load=dead_load, free_charge=free_charge,
+            time_s=time_s, acceleration=acceleration, density_kg_m3=density_kg_m3,
+            velocity=velocity, mass_damping_rate_per_s=mass_damping_rate_per_s)
         q = np.asarray(mechanical, float)
-        state = q.ravel() if re is None else np.concatenate((q.ravel(), np.asarray(electrical).ravel()))
-        residual = rm.ravel() if re is None else np.concatenate((rm.ravel(), re.ravel()))
+        state = q.ravel() if electrical is None else np.concatenate(
+            (q.ravel(), np.asarray(electrical).ravel()))
         constraints = list(edge.constraints)
         rows, values, labels = [], [], []
         for row in constraints:
