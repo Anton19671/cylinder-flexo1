@@ -463,7 +463,9 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
             # the accepted-state name, updating history, or changing q/v/a.
             accepted,gate_status=effective_step_acceptance(
                 bool(result.converged),result.residual_relative_to_initial,
-                newmark.residual_tolerance_relative)
+                newmark.residual_tolerance_relative,
+                absolute_residual=result.admissible_residual_scaled,
+                absolute_tolerance=prepared.settings.absolute_tolerance_scaled)
             trace_defects=None
             if accepted:
                 try:
