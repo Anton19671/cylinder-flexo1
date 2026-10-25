@@ -30,21 +30,29 @@ class TestDynamicComparison(TestCase):
                      "scale_model":"MICRO","geometry_model":"GREEN_LAGRANGE",
                      "material_model":"HOOKE","field_order":"component,x,s",
                      "thickness_basis":"(2*z/h)**k","electrical_enabled":True,
-                     "density_kg_m3":1300.,"newmark":{"dt_s":.01,"beta":.25,"gamma":.5},
+                     "density_kg_m3":1300.,"newmark":{"dt_s":.01,"beta":.25,"gamma":.5,"start_time_s":0.},
                      "damping":{"kind":"NONE","mass_damping_rate_per_s":0.},
                      "converged":True,"status":"CONVERGED","accepted_steps":2,
                      "requested_steps":2,"steps":[]}
             if method=="MVI":summary["rank"]=1
+            qprev=np.zeros((6,4,4));vprev=np.zeros_like(qprev);aprev=np.zeros_like(qprev)
+            np.savez_compressed(folder/"REFERENCE_DYNAMIC_INITIAL.npz",
+                time_s=np.array(0.),mechanical=qprev,velocity=vprev,acceleration=aprev,
+                electrical=np.zeros((2,4,4)))
+            dt=.01;beta=.25;gamma=.5
             for i in (1,2):
                 name=f"REFERENCE_DYNAMIC_STEP_{i:04d}.npz"
                 q=np.zeros((6,4,4));q[4]=.0002*i
                 if method=="MVI":q[4,2,1]+=.000002*i
                 p=np.full((2,4,4),.1*i)
+                anext=(q-(qprev+dt*vprev+dt**2*(.5-beta)*aprev))/(beta*dt**2)
+                vnext=vprev+dt*((1-gamma)*aprev+gamma*anext)
                 np.savez_compressed(folder/name,mechanical=q,electrical=p,
-                    velocity=q*3,acceleration=q*8,damping_force=q*0,
+                    velocity=vnext,acceleration=anext,damping_force=q*0,
                     full_residual=np.zeros(q.size+p.size),
                     constraint_reaction=np.zeros(q.size+p.size),
                     time_s=np.array(.01*i),load_factor=np.array(i))
+                qprev,vprev,aprev=q,vnext,anext
                 summary["steps"].append({"index":i,"time_s":.01*i,"load_factor":i,
                     "converged":True,"full_equilibrium_satisfied":True,
                     "admissible_residual_scaled":1.e-10,
@@ -89,6 +97,44 @@ class TestDynamicComparison(TestCase):
                 run_dynamic_pair(original,output)
         self.assertEqual([method for event,method in order if event=="run"],["FDM"])
         self.assertFalse((output/"MVI").exists())
+
+    def test_corrupt_velocity_fails_even_with_converged_summary(self):
+        target=self.mvi/"REFERENCE_DYNAMIC_STEP_0002.npz"
+        with np.load(target) as data:
+            arrays={name:data[name] for name in data.files}
+        arrays["velocity"]=arrays["velocity"].copy()
+        arrays["velocity"][4,2,1]+=.002
+        np.savez_compressed(target,**arrays)
+        with self.assertRaisesRegex(ValueError,"NEWMARK_KINEMATICS_DRIFT"):
+            compare_dynamic_runs(self.mvi,self.fdm)
+
+    def test_corrupt_acceleration_fails_even_with_converged_summary(self):
+        target=self.fdm/"REFERENCE_DYNAMIC_STEP_0001.npz"
+        with np.load(target) as data:
+            arrays={name:data[name] for name in data.files}
+        arrays["acceleration"]=arrays["acceleration"].copy()
+        arrays["acceleration"][4,1,1]+=30.
+        np.savez_compressed(target,**arrays)
+        with self.assertRaisesRegex(ValueError,"NEWMARK_KINEMATICS_DRIFT"):
+            compare_dynamic_runs(self.mvi,self.fdm)
+
+    def test_missing_initial_newmark_state_fails(self):
+        (self.mvi/"REFERENCE_DYNAMIC_INITIAL.npz").unlink()
+        with self.assertRaises(FileNotFoundError):
+            compare_dynamic_runs(self.mvi,self.fdm)
+
+    def test_wrong_shared_time_grid_fails(self):
+        for folder in (self.mvi,self.fdm):
+            path=folder/"FINAL_RUN_SUMMARY.json"
+            info=json.loads(path.read_text())
+            info["steps"][1]["time_s"]=.025
+            path.write_text(json.dumps(info))
+            target=folder/"REFERENCE_DYNAMIC_STEP_0002.npz"
+            with np.load(target) as data:arrays={name:data[name] for name in data.files}
+            arrays["time_s"]=np.array(.025)
+            np.savez_compressed(target,**arrays)
+        with self.assertRaisesRegex(ValueError,"time grid"):
+            compare_dynamic_runs(self.mvi,self.fdm)
 
     def test_rejects_changed_physics(self):
         self._edit(self.mvi,"REFERENCE_CASE.json",lambda d:d["geometry"].__setitem__("h",.25))
