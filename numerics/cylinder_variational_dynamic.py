@@ -52,7 +52,8 @@ def _effective_evaluator(problem, q_shape, p_shape, q_predictor, v_predictor,
         _,residual,_=problem.evaluate_effective_residual(
             q,p,dead_load=dead_load,free_charge=free_charge,
             time_s=time_s,acceleration=acceleration,density_kg_m3=density_kg_m3,
-            velocity=velocity if mass_damping_rate_per_s else None,
+            velocity=velocity if (mass_damping_rate_per_s or
+                                  problem.functional.theory=="KL") else None,
             mass_damping_rate_per_s=mass_damping_rate_per_s)
         assembled=None  # No boundary SVD during tangent/line-search evaluations.
         g=basis.T@(scales*residual)/energy_scale
