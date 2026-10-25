@@ -203,7 +203,7 @@ class BoundarySpatialProblem:
     def evaluate_effective_residual(self, mechanical, electrical=None, *,
                                     dead_load=None, free_charge=None, time_s=None,
                                     acceleration=None, density_kg_m3=None,
-                                    velocity=None, mass_damping_rate_per_s=0.0):
+                                    velocity=None, mass_damping_rate_per_s=0.0, eta_s=0.0):
         """Exact full bulk+edge+mass+damping residual without a trace-space SVD.
 
         The Newton corrector builds its affine admissible space once at each
@@ -221,6 +221,8 @@ class BoundarySpatialProblem:
             raise ValueError("mechanical damping requires dynamic density and velocity")
         if mass_damping_rate_per_s and velocity is None:
             raise ValueError("positive mass damping requires mechanical velocity")
+        if eta_s and velocity is None:
+            raise ValueError("Kelvin-Voigt eta_s requires mechanical velocity")
         energy, rm, re, edge = combine_functional_and_boundary(
             self.functional, mechanical, electrical, bc_spec=self.spec,
             dead_load=dead_load, free_charge=free_charge,
@@ -235,6 +237,9 @@ class BoundarySpatialProblem:
                 velocity,density_kg_m3=density_kg_m3,
                 mass_damping_rate_per_s=mass_damping_rate_per_s,
                 mechanical=mechanical)
+        if eta_s:
+            rm=rm+self.functional.kelvin_voigt_action(
+                mechanical,velocity,eta_s=eta_s).mechanical_force
         residual = rm.ravel() if re is None else np.concatenate(
             (rm.ravel(), re.ravel()))
         if not np.isfinite(residual).all():
@@ -244,7 +249,7 @@ class BoundarySpatialProblem:
     def assemble(self, mechanical, electrical=None, *, method="FDM", directions=None,
                  dead_load=None, free_charge=None, time_s=None,
                  acceleration=None, density_kg_m3=None,
-                 velocity=None, mass_damping_rate_per_s=0.0):
+                 velocity=None, mass_damping_rate_per_s=0.0, eta_s=0.0):
         method = str(method).upper()
         if method not in ("FDM", "MVI"):
             raise ValueError("method must be FDM/MVI")
@@ -253,7 +258,8 @@ class BoundarySpatialProblem:
         energy, residual, edge = self.evaluate_effective_residual(
             mechanical, electrical, dead_load=dead_load, free_charge=free_charge,
             time_s=time_s, acceleration=acceleration, density_kg_m3=density_kg_m3,
-            velocity=velocity, mass_damping_rate_per_s=mass_damping_rate_per_s)
+            velocity=velocity, mass_damping_rate_per_s=mass_damping_rate_per_s,
+            eta_s=eta_s)
         q = np.asarray(mechanical, float)
         state = q.ravel() if electrical is None else np.concatenate(
             (q.ravel(), np.asarray(electrical).ravel()))
