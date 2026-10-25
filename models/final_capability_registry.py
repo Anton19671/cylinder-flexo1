@@ -147,6 +147,14 @@ def load_capability(theory: str, load_type: str, surface: Optional[str]) -> Capa
         return Capability(UNAVAILABLE, "LOAD_SURFACE_MISSING", "Необходимо выбрать срединную, внутреннюю или внешнюю поверхность нагрузки.", False)
     if theory not in THEORIES and theory not in PLANNED_THEORIES:
         return Capability(UNAVAILABLE, "THEORY_UNKNOWN", "Неизвестная теория.", False)
+    if theory in PLANNED_THEORIES:
+        return Capability(LIMITED,"VARIATIONAL_REFERENCE_LOAD_ONLY",
+                          "Нагрузка собрана в проверочном вариационном функционале; "
+                          "промышленный расчёт модели ещё не верифицирован.",False)
+    if theory=="KL" and surface!="MIDDLE":
+        return Capability(UNAVAILABLE,"KL_DIRECTOR_FACE_WORK_MISSING",
+                          "Для смещённой грани KL требуется нелинейная виртуальная работа директора; "
+                          "простая радиальная сила здесь неверна.",False)
     return Capability(
         SUPPORTED,
         "LOAD_SUPPORTED_ALL_SURFACES",
@@ -162,8 +170,11 @@ def case_capability(case: Dict[str, Any]) -> Capability:
         backend=selected_backend(case)
         if backend==BACKEND:
             reference=prepare_reference_case(case)
-            return Capability(LIMITED,"REFERENCE_STATIC_"+reference.method,
-                              "Проверочный вариационный расчёт на малой сетке; сходимость по сетке не подтверждена.",False)
+            return Capability(
+                LIMITED,"REFERENCE_"+reference.calculation_kind+"_"+reference.method,
+                "Связанный вариационный "+("динамический" if reference.calculation_kind=="DYNAMIC" else "статический")+
+                " расчёт на малой сетке; полный инженерный набор моделей и сходимость не подтверждены.",
+                False)
     except (ValueError,TypeError,KeyError) as exc:
         return Capability(UNAVAILABLE,"REFERENCE_CASE_INVALID",str(exc),False)
     scale = _upper(case.get("scale_model", "MACRO"))
