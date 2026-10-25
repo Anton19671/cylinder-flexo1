@@ -24,6 +24,7 @@ thickness basis is F_i(z)=(2*z/h)**i, NOT the old solver's z**i basis.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 import math
 import numpy as np
 
@@ -138,14 +139,23 @@ def te_basis(z_m, thickness_m, order):
     return val, dz, dzz
 
 
+@lru_cache(maxsize=32)
+def _dimensionless_gauss_rule(n):
+    """Immutable rules reused by all cells and nonlinear Newton evaluations."""
+    xi,wi=np.polynomial.legendre.leggauss(n)
+    xi.setflags(write=False)
+    wi.setflags(write=False)
+    return xi,wi
+
+
 def gauss_thickness(thickness_m, n_gauss):
     h = float(thickness_m)
     if not math.isfinite(h) or h <= 0:
         raise ValueError("h must be positive and finite")
     if isinstance(n_gauss, bool) or int(n_gauss) != n_gauss or int(n_gauss) < 2:
         raise ValueError("n_gauss must be an integer >= 2")
-    xi, wi = np.polynomial.legendre.leggauss(int(n_gauss))
-    return .5*h*xi, .5*h*wi
+    xi,wi=_dimensionless_gauss_rule(int(n_gauss))
+    return .5*h*xi,.5*h*wi
 
 
 def _kinematic_matrix_jets(jets, z_m, radius_m, thickness_m, *, variation=False):
@@ -245,6 +255,28 @@ def _unit_variation(jets, comp, index, variation):
     return jets.replaced(**arrays)
 
 
+@lru_cache(maxsize=192)
+def _cuf_virtual_kinematic_library(order,z,radius_m,thickness_m):
+    """Exact, immutable CUF unit-jet deformation gradients (no state dependence).
+
+    Shape (3, N+1, 6, 4, 3, 3), with four entries F,Fx,Fs,Fz.
+    """
+    mechanical=np.zeros((3,order+1),float)
+    electric=np.zeros(1,float)
+    zero=CUFSurfaceJets(*(mechanical.copy() for _ in _MECH_FIELDS),
+                        *(electric.copy() for _ in _ELEC_FIELDS))
+    out=np.empty((3,order+1,len(MECHANICAL_VARIATIONS),4,3,3),float)
+    for comp in range(3):
+        for coefficient in range(order+1):
+            for k,name in enumerate(MECHANICAL_VARIATIONS):
+                variation=_unit_variation(zero,comp,coefficient,name)
+                out[comp,coefficient,k]=np.stack(
+                    _kinematic_matrix_jets(
+                        variation,z,radius_m,thickness_m,variation=True))
+    out.setflags(write=False)
+    return out
+
+
 def thickness_weak_coefficients(jets: CUFSurfaceJets, material: G3DMaterial, *,
                                  radius_m, thickness_m, n_gauss=12):
     """Thickness integrated, exact Gateaux weak coefficients (114--115,128--131).
@@ -269,13 +301,12 @@ def thickness_weak_coefficients(jets: CUFSurfaceJets, material: G3DMaterial, *,
         )
         energy += w*H*enthalpy_parts(
             state.strain6,state.gradient6x3,state.electric3,material)["total"]
+        virtual_library=_cuf_virtual_kinematic_library(
+            jets.te_order,float(z),R,h)
         for a in range(3):
             for i in range(jets.te_order+1):
-                for k,variation in enumerate(MECHANICAL_VARIATIONS):
-                    delta = _unit_variation(jets,a,i,variation)
-                    dF,dFx,dFs,dFz = _kinematic_matrix_jets(
-                        delta,z,R,h,variation=True
-                    )
+                for k in range(len(MECHANICAL_VARIATIONS)):
+                    dF,dFx,dFs,dFz=virtual_library[a,i,k]
                     de,(dex,des,dez) = _strain_variation_from_deformation_jets(
                         F,dF,Fx,Fs,Fz,dFx,dFs,dFz
                     )
