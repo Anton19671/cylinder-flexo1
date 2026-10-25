@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import unittest
 import numpy as np
 from cylinder_dynamic_trace import (mechanical_trace_matrix,MechanicalTraceNewmark,
-                                    effective_step_acceptance)
+                                    effective_step_acceptance, require_zero_initial_support_motion)
 
 
 class TraceNewmarkTest(unittest.TestCase):
@@ -91,6 +91,19 @@ class TraceNewmarkTest(unittest.TestCase):
             (False,"INVALID_FULL_EFFECTIVE_RESIDUAL"))
         with self.assertRaisesRegex(ValueError,"supplied together"):
             effective_step_acceptance(True,1.,1.e-7,absolute_residual=0.)
+
+    def test_zero_initial_support_motion_preflight(self):
+        from cylinder_dynamic_loads import normalize_time_law
+        stationary=normalize_time_law({"kind":"SMOOTHSTEP","amplitude":1.,
+            "start_time_s":0.,"duration_s":.24})
+        self.assertEqual(require_zero_initial_support_motion(
+            stationary,[.002,0.],0.),0.)
+        moving=normalize_time_law({"kind":"SMOOTHSTEP","amplitude":1.,
+            "start_time_s":-.12,"duration_s":.24})
+        with self.assertRaisesRegex(ValueError,"ZERO initial conditions incompatible"):
+            require_zero_initial_support_motion(moving,[.002,0.],0.)
+        self.assertEqual(require_zero_initial_support_motion(
+            moving,[0.,0.],0.),.5)
 
     def test_full_residual_gate(self):
         self.assertEqual(effective_step_acceptance(True,1.e-8,1.e-7),(True,"ACCEPTED"))
