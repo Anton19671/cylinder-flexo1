@@ -15,6 +15,7 @@ from cylinder_variational_mvi import StaticMVISettings, solve_static_mvi
 from cylinder_variational_dynamic import solve_dynamic_fdm, solve_dynamic_mvi
 from cylinder_newmark_mvi import NewmarkSettings, validate_dynamic_case
 from cylinder_dynamic_loads import normalize_time_law
+from cylinder_variational_loads import project_radial_load
 from cylinder_dynamic_trace import (MechanicalTraceNewmark, mechanical_trace_matrix,
                                     effective_step_acceptance, require_zero_initial_support_motion)
 from cylinder_newmark_audit import audit_newmark_step
@@ -165,17 +166,8 @@ def prepare_reference_case(case, *, base_dir=None):
         factors=loads.get("load_factors")
     else:
         if not isinstance(definition,dict):raise ValueError("explicit spatial load required")
-        allowed={"type","q","face","surface","kinematics","load_factors"}
-        if set(definition)-allowed:raise ValueError("unsupported reference load_definition fields")
-        if (str(definition.get("type","")).upper()!="UNIFORM_RADIAL_FACE" or
-                str(definition.get("face",definition.get("surface",""))).upper()!="MIDDLE" or
-                str(definition.get("kinematics","")).upper()!="DEAD_REFERENCE"):
-            raise ValueError("reference pressure requires UNIFORM_RADIAL_FACE + MIDDLE + DEAD_REFERENCE")
-        if "face" in definition and "surface" in definition and definition["face"]!=definition["surface"]:
-            raise ValueError("conflicting pressure face/surface")
-        dead=np.zeros_like(q)
-        radial=2*(int(theory[-1])+1) if theory.startswith("CUF_") else 2
-        dead[radial]=_real(definition.get("q"),"pressure q")
+        projection=project_radial_load(functional,definition)
+        dead=projection.generalized
         charge=None;factors=definition.get("load_factors")
     if kind=="STATIC":
         if not isinstance(factors,list) or not factors:raise ValueError("explicit nonempty load_factors required")
