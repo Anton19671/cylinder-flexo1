@@ -16,7 +16,7 @@ from cylinder_variational_dynamic import solve_dynamic_fdm, solve_dynamic_mvi
 from cylinder_newmark_mvi import NewmarkSettings, validate_dynamic_case
 from cylinder_dynamic_loads import normalize_time_law
 from cylinder_dynamic_trace import (MechanicalTraceNewmark, mechanical_trace_matrix,
-                                    effective_step_acceptance)
+                                    effective_step_acceptance, require_zero_initial_support_motion)
 from flexo_gradient_g3d import G3DMaterial
 from flexo_scale_policy import micro_material_from_case, flexoelectric_enabled
 import final_progress as progress
@@ -251,6 +251,14 @@ def prepare_reference_case(case, *, base_dir=None):
                         raise ValueError(
                             f"{site}: time-dependent essential mechanical BC "
                             "needs C2 SMOOTHSTEP displacement law")
+                    if support!="FREE":
+                        from cylinder_variational_boundary import _fixed_components, _vector
+                        selected=_fixed_components(support,theory,functional.n_mechanical,data)
+                        prescribed=_vector(data.get("prescribed"),functional.n_mechanical,
+                                           site+" prescribed")
+                        if selected:
+                            require_zero_initial_support_motion(
+                                boundary_law,prescribed[list(selected)],contract["start_time_s"])
                 # Electrical POTENTIAL is quasi-static at every time step:
                 # its time-dependent Dirichlet value has no electric inertia
                 # and is imposed by the same affine admissible trace space.
