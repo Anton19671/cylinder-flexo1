@@ -13,6 +13,8 @@ from cylinder_boundary_spatial import BoundarySpatialProblem
 from cylinder_variational_fdm import StaticFDMSettings, solve_static_fdm
 from cylinder_variational_mvi import StaticMVISettings, solve_static_mvi
 from cylinder_variational_dynamic import solve_dynamic_fdm, solve_dynamic_mvi
+from cylinder_matrixfree_fdm import (MatrixFreeNewtonSettings,
+    solve_matrixfree_static_fdm, solve_matrixfree_dynamic_fdm)
 from cylinder_newmark_mvi import NewmarkSettings, validate_dynamic_case
 from cylinder_dynamic_loads import normalize_time_law
 from cylinder_variational_loads import project_radial_load
@@ -69,6 +71,7 @@ class ReferenceCase:
     mvi_settings: StaticMVISettings | None
     calculation_kind: str
     dynamics: object | None
+    fdm_backend: str = "DENSE_REFERENCE"
 
 
 @dataclass(frozen=True)
@@ -182,9 +185,16 @@ def prepare_reference_case(case, *, base_dir=None):
     else:
         if factors not in (None,[]):raise ValueError("DYNAMIC uses dynamics.time_law, not static load_factors")
         factors=()
+    fdm_backend=str(case.get("fdm_backend","DENSE_REFERENCE")).upper()
+    if fdm_backend not in ("DENSE_REFERENCE","MATRIX_FREE_GMRES"):
+        raise ValueError("fdm_backend must be DENSE_REFERENCE or MATRIX_FREE_GMRES")
+    if method!="FDM" and fdm_backend!="DENSE_REFERENCE":
+        raise ValueError("MATRIX_FREE_GMRES currently available for FDM only; MVI unchanged")
     options=case.get("reference_newton",{})
     if not isinstance(options,dict):raise ValueError("reference_newton must be an object")
-    try:settings=StaticFDMSettings(**options)
+    try:
+        settings=(MatrixFreeNewtonSettings(**options) if fdm_backend=="MATRIX_FREE_GMRES"
+                  else StaticFDMSettings(**options))
     except TypeError as exc:raise ValueError("invalid reference_newton fields") from exc
     mvi_settings=None
     if method=="MVI":
@@ -279,11 +289,11 @@ def prepare_reference_case(case, *, base_dir=None):
             acceleration=np.zeros_like(q),density_kg_m3=dynamic.density_kg_m3)
         if np.max(abs(a.projected_residual),initial=0)>1.e-10:
             raise ValueError("ZERO initial conditions are not in equilibrium at start_time_s; delay the load or supply a preloaded-state route")
-    if a.space.basis.shape[1]>settings.max_free_dofs:
+    if fdm_backend=="DENSE_REFERENCE" and a.space.basis.shape[1]>settings.max_free_dofs:
         raise ValueError("reference free-DOF limit exceeded; use a smaller verification grid")
     if not isinstance(case.get("output_dir"),str) or not case["output_dir"].strip():
         raise ValueError("explicit output_dir required")
-    return ReferenceCase(problem,q,p,dead,charge,factors,settings,method,mvi_settings,kind,dynamic)
+    return ReferenceCase(problem,q,p,dead,charge,factors,settings,method,mvi_settings,kind,dynamic,fdm_backend)
 
 
 def _write_json(path,data):
@@ -344,7 +354,8 @@ def run_reference_case(case,case_path):
                 print(f"REFERENCE_{prepared.method} step={index} sweep={record.get('sweep',0)} "
                       f"{record.get('direction','FULL')} it={record['iteration']} "
                       f"Rscaled={record['residual_scaled']:.6e}",flush=True)
-            solve=solve_static_fdm if prepared.method=="FDM" else solve_static_mvi
+            solve=(solve_matrixfree_static_fdm if prepared.fdm_backend=="MATRIX_FREE_GMRES"
+                   else solve_static_fdm if prepared.method=="FDM" else solve_static_mvi)
             extra={} if prepared.method=="FDM" else {"mvi_settings":prepared.mvi_settings}
             result=solve(prepared.problem,q,p,dead_load=factor*prepared.dead_load,
                 free_charge=None if prepared.free_charge is None else factor*prepared.free_charge,
@@ -425,6 +436,7 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
         "damping":{"kind":"MASS_PROPORTIONAL" if dyn.mass_damping_rate_per_s else "NONE",
                    "mass_damping_rate_per_s":dyn.mass_damping_rate_per_s},
         "convergence_meaning":"full admissible effective Newmark residual"}
+    summary["fdm_backend"]=prepared.fdm_backend
     if prepared.mvi_settings is not None:summary["rank"]=prepared.mvi_settings.rank
     q,p=prepared.mechanical,prepared.electrical
     velocity=np.zeros_like(q);acceleration=np.zeros_like(q)
@@ -457,7 +469,8 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
                 print(f"REFERENCE_DYNAMIC_{prepared.method} step={index} t={time_s:.9g} "
                       f"sweep={record.get('sweep',0)} {record.get('direction','FULL')} "
                       f"it={record['iteration']} Rscaled={record['residual_scaled']:.6e}",flush=True)
-            solve=solve_dynamic_fdm if prepared.method=="FDM" else solve_dynamic_mvi
+            solve=(solve_matrixfree_dynamic_fdm if prepared.fdm_backend=="MATRIX_FREE_GMRES"
+                   else solve_dynamic_fdm if prepared.method=="FDM" else solve_dynamic_mvi)
             extra={} if prepared.method=="FDM" else {"mvi_settings":prepared.mvi_settings}
             result=solve(prepared.problem,q,p,q_predictor=q_predictor,
                 velocity_predictor=velocity_predictor,time_s=time_s,dt_s=newmark.dt_s,
