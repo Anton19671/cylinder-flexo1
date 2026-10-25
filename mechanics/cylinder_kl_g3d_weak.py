@@ -271,11 +271,14 @@ def thickness_weak_coefficients(jets:KLSurfaceJets,material:G3DMaterial,*,
                                    point.electric3,material)
         energy+=w*point.H*enthalpy_parts(
             point.strain6,point.gradient6x3,point.electric3,material)["total"]
+        perturbed={n:np.array(a,dtype=complex) for n,a in data.items()}
         for k,name in enumerate(FIELDS):
             for comp in range(3):
-                perturbed={n:np.array(a,dtype=complex) for n,a in data.items()}
                 perturbed[name][comp]+=1j*step
-                complex_F=_F_jets_raw(perturbed,R,h,float(z))
+                try:
+                    complex_F=_F_jets_raw(perturbed,R,h,float(z))
+                finally:
+                    perturbed[name][comp]-=1j*step
                 dF,dFx,dFs,dFz=[a.imag/step for a in complex_F]
                 de,der=_variation(F,Fx,Fs,Fz,dF,dFx,dFs,dFz)
                 dg=covariant_strain_gradients(de,*der,radius_m=R,z_m=float(z))
