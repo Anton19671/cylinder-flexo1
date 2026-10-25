@@ -94,9 +94,27 @@ class DynamicCaseTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'not in equilibrium'):prepare_reference_case(c)
         c=self.sample();c['boundary_conditions']['variational']['mechanical']['left']['time_law']={
             'kind':'RAMP','amplitude':1.,'duration_s':1.}
-        with self.assertRaisesRegex(ValueError,'velocity/acceleration'):prepare_reference_case(c)
+        with self.assertRaisesRegex(ValueError,'C2 SMOOTHSTEP'):prepare_reference_case(c)
         c=self.sample();c['load_definition']['load_factors']=[1.]
         with self.assertRaisesRegex(ValueError,'time_law'):prepare_reference_case(c)
+
+    def test_smoothstep_prescribed_support_accepts_kinematic_boundary(self):
+        c=self.sample()
+        c["boundary_conditions"]["variational"]["mechanical"]["left"].update(
+            prescribed=[0.,0.,0.,0.,0.,0.],
+            time_law={"kind":"SMOOTHSTEP","amplitude":1.,
+                      "start_time_s":0.,"duration_s":.24})
+        prepared=prepare_reference_case(c)
+        self.assertEqual(prepared.calculation_kind,"DYNAMIC")
+
+    def test_moving_support_requires_zero_initial_target(self):
+        c=self.sample()
+        c["boundary_conditions"]["variational"]["mechanical"]["left"].update(
+            prescribed=[.002,0.,0.,0.,0.,0.],
+            time_law={"kind":"SMOOTHSTEP","amplitude":1.,
+                      "start_time_s":-.24,"duration_s":.24})
+        with self.assertRaisesRegex(ValueError,"not in equilibrium|initial"):
+            prepare_reference_case(c)
 
     def test_time_dependent_electrode_is_assembled_by_newmark(self):
         c=self.sample()
