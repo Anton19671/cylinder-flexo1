@@ -462,7 +462,7 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
             # Reject a spatial or full-Newmark-residual failure BEFORE writing
             # the accepted-state name, updating history, or changing q/v/a.
             accepted,gate_status=effective_step_acceptance(
-                bool(result.converged),result.admissible_residual_scaled,
+                bool(result.converged),result.residual_relative_to_initial,
                 newmark.residual_tolerance_relative)
             trace_defects=None
             if accepted:
