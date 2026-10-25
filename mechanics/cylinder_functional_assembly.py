@@ -375,128 +375,161 @@ class CylinderFunctional:
             parts["total_stationary_functional"]=total
         return FunctionalResult(self.theory,total,parts,rmech,relec,gaugevec,gauge)
 
-    def sbp_green_reduction(self,mechanical,electrical=None):
-        """Exact bulk/edge Green split of the *conservative* nodal weak force.
+    def _dynamic_g3d_weak_jet_coefficients(
+            self,mechanical,electrical=None,*,velocity=None,acceleration=None,
+            density_kg_m3=None,eta_s=0.0,mass_damping_rate_per_s=0.0):
+        """One source of truth for conservative and *dynamic* surface jets.
 
-        Only an SBP-compatible grid is accepted. This is a mathematical
-        identity check and edge diagnostic, not an extra boundary equation.
-        Dynamic inertial/viscous contributions are still evaluated by
-        the full weak residual and their own time-dependent operators.
+        Coefficients are not multiplied by quadrature area. Their weighted
+        adjoints are the SAME physical forces as evaluate(), mass_action(),
+        kelvin_voigt_action(), and mass_proportional_damping_action().
+        Boundary Green splitting may only be applied to these complete
+        coefficients on an SBP-compatible grid. Neither external forces nor
+        separately prescribed end work are included in local constitutive
+        jets: those are added by BoundarySpatialProblem.
         """
         nx,ns=self.ops.shape
-        q=_check_fields(mechanical,(self.n_mechanical,nx,ns),"SBP Green q")
+        q=_check_fields(mechanical,(self.n_mechanical,nx,ns),"G3D weak q")
         if self.electrical_on:
             if electrical is None:
-                raise ValueError("SBP Green electric coefficients required")
-            arr=np.asarray(electrical,float)
-            if arr.ndim!=3 or arr.shape[1:]!=(nx,ns) or not 1<=len(arr)<=5:
-                raise ValueError("SBP Green electric coefficient shape mismatch")
-            p=_check_fields(arr,arr.shape,"SBP Green p")
+                raise ValueError("G3D electric potential coefficients required")
+            pe=np.asarray(electrical,float)
+            if pe.ndim!=3 or pe.shape[1:]!=(nx,ns) or not 1<=len(pe)<=5:
+                raise ValueError("G3D electric coefficient shape mismatch")
+            p=_check_fields(pe,pe.shape,"G3D weak electric potential")
         else:
             if electrical is not None:
-                raise ValueError("SBP Green electric field must be disabled")
+                raise ValueError("G3D electric coefficients must be disabled")
             p=np.zeros((1,nx,ns),float)
+
+        if isinstance(eta_s,(bool,np.bool_)) or isinstance(
+                mass_damping_rate_per_s,(bool,np.bool_)):
+            raise ValueError("viscous parameters must be finite nonnegative numbers")
+        eta=float(eta_s)
+        alpha=float(mass_damping_rate_per_s)
+        if not (math.isfinite(eta) and eta>=0 and
+                math.isfinite(alpha) and alpha>=0):
+            raise ValueError("viscosity and mass damping must be nonnegative")
+        is_dynamic=(velocity is not None or acceleration is not None or
+                    density_kg_m3 is not None or eta>0 or alpha>0)
+        if is_dynamic and (velocity is None or acceleration is None
+                           or density_kg_m3 is None):
+            raise ValueError("dynamic G3D Green split requires velocity, "
+                             "acceleration and density together")
+        if is_dynamic:
+            v=_check_fields(velocity,q.shape,"G3D weak velocity")
+            a=_check_fields(acceleration,q.shape,"G3D weak acceleration")
+            rho=float(density_kg_m3)
+            if not math.isfinite(rho) or rho<=0:
+                raise ValueError("G3D dynamic density must be positive")
+        else:
+            v=a=None
+            rho=None
+
         spec=MECHANICAL_DERIVATIVES[:self.n_derivatives]
         mder=self._field_derivatives(q,spec)
         eder=self._field_derivatives(p,ELECTRICAL_DERIVATIVES)
-        mc=np.zeros((len(spec),self.n_mechanical,nx,ns))
+        mc=np.zeros((len(spec),self.n_mechanical,nx,ns),float)
         ec=np.zeros((3,len(p),nx,ns)) if self.electrical_on else None
+        if is_dynamic:
+            zero_elec=self._field_derivatives(
+                np.zeros((1,nx,ns)),ELECTRICAL_DERIVATIVES)
+            vd=self._field_derivatives(v,spec)
+            ad=self._field_derivatives(a,spec)
         for i in range(nx):
             for j in range(ns):
-                weak=self._local(self._make_jets(mder,eder,i,j))
-                mc[:,:,i,j]=weak.mechanical.reshape(
+                jet=self._make_jets(mder,eder,i,j)
+                conservative=self._local(jet)
+                mc[:,:,i,j]=conservative.mechanical.reshape(
                     self.n_mechanical,len(spec)).T
                 if ec is not None:
-                    ec[:,:,i,j]=weak.electrical.T
-        return split_coupled_sbp_residual(self.ops,mc,spec,ec)
+                    ec[:,:,i,j]=conservative.electrical.T
+                if is_dynamic and eta:
+                    visc=kelvin_voigt_thickness_weak(
+                        self._make_jets(mder,zero_elec,i,j),
+                        self._make_jets(vd,zero_elec,i,j),
+                        self.material,theory=self.theory,radius_m=self.R,
+                        thickness_m=self.h,eta_s=eta,n_gauss=self.n_gauss)
+                    mc[:,:,i,j]+=visc.mechanical.T
+                if is_dynamic and self.theory in ("FSDT","REDDY"):
+                    inertia=_director_mass(
+                        self._make_jets(ad,zero_elec,i,j),
+                        theory=self.theory,radius_m=self.R,thickness_m=self.h,
+                        density_kg_m3=rho,n_gauss=self.n_gauss)
+                    mc[:3,:,i,j]+=inertia.T
+                    if alpha:
+                        damping=_director_mass(
+                            self._make_jets(vd,zero_elec,i,j),
+                            theory=self.theory,radius_m=self.R,thickness_m=self.h,
+                            density_kg_m3=rho,n_gauss=self.n_gauss)
+                        mc[:3,:,i,j]+=alpha*damping.T
+
+        if is_dynamic and self.theory=="KL":
+            inertia=kl_inertial_jet_coefficients(
+                q,v,a,Dx=self.ops.Dx,Ds=self.ops.Ds,
+                wx=self.ops.wx,ws=self.ops.ws,radius_m=self.R,
+                thickness_m=self.h,density_kg_m3=rho)
+            mc[:3]+=inertia
+            if alpha:
+                # M(q)*v only: no nonlinear gyroscopic velocity-square
+                # term may be included inside Rayleigh alpha_M damping.
+                damping=kl_inertial_jet_coefficients(
+                    q,np.zeros_like(v),v,Dx=self.ops.Dx,Ds=self.ops.Ds,
+                    wx=self.ops.wx,ws=self.ops.ws,radius_m=self.R,
+                    thickness_m=self.h,density_kg_m3=rho)
+                mc[:3]+=alpha*damping
+        elif is_dynamic and self.theory.startswith("CUF_TE"):
+            # CUF mass has zero derivative-jet coefficients. The exact
+            # curved thickness mass moments already used by mass_action()
+            # are a LOCAL contribution to the independent q jet.
+            n=int(self.theory[-1])+1
+            mass=mass_matrix_te(radius_m=self.R,thickness_m=self.h,
+                                rho_kg_m3=rho,te_order=n-1)
+            inertial_field=a.reshape((3,n,nx,ns))
+            if alpha:
+                inertial_field=inertial_field+alpha*v.reshape((3,n,nx,ns))
+            local=np.einsum("ij,cjkl->cikl",mass,inertial_field)
+            mc[0]+=local.reshape((self.n_mechanical,nx,ns))
+        if not np.isfinite(mc).all() or (
+                ec is not None and not np.isfinite(ec).all()):
+            raise ValueError("nonfinite coupled dynamic G3D weak coefficients")
+        return mc,ec
+
+    def sbp_green_reduction(self,mechanical,electrical=None,*,velocity=None,
+                            acceleration=None,density_kg_m3=None,
+                            eta_s=0.0,mass_damping_rate_per_s=0.0):
+        """Exact SBP bulk+edge split, including mechanical dynamics.
+
+        This audit does NOT add boundary conditions to Newton/MVI/FDM.
+        It yields unforced internal weak residuals and matching sampled
+        natural fluxes; external distributed and end loading is separately
+        included in the BoundarySpatialProblem full effective residual.
+        """
+        mc,ec=self._dynamic_g3d_weak_jet_coefficients(
+            mechanical,electrical,velocity=velocity,
+            acceleration=acceleration,density_kg_m3=density_kg_m3,
+            eta_s=eta_s,
+            mass_damping_rate_per_s=mass_damping_rate_per_s)
+        return split_coupled_sbp_residual(
+            self.ops,mc,MECHANICAL_DERIVATIVES[:self.n_derivatives],ec)
 
     def natural_end_fluxes(self,mechanical,electrical=None,*,velocity=None,
                            acceleration=None,density_kg_m3=None,eta_s=0.0,
                            mass_damping_rate_per_s=0.0):
-        """Continuum-form total dynamic end fluxes, diagnostic only.
+        """Sample continuum-form conservative+dynamic end fluxes.
 
-        The reference Dx is not SBP-compatible with the surface quadrature:
-        these sampled strong fluxes MUST NOT replace the existing discrete
-        residual or serve as proof of a microfree boundary condition.
+        For a NON-SBP mesh this remains continuum-form diagnostics only.
+        For an SBP mesh use sbp_green_reduction to obtain exact nodal
+        boundary work compatible with the *discrete* weak residual.
         """
-        nx,ns=self.ops.shape
-        q=_check_fields(mechanical,(self.n_mechanical,nx,ns),"natural edge q")
-        if self.electrical_on:
-            if electrical is None:
-                raise ValueError("electrical end flux needs potential coefficients")
-            p=np.asarray(electrical,float)
-            if p.ndim!=3 or p.shape[1:]!=(nx,ns) or not 1<=len(p)<=5:
-                raise ValueError("electric end flux shape mismatch")
-            phi=_check_fields(p,p.shape,"natural edge electrical state")
-        else:
-            if electrical is not None:
-                raise ValueError("electrical end flux cannot use disabled potential")
-            phi=np.zeros((1,nx,ns),float)
-        spec=MECHANICAL_DERIVATIVES[:self.n_derivatives]
-        mder=self._field_derivatives(q,spec)
-        eder=self._field_derivatives(phi,ELECTRICAL_DERIVATIVES)
-        mc=np.zeros((self.n_derivatives,self.n_mechanical,nx,ns),float)
-        ec=(np.zeros((3,len(phi),nx,ns)) if self.electrical_on else None)
-        for i in range(nx):
-            for j in range(ns):
-                weak=self._local(self._make_jets(mder,eder,i,j))
-                mc[:,:,i,j]=weak.mechanical.reshape(
-                    self.n_mechanical,self.n_derivatives).T
-                if ec is not None:
-                    ec[:,:,i,j]=weak.electrical.T
-        if eta_s or acceleration is not None or mass_damping_rate_per_s:
-            if velocity is None or acceleration is None or density_kg_m3 is None:
-                raise ValueError("dynamic end fluxes require q, velocity, acceleration and density")
-            v=_check_fields(velocity,q.shape,"natural edge velocity")
-            a=_check_fields(acceleration,q.shape,"natural edge acceleration")
-            rho=float(density_kg_m3)
-            if not math.isfinite(rho) or rho<=0:
-                raise ValueError("invalid density for dynamic natural end flux")
-            eta=float(eta_s);alpha=float(mass_damping_rate_per_s)
-            if not (math.isfinite(eta) and eta>=0 and
-                    math.isfinite(alpha) and alpha>=0):
-                raise ValueError("invalid viscous or mass damping coefficient")
-            zero_elec=self._field_derivatives(
-                np.zeros((1,nx,ns)),ELECTRICAL_DERIVATIVES)
-            if eta:
-                from cylinder_kelvin_voigt import kelvin_voigt_thickness_weak
-                vmder=self._field_derivatives(v,spec)
-                for i in range(nx):
-                    for j in range(ns):
-                        visc=kelvin_voigt_thickness_weak(
-                            self._make_jets(mder,zero_elec,i,j),
-                            self._make_jets(vmder,zero_elec,i,j),
-                            self.material,theory=self.theory,radius_m=self.R,
-                            thickness_m=self.h,eta_s=eta,n_gauss=self.n_gauss)
-                        mc[:,:,i,j]+=visc.mechanical.T
-            if self.theory=="KL":
-                mass=kl_inertial_jet_coefficients(
-                    q,v,a,Dx=self.ops.Dx,Ds=self.ops.Ds,wx=self.ops.wx,
-                    ws=self.ops.ws,radius_m=self.R,thickness_m=self.h,
-                    density_kg_m3=rho)
-                for k in range(3): mc[k]+=mass[k]
-                if alpha:
-                    damp=kl_inertial_jet_coefficients(
-                        q,np.zeros_like(v),v,Dx=self.ops.Dx,Ds=self.ops.Ds,
-                        wx=self.ops.wx,ws=self.ops.ws,radius_m=self.R,
-                        thickness_m=self.h,density_kg_m3=rho)
-                    for k in range(3): mc[k]+=alpha*damp[k]
-            elif self.theory in ("FSDT","REDDY"):
-                for multiplier,field in ((1.,a),(alpha,v)):
-                    if not multiplier:continue
-                    der=self._field_derivatives(field,spec)
-                    for i in range(nx):
-                        for j in range(ns):
-                            mass=_director_mass(self._make_jets(der,zero_elec,i,j),
-                                theory=self.theory,radius_m=self.R,
-                                thickness_m=self.h,density_kg_m3=rho,
-                                n_gauss=self.n_gauss)
-                            mc[:3,:,i,j]+=multiplier*mass.T
-            # CUF mass is local in generalized q: no axial derivative,
-            # therefore its inertial end-traction contribution is zero.
+        mc,ec=self._dynamic_g3d_weak_jet_coefficients(
+            mechanical,electrical,velocity=velocity,
+            acceleration=acceleration,density_kg_m3=density_kg_m3,
+            eta_s=eta_s,
+            mass_damping_rate_per_s=mass_damping_rate_per_s)
         return axial_natural_end_tractions(
-            mc,spec,self.ops.Dx,self.ops.Ds,
-            electrical_coefficients=ec)
+            mc,MECHANICAL_DERIVATIVES[:self.n_derivatives],
+            self.ops.Dx,self.ops.Ds,electrical_coefficients=ec)
 
     def kelvin_voigt_action(self,mechanical,velocity,*,eta_s):
         """Assemble the nonlinear material dissipative weak force for any theory.
