@@ -57,6 +57,7 @@ class MatrixFreeNewtonSettings:
     ilu_fill_factor: float = 8.
     ilu_max_surface_nodes: int = 8192
     max_total_dofs: int = 100_000
+    max_surface_nodes: int = 8192
     max_constraint_rows: int = 20_000
 
     def __post_init__(self):
@@ -81,7 +82,8 @@ class MatrixFreeNewtonSettings:
         if self.krylov_rtol>=1.:
             raise ValueError("krylov_rtol must be strictly less than one")
         for name in ("max_iterations","max_halvings","krylov_restart",
-                     "krylov_max_matvecs","max_total_dofs","max_constraint_rows",
+                     "krylov_max_matvecs","max_total_dofs","max_surface_nodes",
+                     "max_constraint_rows",
                      "ilu_max_surface_nodes"):
             val=getattr(self,name)
             if isinstance(val,(bool,np.bool_)) or not isinstance(val,int) or val<1:
@@ -199,6 +201,8 @@ def _solve(problem, q0, p0, *, time_s, dead_load, free_charge,
                                 or not np.isfinite(p).all()))):
         raise ValueError("matrix-free fields must match functional")
     n=q.size+(0 if p is None else p.size)
+    if np.prod(f.ops.shape)>settings.max_surface_nodes:
+        raise ValueError("MATRIX_FREE_SURFACE_NODE_SAFETY_LIMIT")
     if n>settings.max_total_dofs:
         raise ValueError("MATRIX_FREE_NODAL_DOF_SAFETY_LIMIT")
     scales=state_scales(f,q,p,settings)
