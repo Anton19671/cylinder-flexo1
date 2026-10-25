@@ -202,7 +202,8 @@ class BoundarySpatialProblem:
 
     def assemble(self, mechanical, electrical=None, *, method="FDM", directions=None,
                  dead_load=None, free_charge=None, time_s=None,
-                 acceleration=None, density_kg_m3=None):
+                 acceleration=None, density_kg_m3=None,
+                 velocity=None, mass_damping_rate_per_s=0.0):
         method = str(method).upper()
         if method not in ("FDM", "MVI"):
             raise ValueError("method must be FDM/MVI")
@@ -212,6 +213,10 @@ class BoundarySpatialProblem:
             raise ValueError("STATIC cannot include inertia")
         if (acceleration is None) != (density_kg_m3 is None):
             raise ValueError("acceleration and density_kg_m3 must be supplied together")
+        if velocity is not None and (self.kind!="DYNAMIC" or density_kg_m3 is None):
+            raise ValueError("mechanical damping requires dynamic density and velocity")
+        if mass_damping_rate_per_s and velocity is None:
+            raise ValueError("positive mass damping requires mechanical velocity")
         energy, rm, re, edge = combine_functional_and_boundary(
             self.functional, mechanical, electrical, bc_spec=self.spec,
             dead_load=dead_load, free_charge=free_charge,
@@ -220,6 +225,10 @@ class BoundarySpatialProblem:
             # Electric coefficients remain quasi-static; they acquire no mass.
             # The functional explicitly rejects unsupported nonlinear KL mass.
             rm = rm+self.functional.mass_action(acceleration, density_kg_m3=density_kg_m3)
+        if velocity is not None:
+            rm = rm+self.functional.mass_proportional_damping_action(
+                velocity,density_kg_m3=density_kg_m3,
+                mass_damping_rate_per_s=mass_damping_rate_per_s)
         q = np.asarray(mechanical, float)
         state = q.ravel() if re is None else np.concatenate((q.ravel(), np.asarray(electrical).ravel()))
         residual = rm.ravel() if re is None else np.concatenate((rm.ravel(), re.ravel()))
