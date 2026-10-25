@@ -65,7 +65,8 @@ class TestRankQualification(unittest.TestCase):
 
     def test_invalid_tolerances(self):
         with self.assertRaises(ValueError):
-            self.run_study((1,),field_tolerances={})
+            assess_rank_series("FDM",{},field_tolerances={},
+                max_full_residual_scaled=1.e-7,max_boundary_defect_scaled=1.e-9)
         with self.assertRaises(ValueError):
             assess_rank_series("FDM",{},field_tolerances=TOL,
                 max_full_residual_scaled=float("nan"),
