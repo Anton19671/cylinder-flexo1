@@ -156,7 +156,7 @@ class SurfaceOperators:
         if np.any(wx<=0) or np.any(ws<=0):
             raise ValueError("surface quadrature weights must be positive")
         for name,D in (("Dx",Dx),("Ds",Ds)):
-            if np.max(np.abs(D@np.ones(len(D))),initial=0)>1.e-10*max(
+            if np.max(np.abs(D@np.ones(D.shape[1])),initial=0)>1.e-10*max(
                     1.,float(np.max(np.abs(D.data),initial=0))
                     if sparse_x else float(np.linalg.norm(D,np.inf))):
                 raise ValueError(f"{name}: derivative of a constant is not zero")
