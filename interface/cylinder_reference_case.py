@@ -202,8 +202,6 @@ def prepare_reference_case(case, *, base_dir=None):
                 raise ValueError("dynamics.density_kg_m3 must equal micro.rho_kg_m3")
             if _real(case["micro"]["eta_s"],"micro.eta_s")!=0.:
                 raise ValueError("nonzero micro.eta_s damping is not yet connected to the effective residual")
-        if theory=="KL":
-            raise ValueError("DYNAMIC KL requires exact configuration-dependent director inertia; use FSDT, REDDY or CUF")
         d=case["dynamics"]
         initial=d.get("initial_conditions",{"type":"ZERO"})
         if not isinstance(initial,dict) or set(initial)!={"type"} or str(initial["type"]).upper()!="ZERO":
@@ -491,7 +489,8 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
                 "acceleration":result.acceleration,
                 "damping_force":(
                     dyn.mass_damping_rate_per_s*
-                    f.mass_action(result.velocity,density_kg_m3=dyn.density_kg_m3)),
+                    f.mass_action(result.velocity,density_kg_m3=dyn.density_kg_m3,
+                                  mechanical=result.mechanical)),
                 "full_residual":result.full_residual,
                 "constraint_reaction":result.constraint_reaction,
                 "x_m":np.linspace(0,float(case["geometry"]["L"]),q.shape[1]),
