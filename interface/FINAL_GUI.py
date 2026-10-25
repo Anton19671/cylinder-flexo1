@@ -6257,7 +6257,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
                 law["start_time_s"]=float(self._v("dyn_load_start").get().strip() or "0")
             if kind in ("HARMONIC","DAMPED_HARMONIC"):
                 law["frequency_hz"]=float(self._v("dyn_load_freq").get().strip())
-                law["phase_rad"]=0.0
+                law["phase_rad"]=float(self._v("dyn_load_phase_rad","0").get().strip() or "0")
             if kind in ("RAMP","CHIRP_LINEAR","RECTANGULAR_PULSE",
                         "HALF_SINE_PULSE","TRIANGULAR_PULSE"):
                 law["duration_s"]=float(self._v("dyn_load_duration").get().strip())
@@ -6266,7 +6266,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
             if kind=="CHIRP_LINEAR":
                 law["frequency_start_hz"]=float(self._v("dyn_load_freq").get().strip())
                 law["frequency_end_hz"]=float(self._v("dyn_load_freq_end").get().strip())
-                law["phase_rad"]=0.0
+                law["phase_rad"]=float(self._v("dyn_load_phase_rad","0").get().strip() or "0")
             if kind=="GAUSSIAN_PULSE":
                 law["center_time_s"]=float(self._v("dyn_load_center").get().strip())
                 law["sigma_s"]=float(self._v("dyn_load_sigma").get().strip())
@@ -6522,6 +6522,35 @@ class FinalSolverGUI(EnhancedSolverGUI):
             )).upper()
             put("geometry_model",geom);put("material_model",material_model)
             put("scale_model",cfg.get("scale_model","MACRO"))
+            put("calculation_kind",str(cfg.get("calculation_kind","STATIC")).upper())
+            dynamics=cfg.get("dynamics") if isinstance(cfg.get("dynamics"),dict) else {}
+            if dynamics:
+                for gui_key,source_key in (
+                    ("dyn_dt","time_step_s"),("dyn_steps","n_steps"),
+                    ("dyn_t0","start_time_s"),("dyn_density","density_kg_m3"),
+                    ("dyn_beta","newmark_beta"),("dyn_gamma","newmark_gamma"),
+                ):
+                    if source_key in dynamics:put(gui_key,dynamics[source_key])
+                law=dynamics.get("time_law") if isinstance(dynamics.get("time_law"),dict) else {}
+                if law:
+                    kind=str(law.get("kind","HARMONIC")).upper()
+                    put("dyn_law",kind)
+                    for gui_key,source_key in (
+                        ("dyn_amplitude","amplitude"),("dyn_load_start","start_time_s"),
+                        ("dyn_load_duration","duration_s"),
+                        ("dyn_load_decay","decay_rate_per_s"),
+                        ("dyn_load_freq_end","frequency_end_hz"),
+                        ("dyn_load_center","center_time_s"),
+                        ("dyn_load_sigma","sigma_s"),("dyn_load_phase_rad","phase_rad"),
+                    ):
+                        if source_key in law:put(gui_key,law[source_key])
+                    frequency_key="frequency_start_hz" if kind=="CHIRP_LINEAR" else "frequency_hz"
+                    if frequency_key in law:put("dyn_load_freq",law[frequency_key])
+                    if kind in ("TABULATED","MULTIHARMONIC"):
+                        extra={k:v for k,v in law.items() if k not in
+                               ("kind","amplitude","start_time_s")}
+                        put("dyn_law_json",json.dumps(extra,ensure_ascii=False))
+                    else:put("dyn_law_json","")
             mdata=cfg.get("micro",{}) if isinstance(cfg.get("micro"),dict) else {}
             put("micro_flexoelectric","ON" if mdata.get("enable_flexoelectric",True) else "OFF")
             for key,field in (("micro_ell_m","ell_m"),("micro_mu1","mu1_c_per_m"),
@@ -6684,6 +6713,20 @@ class FinalSolverGUI(EnhancedSolverGUI):
         "unit_system":{
             "мм · Н · МПа":"N_MM_MPA",
             "м · Н · Па":"SI_N_M_PA",
+        },
+        "dyn_law":{
+            "Постоянная":"CONSTANT",
+            "Ступенька":"STEP",
+            "Линейный рост":"RAMP",
+            "Гармоническая":"HARMONIC",
+            "Затухающая гармоническая":"DAMPED_HARMONIC",
+            "Многочастотная":"MULTIHARMONIC",
+            "Частотный свип":"CHIRP_LINEAR",
+            "Прямоугольный импульс":"RECTANGULAR_PULSE",
+            "Полусинусоидальный импульс":"HALF_SINE_PULSE",
+            "Треугольный импульс":"TRIANGULAR_PULSE",
+            "Гауссов импульс":"GAUSSIAN_PULSE",
+            "Табличный закон":"TABULATED",
         },
         "material_source":{
             "Ввести вручную":"USER",
@@ -6914,64 +6957,15 @@ class FinalSolverGUI(EnhancedSolverGUI):
         timebar.pack(fill="x",padx=12,pady=(0,5))
         ttk.Radiobutton(timebar,text="Статика",value="STATIC",
                         variable=self._v("calculation_kind","STATIC"),
-                        command=self._refresh_visibility).pack(side="left",padx=(0,12))
+                        command=self._on_calculation_kind_change).pack(side="left",padx=(0,12))
         ttk.Radiobutton(timebar,text="Динамика · Ньюмарк + МВИ/МКР",
                         value="DYNAMIC",
                         variable=self._v("calculation_kind","STATIC"),
-                        command=self._refresh_visibility).pack(side="left",padx=(0,12))
-        ttk.Label(timebar,text="Пространственный метод выбирается выше; для MICRO используйте вариационный CASE.").pack(side="left")
-        dynbar=ttk.LabelFrame(self,text="Динамический расчёт",padding=10)
-        dynbar.pack(fill="x",padx=12,pady=(0,6))
-        self.dynamic_parameters_frame=dynbar
-        for column in range(3):dynbar.columnconfigure(column,weight=1,uniform="dynamic")
-        timecard=ttk.LabelFrame(dynbar,text="1. Шаг по времени",padding=8)
-        loadcard=ttk.LabelFrame(dynbar,text="2. Закон нагрузки F(t)",padding=8)
-        routecard=ttk.LabelFrame(dynbar,text="3. Пространственное решение",padding=8)
-        timecard.grid(row=0,column=0,sticky="nsew",padx=(0,5))
-        loadcard.grid(row=0,column=1,sticky="nsew",padx=5)
-        routecard.grid(row=0,column=2,sticky="nsew",padx=(5,0))
-        timecard.columnconfigure(1,weight=1);loadcard.columnconfigure(1,weight=1)
-        for row,(title,key,default) in enumerate((
-            ("Шаг Δt, с","dyn_dt",""),("Число шагов","dyn_steps",""),
-            ("Начальное время, с","dyn_t0","0"),("Плотность, кг/м³","dyn_density",""),
-            ("Параметр Ньюмарка β","dyn_beta","0.25"),("Параметр Ньюмарка γ","dyn_gamma","0.5"),
-        )):
-            ttk.Label(timecard,text=title).grid(row=row,column=0,sticky="w",pady=2)
-            ttk.Entry(timecard,textvariable=self._v(key,default),width=13).grid(row=row,column=1,sticky="ew",padx=(8,0),pady=2)
-        ttk.Label(loadcard,text="Тип закона").grid(row=0,column=0,sticky="w",pady=2)
-        self.dyn_law_combo=ttk.Combobox(loadcard,textvariable=self._v("dyn_law","HARMONIC"),
-            values=("CONSTANT","STEP","RAMP","HARMONIC","DAMPED_HARMONIC",
-                    "MULTIHARMONIC","CHIRP_LINEAR","RECTANGULAR_PULSE",
-                    "HALF_SINE_PULSE","TRIANGULAR_PULSE","GAUSSIAN_PULSE",
-                    "TABULATED"),state="readonly",width=20)
-        self.dyn_law_combo.grid(row=0,column=1,sticky="ew",padx=(8,0),pady=2)
-        self.dynamic_law_rows={}
-        law_fields=(("Амплитуда-множитель","dyn_amplitude","1"),
-                    ("Начало действия, с","dyn_load_start","0"),
-                    ("Частота, Гц","dyn_load_freq",""),
-                    ("Длительность, с","dyn_load_duration",""),
-                    ("Затухание, 1/с","dyn_load_decay","0"),
-                    ("Конечная частота, Гц","dyn_load_freq_end",""),
-                    ("Центр импульса, с","dyn_load_center",""),
-                    ("Ширина σ, с","dyn_load_sigma",""),
-                    ("Дополнительные параметры JSON","dyn_law_json",""))
-        for row,(title,key,default) in enumerate(law_fields,1):
-            label=ttk.Label(loadcard,text=title)
-            entry=ttk.Entry(loadcard,textvariable=self._v(key,default),width=18)
-            label.grid(row=row,column=0,sticky="w",pady=2)
-            entry.grid(row=row,column=1,sticky="ew",padx=(8,0),pady=2)
-            self.dynamic_law_rows[key]=(label,entry)
-        self.dyn_law_combo.bind("<<ComboboxSelected>>",lambda _e:self._refresh_dynamic_law_fields())
-        ttk.Label(routecard,text="Ньюмарк формирует скорость и ускорение. На каждом шаге времени выполняется полный пространственный цикл выбранного метода.",
-                  wraplength=330,justify="left").pack(anchor="w",fill="x")
-        ttk.Separator(routecard).pack(fill="x",pady=7)
-        self.dynamic_route_status=ttk.Label(routecard,text="",wraplength=330,justify="left")
-        self.dynamic_route_status.pack(anchor="w",fill="x")
-        ttk.Button(routecard,text="Открыть вариационный CASE…",
-                   command=self.open_reference_case).pack(anchor="w",pady=(9,3))
-        ttk.Label(routecard,text="Поддерживает G3D, флексо, МВИ/МКР и отдельные динамические результаты.",
-                  foreground="#52687a",wraplength=330,justify="left").pack(anchor="w",fill="x")
-        self._refresh_dynamic_law_fields()
+                        command=self._on_calculation_kind_change).pack(side="left",padx=(0,12))
+        ttk.Label(timebar,text="Связанный G3D/флексо — в вариационном CASE.",foreground="#52687a").pack(side="left")
+        # Dynamic inputs now live in their own scrollable notebook page.
+        # Keeping them here above the notebook squeezed the problem geometry
+        # and boundary editors to an unusable strip on scaled Windows screens.
 
         actions=ttk.Frame(self,padding=(12,0,12,7));actions.pack(fill="x")
         ttk.Button(actions,text="Открыть параметры",command=self.open_parameters).pack(side="left",padx=(0,5))
@@ -7014,6 +7008,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self.tab_j2=ttk.Frame(self.notebook,padding=10)
         self.tab_online=ttk.Frame(self.notebook,padding=8)
         self.tab_results=ttk.Frame(self.notebook,padding=10)
+        self.tab_dynamic_setup=ttk.Frame(self.notebook,padding=8)
         self.tab_dynamics=ttk.Frame(self.notebook,padding=10)
         self.tab_files=ttk.Frame(self.notebook,padding=10)
         self.tab_run=ttk.Frame(self.notebook,padding=10)
@@ -7025,6 +7020,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self._build_j2_tab()
         self._build_online_tab()
         self._build_results_tab()
+        self._build_dynamic_setup_tab()
         self._build_dynamics_tab()
         self._build_files_tab()
         self._build_run_tab()
@@ -7037,6 +7033,220 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self._update_units()
         self._install_global_scroll_dispatch()
 
+    def _on_calculation_kind_change(self):
+        """Switch to the dedicated setup page without destroying GUI inputs."""
+        dynamic=self._v("calculation_kind","STATIC").get()=="DYNAMIC"
+        self._refresh_visibility()
+        if dynamic and hasattr(self,"tab_dynamic_setup"):
+            self.notebook.select(self.tab_dynamic_setup)
+
+    def _build_dynamic_setup_tab(self):
+        """Responsive, scrollable Newmark input page (GUI only, no PDE changes)."""
+        host=ttk.Frame(self.tab_dynamic_setup)
+        host.pack(fill="both",expand=True)
+        host.columnconfigure(0,weight=1)
+        host.rowconfigure(0,weight=1)
+        canvas=tk.Canvas(host,highlightthickness=0,borderwidth=0,background="#f4f6f8")
+        canvas.grid(row=0,column=0,sticky="nsew")
+        bar=ttk.Scrollbar(host,orient="vertical",command=canvas.yview,
+                          style="Green.Vertical.TScrollbar")
+        bar.grid(row=0,column=1,sticky="ns")
+        canvas.configure(yscrollcommand=bar.set)
+        self.dynamic_setup_canvas=canvas
+
+        content=ttk.Frame(canvas,padding=(12,10,16,14))
+        self.dynamic_setup_inner=content
+        self._dynamic_setup_window=canvas.create_window((0,0),window=content,anchor="nw")
+        content.bind("<Configure>",lambda _e:canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>",self._on_dynamic_setup_resize)
+
+        heading=ttk.Frame(content)
+        heading.grid(row=0,column=0,sticky="ew",pady=(0,12))
+        ttk.Label(heading,text="Параметры динамического расчёта",
+                  font=("Segoe UI Semibold",14)).pack(anchor="w")
+        ttk.Label(heading,text="Ньюмарк по времени · полный пространственный расчёт МВИ/МКР на каждом шаге",
+                  foreground="#52687a",wraplength=850,justify="left").pack(anchor="w",pady=(3,0))
+        content.columnconfigure(0,weight=1)
+        columns=ttk.Frame(content)
+        columns.grid(row=1,column=0,sticky="nsew")
+        columns.columnconfigure(0,weight=1)
+        columns.columnconfigure(1,weight=1)
+        left=ttk.Frame(columns)
+        right=ttk.Frame(columns)
+        left.grid(row=0,column=0,sticky="new",padx=(0,8))
+        right.grid(row=0,column=1,sticky="new",padx=(8,0))
+        self._dynamic_setup_columns=columns
+        self._dynamic_setup_left=left
+        self._dynamic_setup_right=right
+        self._dynamic_setup_compact=None
+
+        def field(parent,row,title,key,default="",width=18):
+            ttk.Label(parent,text=title).grid(row=row,column=0,sticky="w",padx=(0,12),pady=5)
+            entry=ttk.Entry(parent,textvariable=self._v(key,default),width=width)
+            entry.grid(row=row,column=1,sticky="ew",pady=5)
+            return entry
+
+        timecard=ttk.LabelFrame(left,text="1. Время и схема Ньюмарка",padding=(12,10))
+        timecard.pack(fill="x",pady=(0,12))
+        timecard.columnconfigure(1,weight=1)
+        for idx,(title,key,default) in enumerate((
+            ("Шаг времени Δt [с]","dyn_dt",""),
+            ("Число временных шагов","dyn_steps",""),
+            ("Начальное время [с]","dyn_t0","0"),
+            ("Параметр β","dyn_beta","0.25"),
+            ("Параметр γ","dyn_gamma","0.5"),
+        )):
+            field(timecard,idx,title,key,default)
+        ttk.Label(timecard,text="Схема Ньюмарка. Параметры проверяются перед расчётом.",
+                  foreground="#52687a",wraplength=340,justify="left").grid(
+                      row=5,column=0,columnspan=2,sticky="w",pady=(7,2))
+
+        masscard=ttk.LabelFrame(left,text="2. Масса и демпфирование",padding=(12,10))
+        masscard.pack(fill="x",pady=(0,12))
+        masscard.columnconfigure(1,weight=1)
+        field(masscard,0,"Плотность ρ [кг/м³]","dyn_density","")
+        ttk.Label(masscard,text="Демпфирование").grid(row=1,column=0,sticky="w",pady=5)
+        damping=ttk.Combobox(masscard,values=("NONE · без демпфирования",),
+                             state="disabled",width=25)
+        damping.set("NONE · без демпфирования")
+        damping.grid(row=1,column=1,sticky="ew",pady=5)
+        ttk.Label(masscard,text="Ненулевое демпфирование пока не подключено к связанному решателю.",
+                  foreground="#926100",wraplength=350,justify="left").grid(
+                      row=2,column=0,columnspan=2,sticky="w",pady=(6,2))
+
+        routecard=ttk.LabelFrame(left,text="3. Пространственный решатель и связанный CASE",padding=(12,10))
+        routecard.pack(fill="x",pady=(0,12))
+        ttk.Label(routecard,
+                  text="МВИ/МКР и ранг МВИ выбираются в верхней панели. "
+                       "Связанный расчёт механики и электрического потенциала запускается через вариационный CASE.",
+                  justify="left",wraplength=370).pack(anchor="w",fill="x",pady=(0,7))
+        self.dynamic_route_status=ttk.Label(routecard,text="",wraplength=370,justify="left")
+        self.dynamic_route_status.pack(anchor="w",fill="x",pady=(4,8))
+        commands=ttk.Frame(routecard)
+        commands.pack(anchor="w",fill="x")
+        ttk.Button(commands,text="Открыть связанный CASE…",
+                   command=self.open_reference_case).pack(anchor="w",fill="x",pady=(0,6))
+        ttk.Button(commands,text="Настройки МВИ / МКР…",
+                   command=self._open_dynamic_numeric_settings).pack(anchor="w",fill="x")
+        ttk.Label(routecard,text="Вариационный маршрут предназначен для малых проверочных задач.",
+                  foreground="#52687a",wraplength=370,justify="left").pack(
+                      anchor="w",pady=(9,0))
+
+        loadcard=ttk.LabelFrame(right,text="4. Закон временного нагружения F(t)",padding=(12,10))
+        loadcard.pack(fill="x",pady=(0,12))
+        loadcard.columnconfigure(1,weight=1)
+        ttk.Label(loadcard,text="Тип закона").grid(row=0,column=0,sticky="w",padx=(0,12),pady=5)
+        self.dyn_law_combo=ttk.Combobox(loadcard,state="readonly",width=30)
+        self.dyn_law_combo.grid(row=0,column=1,sticky="ew",pady=5)
+        self._bind_display_combo(self.dyn_law_combo,"dyn_law",self._refresh_dynamic_law_fields)
+        self.dynamic_law_rows={}
+        law_fields=(
+            ("Амплитуда-множитель","dyn_amplitude","1"),
+            ("Начало действия [с]","dyn_load_start","0"),
+            ("Частота [Гц]","dyn_load_freq",""),
+            ("Фаза [рад]","dyn_load_phase_rad","0"),
+            ("Длительность [с]","dyn_load_duration",""),
+            ("Затухание [1/с]","dyn_load_decay","0"),
+            ("Конечная частота [Гц]","dyn_load_freq_end",""),
+            ("Центр импульса [с]","dyn_load_center",""),
+            ("Ширина σ [с]","dyn_load_sigma",""),
+            ("Многочастотный / табличный JSON","dyn_law_json",""),
+        )
+        for row,(title,key,default) in enumerate(law_fields,1):
+            label=ttk.Label(loadcard,text=title)
+            label.grid(row=row,column=0,sticky="w",padx=(0,12),pady=5)
+            if key=="dyn_law_json":
+                editor=ttk.Frame(loadcard)
+                entry=ttk.Entry(editor,textvariable=self._v(key,default),width=25)
+                entry.pack(side="left",fill="x",expand=True)
+                ttk.Button(editor,text="Редактор…",
+                           command=self._edit_dynamic_time_law_json).pack(side="left",padx=(7,0))
+            else:
+                editor=ttk.Entry(loadcard,textvariable=self._v(key,default),width=20)
+            editor.grid(row=row,column=1,sticky="ew",pady=5)
+            self.dynamic_law_rows[key]=(label,editor)
+        ttk.Separator(loadcard,orient="horizontal").grid(
+            row=11,column=0,columnspan=2,sticky="ew",pady=(12,7))
+        ttk.Label(loadcard,
+                  text="Закон F(t) задаёт множитель для пространственной нагрузки. "
+                       "Форма давления, участок и величина задаются на вкладке «Нагрузка».",
+                  foreground="#52687a",wraplength=420,justify="left").grid(
+                      row=12,column=0,columnspan=2,sticky="w")
+        self._refresh_dynamic_law_fields()
+
+    def _on_dynamic_setup_resize(self,event):
+        """Two readable columns on wide screens, a single stack on small ones."""
+        width=max(1,int(event.width))
+        self.dynamic_setup_canvas.itemconfigure(self._dynamic_setup_window,width=width)
+        compact=width<1050
+        if compact==self._dynamic_setup_compact:return
+        self._dynamic_setup_compact=compact
+        columns=self._dynamic_setup_columns
+        left,right=self._dynamic_setup_left,self._dynamic_setup_right
+        if compact:
+            columns.columnconfigure(1,weight=0)
+            left.grid_configure(row=0,column=0,padx=0,pady=(0,6))
+            right.grid_configure(row=1,column=0,padx=0,pady=(0,6))
+        else:
+            columns.columnconfigure(1,weight=1)
+            left.grid_configure(row=0,column=0,padx=(0,8),pady=0)
+            right.grid_configure(row=0,column=1,padx=(8,0),pady=0)
+
+    def _open_dynamic_numeric_settings(self):
+        """Expose existing numeric controls instead of duplicating inert entries."""
+        self._v("ui_level","BASIC").set("EXPERT")
+        self._apply_ui_level_layout()
+        self.notebook.select(self.tab_numeric)
+
+    def _edit_dynamic_time_law_json(self):
+        """Multiline JSON editor for table/multiharmonic time-law parameters."""
+        kind=self._v("dyn_law","HARMONIC").get().upper()
+        win=tk.Toplevel(self)
+        win.title("Дополнительные параметры временной нагрузки")
+        win.geometry("760x550")
+        win.minsize(560,360)
+        win.transient(self)
+        frame=ttk.Frame(win,padding=12)
+        frame.pack(fill="both",expand=True)
+        if kind=="MULTIHARMONIC":
+            instruction='harmonics: список объектов с amplitude, frequency_hz, phase_rad.'
+        elif kind=="TABULATED":
+            instruction='times_s + factors или csv_path; extrapolation: ERROR / ZERO / HOLD.'
+        else:
+            instruction="Введите дополнительные параметры закона в формате JSON-объекта."
+        ttk.Label(frame,text=instruction,wraplength=680,justify="left").pack(anchor="w",pady=(0,8))
+        body=ttk.Frame(frame)
+        body.pack(fill="both",expand=True)
+        body.columnconfigure(0,weight=1)
+        body.rowconfigure(0,weight=1)
+        editor=tk.Text(body,wrap="none",font=("Consolas",11),undo=True)
+        editor.grid(row=0,column=0,sticky="nsew")
+        scroll=ttk.Scrollbar(body,orient="vertical",command=editor.yview)
+        scroll.grid(row=0,column=1,sticky="ns")
+        editor.configure(yscrollcommand=scroll.set)
+        initial=self._v("dyn_law_json","").get().strip()
+        if initial:
+            try:initial=json.dumps(json.loads(initial),ensure_ascii=False,indent=2)
+            except json.JSONDecodeError:pass
+        editor.insert("1.0",initial)
+        actions=ttk.Frame(frame)
+        actions.pack(fill="x",pady=(9,0))
+        def save():
+            raw=editor.get("1.0","end-1c").strip()
+            try:data=json.loads(raw)
+            except json.JSONDecodeError as exc:
+                messagebox.showerror("JSON",str(exc),parent=win)
+                return
+            if not isinstance(data,dict):
+                messagebox.showerror("JSON","Требуется JSON-объект.",parent=win)
+                return
+            self._v("dyn_law_json").set(json.dumps(data,ensure_ascii=False))
+            win.destroy()
+        ttk.Button(actions,text="Отмена",command=win.destroy).pack(side="right",padx=(8,0))
+        ttk.Button(actions,text="Сохранить JSON",command=save).pack(side="right")
+        win.grab_set()
+        editor.focus_set()
+
     def _refresh_dynamic_law_fields(self):
         """Show only parameters used by the selected physical time law."""
         rows=getattr(self,"dynamic_law_rows",{})
@@ -7048,7 +7258,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
                     "CHIRP_LINEAR","RECTANGULAR_PULSE","HALF_SINE_PULSE","TRIANGULAR_PULSE"):
             visible.add("dyn_load_start")
         if kind in ("HARMONIC","DAMPED_HARMONIC","CHIRP_LINEAR"):
-            visible.add("dyn_load_freq")
+            visible.update(("dyn_load_freq","dyn_load_phase_rad"))
         if kind in ("RAMP","CHIRP_LINEAR","RECTANGULAR_PULSE","HALF_SINE_PULSE","TRIANGULAR_PULSE"):
             visible.add("dyn_load_duration")
         if kind=="DAMPED_HARMONIC":visible.add("dyn_load_decay")
@@ -7081,7 +7291,8 @@ class FinalSolverGUI(EnhancedSolverGUI):
         except Exception:target=getattr(event,"widget",None)
         pairs=((getattr(self,"problem_left_canvas",None),getattr(self,"problem_left_inner",None)),
                (getattr(self,"problem_right_canvas",None),getattr(self,"problem_right_inner",None)),
-               (getattr(self,"load_left_canvas",None),getattr(self,"load_left_inner",None)))
+               (getattr(self,"load_left_canvas",None),getattr(self,"load_left_inner",None)),
+               (getattr(self,"dynamic_setup_canvas",None),getattr(self,"dynamic_setup_inner",None)))
         for canvas,inner in pairs:
             if canvas is None or inner is None:continue
             if not (self._widget_is_inside(target,inner) or target is canvas):continue
@@ -7106,7 +7317,8 @@ class FinalSolverGUI(EnhancedSolverGUI):
         # Tk class binding, so scrolling does not accidentally change a combo.
         for canvas,inner in ((getattr(self,"problem_left_canvas",None),getattr(self,"problem_left_inner",None)),
                              (getattr(self,"problem_right_canvas",None),getattr(self,"problem_right_inner",None)),
-                             (getattr(self,"load_left_canvas",None),getattr(self,"load_left_inner",None))):
+                             (getattr(self,"load_left_canvas",None),getattr(self,"load_left_inner",None)),
+               (getattr(self,"dynamic_setup_canvas",None),getattr(self,"dynamic_setup_inner",None))):
             if canvas is None or inner is None:continue
             try:canvas.unbind("<MouseWheel>");inner.unbind("<MouseWheel>")
             except Exception:pass
@@ -7380,14 +7592,16 @@ class FinalSolverGUI(EnhancedSolverGUI):
         if not hasattr(self,"notebook"):return
         try:selected=str(self.notebook.select())
         except Exception:selected=""
-        for tab in (self.tab_problem,self.tab_load,self.tab_numeric,self.tab_birger,self.tab_j2,self.tab_online,self.tab_results,self.tab_dynamics,self.tab_files,self.tab_run):
+        for tab in (self.tab_problem,self.tab_load,self.tab_dynamic_setup,self.tab_numeric,self.tab_birger,self.tab_j2,self.tab_online,self.tab_results,self.tab_dynamics,self.tab_files,self.tab_run):
             try:self.notebook.forget(tab)
             except Exception:pass
         expert=self._v("ui_level","BASIC").get()=="EXPERT"
         # Historical Birger/J2 widgets are not available in the flexo interface.
         tabs=[(self.tab_problem,"1 · Постановка"),(self.tab_load,"2 · Нагрузка")]
+        if self._v("calculation_kind","STATIC").get()=="DYNAMIC":
+            tabs.append((self.tab_dynamic_setup,"3 · Параметры динамики"))
         if expert:tabs.append((self.tab_numeric,"Численные настройки"))
-        tabs.extend(((self.tab_online,"Онлайн-расчёт"),(self.tab_results,"Результаты"),(self.tab_dynamics,"Нелинейная динамика")))
+        tabs.extend(((self.tab_online,"Онлайн-расчёт"),(self.tab_results,"Результаты"),(self.tab_dynamics,"Анализ динамики")))
         if expert:tabs.extend(((self.tab_files,"Файлы и начальные поля"),(self.tab_run,"Журнал")))
         for tab,title in tabs:self.notebook.add(tab,text=title)
         visible={str(tab) for tab,_ in tabs}
@@ -7498,12 +7712,8 @@ class FinalSolverGUI(EnhancedSolverGUI):
         reference=self._active_reference_case()
         reference_runnable=bool(reference)
         reference_dynamic=bool(reference and str(reference[1].get("calculation_kind","")).upper()=="DYNAMIC")
-        frame=getattr(self,"dynamic_parameters_frame",None)
-        if frame is not None:
-            if dynamics_pending and not frame.winfo_manager():
-                frame.pack(fill="x",padx=12,pady=(0,6),before=getattr(self,"parameter_toolbar"))
-            elif not dynamics_pending and frame.winfo_manager():
-                frame.pack_forget()
+        # Dynamic setup is a full-height notebook page, never an extra strip
+        # above the main notebook. Visibility is handled by _rebuild_visible_tabs.
         self._refresh_dynamic_law_fields()
         if hasattr(self,"dynamic_route_status"):
             if reference_dynamic:
