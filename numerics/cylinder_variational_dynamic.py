@@ -39,7 +39,7 @@ class DynamicSpatialResult:
 def _effective_evaluator(problem, q_shape, p_shape, q_predictor, v_predictor,
                          *, time_s, dt_s, beta, gamma, density_kg_m3,
                          dead_load, free_charge, scales, basis, energy_scale,
-                         mass_damping_rate_per_s=0.0):
+                         mass_damping_rate_per_s=0.0, eta_s=0.0):
     q_size=int(np.prod(q_shape))
     coefficient=1./(beta*dt_s*dt_s)
 
@@ -52,9 +52,10 @@ def _effective_evaluator(problem, q_shape, p_shape, q_predictor, v_predictor,
         _,residual,_=problem.evaluate_effective_residual(
             q,p,dead_load=dead_load,free_charge=free_charge,
             time_s=time_s,acceleration=acceleration,density_kg_m3=density_kg_m3,
-            velocity=velocity if (mass_damping_rate_per_s or
+            velocity=velocity if (mass_damping_rate_per_s or eta_s or
                                   problem.functional.theory=="KL") else None,
-            mass_damping_rate_per_s=mass_damping_rate_per_s)
+            mass_damping_rate_per_s=mass_damping_rate_per_s,
+            eta_s=eta_s)
         assembled=None  # No boundary SVD during tangent/line-search evaluations.
         g=basis.T@(scales*residual)/energy_scale
         if not np.isfinite(residual).all() or not np.isfinite(g).all():
@@ -67,7 +68,7 @@ def solve_dynamic_subspace(problem, mechanical, electrical, *, q_predictor,
                            velocity_predictor, time_s, dt_s, beta, gamma,
                            density_kg_m3, dead_load=None, free_charge=None,
                            settings=None, directions=None, on_iteration=None,
-                           mass_damping_rate_per_s=0.0):
+                           mass_damping_rate_per_s=0.0, eta_s=0.0):
     """Newton solve of one effective Newmark residual in a chosen space."""
     if problem.kind!="DYNAMIC":raise ValueError("dynamic solve requires DYNAMIC problem")
     settings=StaticFDMSettings() if settings is None else settings
@@ -96,7 +97,8 @@ def solve_dynamic_subspace(problem, mechanical, electrical, *, q_predictor,
         time_s=float(time_s),dt_s=float(dt_s),beta=float(beta),gamma=float(gamma),
         density_kg_m3=float(density_kg_m3),dead_load=dead_load,free_charge=free_charge,
         scales=scales,basis=b,energy_scale=energy_scale,
-        mass_damping_rate_per_s=mass_damping_rate_per_s)
+        mass_damping_rate_per_s=mass_damping_rate_per_s,
+            eta_s=eta_s)
     v=space.origin.copy()
     assembled,r,g,q,p,velocity,acceleration=evaluate(v)
     initial=float(np.max(abs(g),initial=0))
@@ -166,7 +168,7 @@ def solve_dynamic_mvi(problem, mechanical, electrical=None, *, q_predictor,
                       velocity_predictor, time_s, dt_s, beta, gamma,
                       density_kg_m3, dead_load=None, free_charge=None,
                       settings=None, mvi_settings=None, on_iteration=None,
-                      mass_damping_rate_per_s=0.0):
+                      mass_damping_rate_per_s=0.0, eta_s=0.0):
     """Complete frozen-partner X/Y cycle for one effective Newmark step."""
     settings=StaticFDMSettings() if settings is None else settings
     mvi_settings=StaticMVISettings() if mvi_settings is None else mvi_settings
@@ -195,7 +197,8 @@ def solve_dynamic_mvi(problem, mechanical, electrical=None, *, q_predictor,
             dt_s=dt_s,beta=beta,gamma=gamma,density_kg_m3=density_kg_m3,
             dead_load=dead_load,free_charge=free_charge,scales=scales,
             basis=full.basis,energy_scale=energy_scale,
-            mass_damping_rate_per_s=mass_damping_rate_per_s)
+            mass_damping_rate_per_s=mass_damping_rate_per_s,
+            eta_s=eta_s)
         return (v,)+evaluate(v)
     def projected_norm(v,r):
         values=[]
@@ -232,7 +235,8 @@ def solve_dynamic_mvi(problem, mechanical, electrical=None, *, q_predictor,
                 velocity_predictor=velocity_predictor,time_s=time_s,dt_s=dt_s,beta=beta,
                 gamma=gamma,density_kg_m3=density_kg_m3,dead_load=dead_load,
                 free_charge=free_charge,settings=settings,directions=directions,on_iteration=report,
-                mass_damping_rate_per_s=mass_damping_rate_per_s)
+                mass_damping_rate_per_s=mass_damping_rate_per_s,
+            eta_s=eta_s)
             history.extend({**row,"event":"halfstep","sweep":sweep,"direction":axis}
                            for row in result.history)
             state=result.mechanical.ravel() if p is None else np.concatenate(
