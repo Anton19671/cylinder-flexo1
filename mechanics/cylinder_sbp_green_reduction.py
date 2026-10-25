@@ -73,7 +73,7 @@ def _make_field_split(coefficient, powers, W, ws, ends, electric=False):
         tensor=coefficient[idx]
         d_x=xp[ax];d_s=sp[az]
         direct+=np.einsum(
-            "ki,ckj,lj->cil",d_x,W[None,...]*tensor,d_s,
+            "ki,ckj,jl->cil",d_x,W[None,...]*tensor,d_s,
             optimize=True)
         strong+=(-1.)**(ax+az)*np.einsum(
             "ik,ckj,lj->cil",d_x,tensor,d_s,
