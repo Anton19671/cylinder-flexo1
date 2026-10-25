@@ -112,14 +112,30 @@ def validate_dynamic_case(case):
     )
     density=_real(d["density_kg_m3"],"density_kg_m3",positive=True)
     damping=str(d.get("damping","NONE")).strip().upper()
-    if damping not in ("NONE","EXTERNAL_OPERATOR"):
-        raise DynamicInputError("damping must be NONE or EXTERNAL_OPERATOR")
+    if damping not in ("NONE","MASS_PROPORTIONAL","EXTERNAL_OPERATOR"):
+        raise DynamicInputError(
+            "damping must be NONE, MASS_PROPORTIONAL or EXTERNAL_OPERATOR")
+    # MASS_PROPORTIONAL represents the mechanically consistent Rayleigh term
+    # C = alpha_M * M, where alpha_M has dimensions 1/s.  This is NOT
+    # micro.eta_s (material gradient viscosity), nor electrical damping.
+    damping_key="mass_damping_rate_per_s"
+    if damping=="MASS_PROPORTIONAL":
+        if damping_key not in d:
+            raise DynamicInputError(
+                "MASS_PROPORTIONAL requires mass_damping_rate_per_s")
+        alpha_m=_real(d[damping_key],damping_key,positive=True)
+    else:
+        if damping_key in d:
+            raise DynamicInputError(
+                damping_key+" is only allowed with MASS_PROPORTIONAL")
+        alpha_m=0.0
     return {
         "kind":"DYNAMIC","method":method,
         "time_step_s":settings.dt_s,"n_steps":settings.n_steps,
         "newmark_beta":settings.beta,"newmark_gamma":settings.gamma,
         "start_time_s":settings.t_start_s,
         "density_kg_m3":density,"damping":damping,
+        "mass_damping_rate_per_s":alpha_m,
         "residual_tolerance_relative":settings.residual_tolerance_relative,
         "spatial_solver_status":"NOT_CONNECTED_TO_CYLINDER_PDE",
     }
