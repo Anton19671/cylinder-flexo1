@@ -100,9 +100,10 @@ class DynamicCaseTest(unittest.TestCase):
 
     def test_time_dependent_electrode_is_assembled_by_newmark(self):
         c=self.sample()
-        c["boundary_conditions"]["variational"]["electrical"]["inner"]["time_law"]={
-            "kind":"RAMP","amplitude":1.,"start_time_s":0.,
-            "duration_s":0.02}
+        c["boundary_conditions"]["variational"]["electrical"]["inner"].update(
+            value=2.,time_law={
+                "kind":"RAMP","amplitude":1.,"start_time_s":0.,
+                "duration_s":0.02})
         prepared=prepare_reference_case(c)
         self.assertEqual(prepared.calculation_kind,"DYNAMIC")
         at_start=prepared.problem.assemble(
@@ -115,9 +116,9 @@ class DynamicCaseTest(unittest.TestCase):
             dead_load=np.zeros_like(prepared.mechanical),
             acceleration=np.zeros_like(prepared.mechanical),
             density_kg_m3=prepared.dynamics.density_kg_m3)
-        # The dynamic BC is accepted. Its value is zero because the original
-        # template electrode voltage is zero, so neither row is invented.
         self.assertEqual(at_start.space.matrix.shape,at_end.space.matrix.shape)
+        self.assertAlmostEqual(float(np.max(abs(at_start.space.target))),0.)
+        self.assertAlmostEqual(float(np.max(abs(at_end.space.target))),2.)
 
     def test_boundary_time_law_rejects_undersampled_frequency(self):
         c=self.sample()
