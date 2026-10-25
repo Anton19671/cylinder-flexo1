@@ -35,10 +35,16 @@ fields expected by the existing dynamic Newmark acceptance workflow.
 
 Caveats and remaining blockers:
 
-- The existing reference CASE preflight still builds a dense trace
-  basis using SVD and imposes **256 surface-node** and 4096 nodal DOF
-  limits. Therefore the new route DOES NOT YET enable full-scale
-  engineering meshes; it is only the first numerical-kernel stage.
+- The opt-in reference CASE preflight now uses sparse affine traces,
+  avoids dense SVD, and bypasses the old 256-node/4096-nodal-DOF
+  guard. A distinct safety cap of 8192 surface nodes and
+  `max_total_dofs` remains; **this is not a demonstrated
+  production engineering mesh size**.
+- Dynamic Newmark trace preparation likewise bypasses
+  `BoundarySpatialProblem.assemble` for this backend, avoiding its
+  dense null-space construction. The existing trace monitor itself
+  still uses a dense mechanical constraint matrix and needs further
+  refactoring for large grids.
 - Dense eigen/gauge checks in SurfaceOperators and dense physical
   spatial derivative matrices are still present.
 - Strict sparse Gram full-row-rank checks currently reject dependent
