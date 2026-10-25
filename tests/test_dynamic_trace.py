@@ -73,6 +73,25 @@ class TraceNewmarkTest(unittest.TestCase):
             MechanicalTraceNewmark(np.array([[1.,0.]]),[.1],[0.,0.],
                                    [0.,0.],[0.,0.],t=0,dt=.1,beta=.25,gamma=.5)
 
+    def test_near_zero_initial_full_residual_uses_absolute_floor(self):
+        self.assertEqual(effective_step_acceptance(
+            True,1.,1.e-7,absolute_residual=3.e-13,
+            absolute_tolerance=1.e-12),(True,"ACCEPTED"))
+        self.assertEqual(effective_step_acceptance(
+            True,1.,1.e-7,absolute_residual=3.e-10,
+            absolute_tolerance=1.e-12),
+            (False,"FULL_EFFECTIVE_RESIDUAL_ABOVE_TOLERANCE"))
+
+    def test_absolute_floor_cannot_overrule_nonconvergence(self):
+        self.assertEqual(effective_step_acceptance(
+            False,1.,1.e-7,absolute_residual=0.,absolute_tolerance=1.e-12),
+            (False,"SPATIAL_SOLVE_NOT_CONVERGED"))
+        self.assertEqual(effective_step_acceptance(
+            True,float("nan"),1.e-7,absolute_residual=0.,absolute_tolerance=1.e-12),
+            (False,"INVALID_FULL_EFFECTIVE_RESIDUAL"))
+        with self.assertRaisesRegex(ValueError,"supplied together"):
+            effective_step_acceptance(True,1.,1.e-7,absolute_residual=0.)
+
     def test_full_residual_gate(self):
         self.assertEqual(effective_step_acceptance(True,1.e-8,1.e-7),(True,"ACCEPTED"))
         self.assertEqual(effective_step_acceptance(False,0.,1.e-7),
