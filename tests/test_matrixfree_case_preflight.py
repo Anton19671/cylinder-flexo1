@@ -42,11 +42,12 @@ class SparsePreflightTests(unittest.TestCase):
     def test_large_nodal_count_above_dense_cap_is_allowed_to_preflight(self):
         from cylinder_boundary_spatial import BoundarySpatialProblem
         c=self.case()
-        c["fdm_grid"]={"nx":16,"ns":15}
+        c["fdm_grid"]={"nx":18,"ns":17}
         c["reference_newton"]["max_total_dofs"]=4096
         with patch.object(BoundarySpatialProblem,"assemble",
                           side_effect=AssertionError("dense preflight not allowed")):
             prepared=prepare_reference_case(c)
+        self.assertGreater(prepared.mechanical.shape[1]*prepared.mechanical.shape[2],256)
         self.assertGreater(prepared.mechanical.size,1000)
 
     def test_mvi_cannot_select_matrixfree_fdm(self):

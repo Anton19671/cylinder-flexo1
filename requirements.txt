@@ -2,3 +2,4 @@ numpy
 matplotlib
 XlsxWriter
 imageio-ffmpeg
+scipy>=1.11
