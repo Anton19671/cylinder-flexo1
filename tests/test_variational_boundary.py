@@ -51,7 +51,7 @@ class VariationalBoundaryTest(unittest.TestCase):
         self.assertEqual({row.indices[0]//m for row in result.constraints},{0,5,10})
 
     def test_outward_normal_double_traction_left_right_signs(self):
-        f=self.functional("CUF_TE1",False)
+        f,_,_=self.make("CUF_TE1")
         q=np.zeros((f.n_mechanical,*self.ops.shape))
         n=f.n_mechanical
         magnitude=[0.]*n;magnitude[0]=2.
@@ -66,7 +66,7 @@ class VariationalBoundaryTest(unittest.TestCase):
                 self.assertAlmostEqual(a.potential_correction_j,b.potential_correction_j)
 
     def test_outward_normal_triple_traction_same_on_both_ends(self):
-        f=self.functional("FSDT",False)
+        f,_,_=self.make("FSDT")
         q=np.zeros((f.n_mechanical,*self.ops.shape))
         force=[1.,0.,0.,0.,0.]
         for side in ("left","right"):
@@ -78,7 +78,7 @@ class VariationalBoundaryTest(unittest.TestCase):
                                           b.mechanical_residual_correction)
 
     def test_mixed_axial_and_normal_traces_fail(self):
-        f=self.functional("CUF_TE1",False)
+        f,_,_=self.make("CUF_TE1")
         q=np.zeros((f.n_mechanical,*self.ops.shape))
         spec={"mechanical":{"left":{
             "double_traction":[0.]*f.n_mechanical,
