@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Explicit small-grid CASE route for the variational static FDM backend."""
+"""Explicit small-grid CASE route for the variational static FDM/MVI backend."""
 from dataclasses import dataclass
 from pathlib import Path
 import json
@@ -9,6 +9,7 @@ import numpy as np
 from cylinder_functional_assembly import CylinderFunctional, surface_trapezoid
 from cylinder_boundary_spatial import BoundarySpatialProblem
 from cylinder_variational_fdm import StaticFDMSettings, solve_static_fdm
+from cylinder_variational_mvi import StaticMVISettings, solve_static_mvi
 from flexo_gradient_g3d import G3DMaterial
 from flexo_scale_policy import micro_material_from_case, flexoelectric_enabled
 import final_progress as progress
@@ -55,6 +56,8 @@ class ReferenceCase:
     free_charge: np.ndarray | None
     factors: tuple
     settings: StaticFDMSettings
+    method: str
+    mvi_settings: StaticMVISettings | None
 
 
 def prepare_reference_case(case):
@@ -62,8 +65,9 @@ def prepare_reference_case(case):
     if selected_backend(case)!=BACKEND:raise ValueError("explicit reference backend required")
     if str(case.get("calculation_kind","")).upper()!="STATIC":
         raise ValueError("reference backend currently requires STATIC")
-    if str(case.get("method","")).upper()!="FDM":
-        raise ValueError("reference backend currently requires FDM; MVI cycles are not connected")
+    method=str(case.get("method","")).upper()
+    if method not in ("FDM","MVI"):
+        raise ValueError("reference backend requires FDM or MVI")
     if str(case.get("geometry_model","")).upper()!="GREEN_LAGRANGE":
         raise ValueError("reference backend requires full GREEN_LAGRANGE")
     if str(case.get("material_model","")).upper()!="HOOKE":
@@ -86,7 +90,10 @@ def prepare_reference_case(case):
     else:raise ValueError("explicit scale_model=MACRO/MICRO required")
     geo=case["geometry"]
     length,radius,thickness=(_real(geo[key],key,True) for key in ("L","R","h"))
-    grid=case.get("fdm_grid") or case.get("grid") or {}
+    other_grid="mvi_grid" if method=="FDM" else "fdm_grid"
+    if case.get(other_grid) is not None:
+        raise ValueError(other_grid+": grid belongs to the other spatial method")
+    grid=case.get("fdm_grid" if method=="FDM" else "mvi_grid") or case.get("grid") or {}
     nx=_integer(grid.get("nx"),"nx",4);ns=_integer(grid.get("ns"),"ns",4)
     if grid.get("stencil") is not None:
         raise ValueError("reference operators are fixed; omit legacy grid.stencil")
@@ -120,7 +127,7 @@ def prepare_reference_case(case):
                              for site in spec.get("mechanical",{}).values()):
         raise ValueError("higher-order reference traces require MICRO G3D")
     for key in ("loads_npz","initial_profiles_npz","initial_state","initial_GB",
-                "newton","linear","inner_mvi","mvi_grid","fdm_operator_scheme"):
+                "newton","linear","inner_mvi","fdm_operator_scheme"):
         if case.get(key) is not None:
             raise ValueError(key+": legacy fields are not accepted by reference backend")
     problem=BoundarySpatialProblem(functional,bc_spec=spec)
@@ -158,6 +165,16 @@ def prepare_reference_case(case):
     if not isinstance(options,dict):raise ValueError("reference_newton must be an object")
     try:settings=StaticFDMSettings(**options)
     except TypeError as exc:raise ValueError("invalid reference_newton fields") from exc
+    mvi_settings=None
+    if method=="MVI":
+        mvi_options=case.get("reference_mvi",{})
+        if not isinstance(mvi_options,dict) or set(mvi_options)-{"max_sweeps"}:
+            raise ValueError("reference_mvi accepts only max_sweeps; rank belongs at CASE root")
+        rank=_integer(case.get("rank"),"MVI rank",1)
+        mvi_settings=StaticMVISettings(rank=rank,**mvi_options)
+        if rank>min(nx,ns):raise ValueError("MVI rank exceeds grid dimensions; increase nx and ns")
+    elif case.get("reference_mvi") is not None or case.get("rank") is not None:
+        raise ValueError("MVI settings require method=MVI")
     # Compile charge compatibility and all trace equations before declaring a
     # CASE valid; dry-run validation must not generate any output files.
     a=problem.assemble(q,p,dead_load=dead,free_charge=charge)
@@ -165,7 +182,7 @@ def prepare_reference_case(case):
         raise ValueError("reference free-DOF limit exceeded; use a smaller verification grid")
     if not isinstance(case.get("output_dir"),str) or not case["output_dir"].strip():
         raise ValueError("explicit output_dir required")
-    return ReferenceCase(problem,q,p,dead,charge,factors,settings)
+    return ReferenceCase(problem,q,p,dead,charge,factors,settings,method,mvi_settings)
 
 
 def _write_json(path,data):
@@ -185,7 +202,7 @@ def run_reference_case(case,case_path):
     out.mkdir(parents=True,exist_ok=True)
     _write_json(out/"REFERENCE_CASE.json",case)
     summary={"solver_backend":BACKEND,"experimental":True,"calculation_kind":"STATIC",
-             "method":"FDM","theory":prepared.problem.functional.theory,
+             "method":prepared.method,"theory":prepared.problem.functional.theory,
              "geometry_model":"GREEN_LAGRANGE","material_model":"HOOKE",
              "field_order":"component,x,s","thickness_basis":"(2*z/h)**k",
              "units":{"system":"SI_N_M_PA"},"output_dir":str(out),
@@ -199,16 +216,23 @@ def run_reference_case(case,case_path):
         residual_scaling={"energy_j":float(functional.material.young_pa*functional.h*np.sum(functional.W)),
                           "translation_m":functional.h,"rotation_rad":1.,
                           "potential_v":prepared.settings.potential_scale_v})
+    if prepared.mvi_settings is not None:
+        summary.update(rank=prepared.mvi_settings.rank,
+            convergence_meaning="full admissible nodal residual; projected residual reported separately")
     q,p=prepared.mechanical,prepared.electrical
     try:
         progress.configure(out,solver_backend=BACKEND)
         for index,factor in enumerate(prepared.factors,1):
             def report(record):
-                progress.emit("reference_newton",step=index,load_factor=factor,**record)
-                print(f"REFERENCE_FDM step={index} it={record['iteration']} Rscaled={record['residual_scaled']:.6e}",flush=True)
-            result=solve_static_fdm(prepared.problem,q,p,dead_load=factor*prepared.dead_load,
+                progress.emit("reference_"+record.get("event","newton"),step=index,load_factor=factor,**{k:v for k,v in record.items() if k!="event"})
+                print(f"REFERENCE_{prepared.method} step={index} sweep={record.get('sweep',0)} "
+                      f"{record.get('direction','FULL')} it={record['iteration']} "
+                      f"Rscaled={record['residual_scaled']:.6e}",flush=True)
+            solve=solve_static_fdm if prepared.method=="FDM" else solve_static_mvi
+            extra={} if prepared.method=="FDM" else {"mvi_settings":prepared.mvi_settings}
+            result=solve(prepared.problem,q,p,dead_load=factor*prepared.dead_load,
                 free_charge=None if prepared.free_charge is None else factor*prepared.free_charge,
-                settings=prepared.settings,on_iteration=report)
+                settings=prepared.settings,on_iteration=report,**extra)
             state_name=f"REFERENCE_STEP_{index:04d}.npz" if result.converged else "REFERENCE_FAILED_ITERATE.npz"
             temp=out/(state_name+".tmp")
             arrays={"mechanical":result.mechanical,"full_residual":result.full_residual,
@@ -216,9 +240,12 @@ def run_reference_case(case,case_path):
                     "x_m":np.linspace(0,float(case["geometry"]["L"]),q.shape[1]),
                     "s_m":np.arange(q.shape[2])*2*np.pi*prepared.problem.functional.R/q.shape[2]}
             if result.electrical is not None:arrays["electrical"]=result.electrical
+            if prepared.method=="MVI":
+                arrays.update(x_profiles=result.x_profiles,y_profiles=result.y_profiles,
+                              lift_scaled=result.lift_scaled,state_scales=result.scales)
             with temp.open("wb") as stream:np.savez_compressed(stream,**arrays)
             os.replace(temp,out/state_name)
-            history_name=f"REFERENCE_NEWTON_{index:04d}.json"
+            history_name=f"REFERENCE_{'MVI' if prepared.method=='MVI' else 'NEWTON'}_{index:04d}.json"
             # Singular tangents can have infinite condition number: store
             # that diagnostic as null rather than nonstandard JSON Infinity.
             history=[{k:(None if isinstance(v,float) and not np.isfinite(v) else v)
@@ -233,6 +260,10 @@ def run_reference_case(case,case_path):
                   "max_mechanical_coefficient_abs":float(np.max(abs(result.mechanical))),
                   "max_potential_coefficient_abs":None if result.electrical is None else float(np.max(abs(result.electrical))),
                   "state_file":state_name,"history_file":history_name}
+            if prepared.method=="MVI":
+                step.update(sweeps=result.sweeps,projected_residual_scaled=result.projected_residual_scaled,
+                            projected_equilibrium_satisfied=result.projected_equilibrium_satisfied,
+                            full_equilibrium_satisfied=result.converged)
             radial=2*(int(functional.theory[-1])+1) if functional.theory.startswith("CUF_") else 2
             step["w_middle_abs_max_m"]=float(np.max(abs(result.mechanical[radial])))
             summary["steps"].append(step)
@@ -251,4 +282,41 @@ def run_reference_case(case,case_path):
     return summary
 
 
-__all__=("BACKEND","selected_backend","prepare_reference_case","run_reference_case")
+def run_reference_mvi_series(case,case_path,ranks=range(1,9)):
+    """Independent fixed-rank runs; preflight every rank before any output."""
+    import copy
+    if str(case.get("method","")).upper()!="MVI":
+        raise ValueError("MVI rank series requires method=MVI")
+    ranks=[_integer(rank,"MVI rank",1) for rank in ranks]
+    if not ranks or len(set(ranks))!=len(ranks):raise ValueError("nonempty distinct MVI ranks required")
+    prepared=[]
+    for rank in ranks:
+        candidate=copy.deepcopy(case);candidate["rank"]=rank
+        prepare_reference_case(candidate)
+        prepared.append(candidate)
+    base=Path(case["output_dir"])
+    if not base.is_absolute():base=Path(case_path).parent/base
+    out=base.resolve()/"MVI_1_8_SERIES"
+    if out.exists() and any(out.iterdir()):raise ValueError("OUTPUT_DIR_NOT_EMPTY: MVI rank series")
+    out.mkdir(parents=True,exist_ok=True)
+    summary={"solver_backend":BACKEND,"method":"MVI_RANK_SERIES","ranks":ranks,
+             "results":[],"all_converged":False,"output_dir":str(out),
+             "mesh_convergence_verified":False}
+    for candidate in prepared:
+        rank=candidate["rank"]
+        candidate["output_dir"]=str(out/f"MVI_{rank}")
+        path=out/f"CASE_MVI_{rank}.json"
+        _write_json(path,candidate)
+        try:result=run_reference_case(candidate,path)
+        except Exception as exc:
+            result={"rank":rank,"converged":False,"status":"RANK_EXCEPTION",
+                    "error_type":type(exc).__name__,"error":str(exc)}
+        summary["results"].append(result)
+        summary["all_converged"]=(len(summary["results"])==len(ranks) and
+                                  all(row["converged"] for row in summary["results"]))
+        _write_json(out/"MVI_1_8_SUMMARY.json",summary)
+    return summary
+
+
+__all__=("BACKEND","selected_backend","prepare_reference_case","run_reference_case",
+         "run_reference_mvi_series")

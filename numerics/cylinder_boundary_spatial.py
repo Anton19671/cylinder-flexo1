@@ -132,6 +132,10 @@ def affine_trace_space(matrix, target, base, *, directions=None, labels=(),
     # A dense SVD may mix independent zero-target blocks at roundoff level.
     # Include its backward-error floor as well as the physical row scale.
     tol += 20*np.finfo(float).eps*max(a.shape)*float(np.max(abs(rhs), initial=0))
+    # A previous constrained solve or an exact profile QR coordinate change
+    # can leave roundoff at a zero prescribed trace. Its backward-error scale
+    # is the whole represented state, not only the tiny constrained entries.
+    tol += 20*np.finfo(float).eps*max(a.shape)*float(np.max(abs(u), initial=0))
     if np.any(abs(mismatch) > tol):
         raise ValueError("inconsistent/unreachable prescribed traces in spatial subspace")
     return AffineTraceSpace(u+t@lift, t@z, c, d, scale, tuple(labels))

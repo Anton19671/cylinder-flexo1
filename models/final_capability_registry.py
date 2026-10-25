@@ -161,9 +161,9 @@ def case_capability(case: Dict[str, Any]) -> Capability:
     try:
         backend=selected_backend(case)
         if backend==BACKEND:
-            prepare_reference_case(case)
-            return Capability(LIMITED,"REFERENCE_STATIC_FDM",
-                              "Проверочный вариационный МКР на малой сетке; сходимость по сетке не подтверждена.",False)
+            reference=prepare_reference_case(case)
+            return Capability(LIMITED,"REFERENCE_STATIC_"+reference.method,
+                              "Проверочный вариационный расчёт на малой сетке; сходимость по сетке не подтверждена.",False)
     except (ValueError,TypeError,KeyError) as exc:
         return Capability(UNAVAILABLE,"REFERENCE_CASE_INVALID",str(exc),False)
     scale = _upper(case.get("scale_model", "MACRO"))

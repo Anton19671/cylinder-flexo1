@@ -2330,7 +2330,8 @@ def validate_final_case(case_json,*,dry_run=True):
     if selected_backend(cfg)==BACKEND:
         reference=prepare_reference_case(cfg)
         return {"valid":True,"solver_backend":BACKEND,"experimental":True,
-                "theory":reference.problem.functional.theory,"method":"FDM",
+                "theory":reference.problem.functional.theory,"method":reference.method,
+                "rank":None if reference.mvi_settings is None else reference.mvi_settings.rank,
                 "calculation_kind":"STATIC","scale_model":cfg["scale_model"],
                 "field_order":"component,x,s",
                 "validation_warnings":["Small-grid reference solve; mesh convergence not verified."]}
@@ -2397,7 +2398,9 @@ def run_mvi_rank_series(case_json,ranks=range(1,9)):
     cfg,path=_read_json(case_json)
     from cylinder_reference_case import selected_backend, BACKEND
     if selected_backend(cfg)==BACKEND:
-        raise FinalCaseError("reference backend does not implement MVI rank cycles")
+        from cylinder_reference_case import run_reference_mvi_series
+        try:return run_reference_mvi_series(cfg,path,ranks)
+        except ValueError as exc:raise FinalCaseError(str(exc)) from exc
     c=_common(cfg)
     if c["method"]!="MVI":
         raise FinalCaseError("run_mvi_rank_series requires method='MVI'")

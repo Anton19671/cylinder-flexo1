@@ -58,9 +58,20 @@ class StaticFDMResult:
     iterations: int
 
 
-def solve_static_fdm(problem, mechanical, electrical=None, *, dead_load=None,
-                     free_charge=None, settings=None, on_iteration=None):
-    """Solve all admissible nodal equations with fixed STATIC boundary data.
+def state_scales(functional, mechanical, electrical, settings):
+    """Physical units of one dimensionless nodal coefficient."""
+    q=np.asarray(mechanical)
+    scales=np.full(q.size+(0 if electrical is None else np.size(electrical)),functional.h)
+    if functional.theory in ("FSDT","REDDY"):
+        scales[3*np.prod(functional.ops.shape):q.size]=1.
+    if electrical is not None:scales[q.size:]=settings.potential_scale_v
+    return scales
+
+
+def solve_static_subspace(problem, mechanical, electrical=None, *, dead_load=None,
+                          free_charge=None, settings=None, on_iteration=None,
+                          directions=None):
+    """Solve selected admissible nodal equations with fixed STATIC boundary data.
 
     Translation/CUF coefficients are scaled by h, director rotations by 1 rad,
     electric coefficients by potential_scale_v. Residual is the derivative of
@@ -68,7 +79,7 @@ def solve_static_fdm(problem, mechanical, electrical=None, *, dead_load=None,
     this dimensionless meaning. No eigenvalue clipping or tangent regularizing.
     """
     if problem.kind!="STATIC":
-        raise ValueError("solve_static_fdm requires STATIC; no dynamic substitution")
+        raise ValueError("static subspace solve requires STATIC; no dynamic substitution")
     settings=StaticFDMSettings() if settings is None else settings
     if not isinstance(settings,StaticFDMSettings):
         raise TypeError("settings must be StaticFDMSettings")
@@ -76,15 +87,14 @@ def solve_static_fdm(problem, mechanical, electrical=None, *, dead_load=None,
     q=np.asarray(mechanical,float)
     p=None if electrical is None else np.asarray(electrical,float)
     first=problem.assemble(q,p,dead_load=dead_load,free_charge=free_charge)
-    scales=np.full(first.state.size,f.h)
-    if f.theory in ("FSDT","REDDY"):
-        scales[3*np.prod(f.ops.shape):q.size]=1.
-    if p is not None:scales[q.size:]=settings.potential_scale_v
+    scales=state_scales(f,q,p,settings)
     energy_scale=float(f.material.young_pa*f.h*np.sum(f.W))
     if not np.isfinite(energy_scale) or energy_scale<=0:
         raise ValueError("invalid mechanical energy scale")
+    # directions are dimensionless nodal variations. None selects the full
+    # space; an MVI caller supplies only its frozen-partner profile directions.
     space=affine_trace_space(first.space.matrix*scales[None,:],
-                             first.space.target,first.state/scales)
+                             first.space.target,first.state/scales,directions=directions)
     b=space.basis
     if b.shape[1]>settings.max_free_dofs:
         raise ValueError(f"reference dense solve has {b.shape[1]} free DOFs; limit={settings.max_free_dofs}")
@@ -176,4 +186,12 @@ def solve_static_fdm(problem, mechanical, electrical=None, *, dead_load=None,
         defect,tuple(history),iterations)
 
 
-__all__=("StaticFDMSettings","StaticFDMResult","solve_static_fdm")
+def solve_static_fdm(problem, mechanical, electrical=None, *, dead_load=None,
+                     free_charge=None, settings=None, on_iteration=None):
+    """Full admissible nodal Newton solve; never selects an MVI subspace."""
+    return solve_static_subspace(problem,mechanical,electrical,dead_load=dead_load,
+        free_charge=free_charge,settings=settings,on_iteration=on_iteration)
+
+
+__all__=("StaticFDMSettings","StaticFDMResult","solve_static_fdm",
+         "solve_static_subspace","state_scales")
