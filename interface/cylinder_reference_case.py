@@ -2,6 +2,7 @@
 """Explicit small-grid CASE route for coupled variational FDM/MVI solves."""
 from dataclasses import dataclass
 from pathlib import Path
+import copy
 import csv
 import json
 import os
@@ -132,6 +133,7 @@ def prepare_reference_case(case, *, base_dir=None):
     bc=case.get("boundary_conditions") or {}
     spec=bc.get("variational")
     if not isinstance(spec,dict):raise ValueError("explicit boundary_conditions.variational required")
+    spec=copy.deepcopy(spec)  # resolve CASE-local CSV paths without editing caller input
     if bc.get("advanced") is not None or bc.get("engineering") is not None:
         raise ValueError("reference backend uses only explicit variational BC")
     for side in ("left","right"):
@@ -145,7 +147,6 @@ def prepare_reference_case(case, *, base_dir=None):
                 "newton","linear","inner_mvi","fdm_operator_scheme"):
         if case.get(key) is not None:
             raise ValueError(key+": legacy fields are not accepted by reference backend")
-    problem=BoundarySpatialProblem(functional,bc_spec=spec,calculation_kind=kind)
     loads=case.get("reference_loads")
     definition=case.get("load_definition")
     if loads is not None and definition is not None:raise ValueError("choose reference_loads or load_definition")
@@ -219,16 +220,42 @@ def prepare_reference_case(case, *, base_dir=None):
             t_start_s=contract["start_time_s"],
             residual_tolerance_relative=contract["residual_tolerance_relative"])
         dynamic=ReferenceDynamics(settings_dynamic,contract["density_kg_m3"],law,damping_rate)
-        # Essential traces with a time law need their exact velocity and
-        # acceleration data. That contract is kept closed until those data are explicit.
-        for site,data in spec.get("mechanical",{}).items():
-            if isinstance(data,dict) and "time_law" in data and str(data.get("support","FREE")).upper()!="FREE":
-                raise ValueError(f"{site}: time-dependent essential mechanical BC needs explicit velocity/acceleration")
-        for site,data in spec.get("electrical",{}).items():
-            if isinstance(data,dict) and "time_law" in data and str(data.get("mode","INSULATED")).upper()=="POTENTIAL":
-                raise ValueError(f"{site}: time-dependent prescribed potential is not yet connected")
+        # All end loads, electrode potentials and free charges share a physical
+        # time grid with Newmark. Validate their sampling and table coverage
+        # before producing any output, not after a step has been accepted.
+        for family in ("mechanical","electrical"):
+            for site,data in spec.get(family,{}).items():
+                if not isinstance(data,dict) or "time_law" not in data:
+                    continue
+                raw_law=data["time_law"]
+                boundary_law=normalize_time_law(raw_law,base_dir=base_dir)
+                boundary_law.validate_time_grid(
+                    contract["start_time_s"],contract["time_step_s"],
+                    contract["n_steps"])
+                # The boundary assembler parses time laws each step. It has no
+                # CASE directory argument, so bind relative CSV paths explicitly.
+                if "csv_path" in raw_law:
+                    csv_path=Path(str(raw_law["csv_path"])).expanduser()
+                    if not csv_path.is_absolute():
+                        csv_path=(Path.cwd() if base_dir is None else
+                                  Path(base_dir))/csv_path
+                    data["time_law"]["csv_path"]=str(csv_path.resolve())
+                if family=="mechanical":
+                    support=str(data.get("support","FREE")).upper()
+                    # CONSTANT displacement may be nonzero, but its prescribed
+                    # velocity and acceleration vanish. Moving constraints
+                    # require a constrained Newmark DAE, not a mere time factor.
+                    if support!="FREE" and boundary_law.kind!="CONSTANT":
+                        raise ValueError(
+                            f"{site}: time-dependent essential mechanical BC "
+                            "needs explicit velocity/acceleration")
+                # Electrical POTENTIAL is quasi-static at every time step:
+                # its time-dependent Dirichlet value has no electric inertia
+                # and is imposed by the same affine admissible trace space.
     # Compile charge compatibility and all trace equations before declaring a
     # CASE valid; dry-run validation must not generate any output files.
+    # Create the problem only after CASE-local time tables were resolved above.
+    problem=BoundarySpatialProblem(functional,bc_spec=spec,calculation_kind=kind)
     if kind=="STATIC":
         a=problem.assemble(q,p,dead_load=dead,free_charge=charge)
     else:
