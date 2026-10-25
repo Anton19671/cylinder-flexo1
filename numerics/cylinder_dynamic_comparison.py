@@ -264,7 +264,11 @@ def run_dynamic_pair(case_path, output_root, *, rank=None):
     for method, c in candidates.items():
         target = output_root / ("CASE_" + method + ".json")
         target.write_text(json.dumps(c, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    for method, c in candidates.items():
+    # Solve the independent full-nodal FDM baseline FIRST. If it fails,
+    # running reduced-rank MVI cannot establish its accuracy. Preserve the
+    # failed run in its own folder without presenting a comparison.
+    for method in ("FDM", "MVI"):
+        c = candidates[method]
         case_file = output_root / ("CASE_" + method + ".json")
         summary = run_reference_dynamic_case(c, case_file)
         if summary.get("converged") is not True:
