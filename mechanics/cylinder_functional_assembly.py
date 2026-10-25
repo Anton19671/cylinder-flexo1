@@ -22,6 +22,7 @@ See Krysko--Zhong corrected manuscript, sections 8, 18--24, 31--39, 48.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import partial
 import math
 import numpy as np
 
@@ -292,6 +293,21 @@ class CylinderFunctional:
             raise ValueError("electrical potential requires positive dielectric kappa")
         self.dxp,self.dsp=self.ops.derivative_powers(3)
         self.W=self.ops.area_weights
+        params=dict(radius_m=self.R,thickness_m=self.h,n_gauss=self.n_gauss)
+        point_params=dict(radius_m=self.R,thickness_m=self.h)
+        if self.theory.startswith("CUF_"):
+            self._weak_kernel=partial(_cuf_weak,material=self.material,**params)
+            self._point_kernel=partial(_cuf_point,**point_params)
+        elif self.theory in ("FSDT","REDDY"):
+            self._weak_kernel=partial(_director_weak,material=self.material,
+                                      theory=self.theory,**params)
+            self._point_kernel=partial(_director_point,theory=self.theory,
+                                       **point_params)
+        else:
+            from cylinder_kl_g3d_weak import thickness_weak_coefficients,kl_point
+            self._weak_kernel=partial(thickness_weak_coefficients,
+                                      material=self.material,**params)
+            self._point_kernel=partial(kl_point,**point_params)
 
     def _make_jets(self, derivs, elec_derivs, i,j):
         if self.theory.startswith("CUF_"):
@@ -306,22 +322,10 @@ class CylinderFunctional:
                              *[a[:,i,j] for a in elec_derivs])
 
     def _local(self,jets):
-        args=dict(radius_m=self.R,thickness_m=self.h,n_gauss=self.n_gauss)
-        if self.theory.startswith("CUF_"):
-            return _cuf_weak(jets,self.material,**args)
-        if self.theory in ("FSDT","REDDY"):
-            return _director_weak(jets,self.material,theory=self.theory,**args)
-        from cylinder_kl_g3d_weak import thickness_weak_coefficients
-        return thickness_weak_coefficients(jets,self.material,**args)
+        return self._weak_kernel(jets)
 
     def _point(self,jets,z):
-        args=dict(z_m=z,radius_m=self.R,thickness_m=self.h)
-        if self.theory.startswith("CUF_"):
-            return _cuf_point(jets,**args)
-        if self.theory in ("FSDT","REDDY"):
-            return _director_point(jets,theory=self.theory,**args)
-        from cylinder_kl_g3d_weak import kl_point
-        return kl_point(jets,**args)
+        return self._point_kernel(jets,z_m=z)
 
     def _field_derivatives(self,field,spec):
         return [_surface_derivative(field,self.dxp[ax],self.dsp[bs])
