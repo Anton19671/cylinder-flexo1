@@ -49,11 +49,12 @@ def _effective_evaluator(problem, q_shape, p_shape, q_predictor, v_predictor,
         p=None if p_shape is None else state[q_size:].reshape(p_shape)
         acceleration=(q-q_predictor)*coefficient
         velocity=v_predictor+gamma*dt_s*acceleration
-        assembled=problem.assemble(q,p,dead_load=dead_load,free_charge=free_charge,
+        _,residual,_=problem.evaluate_effective_residual(
+            q,p,dead_load=dead_load,free_charge=free_charge,
             time_s=time_s,acceleration=acceleration,density_kg_m3=density_kg_m3,
             velocity=velocity if mass_damping_rate_per_s else None,
             mass_damping_rate_per_s=mass_damping_rate_per_s)
-        residual=assembled.full_residual
+        assembled=None  # No boundary SVD during tangent/line-search evaluations.
         g=basis.T@(scales*residual)/energy_scale
         if not np.isfinite(residual).all() or not np.isfinite(g).all():
             raise ValueError("nonfinite dynamic residual")
