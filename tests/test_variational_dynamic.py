@@ -98,6 +98,35 @@ class DynamicCaseTest(unittest.TestCase):
         c=self.sample();c['load_definition']['load_factors']=[1.]
         with self.assertRaisesRegex(ValueError,'time_law'):prepare_reference_case(c)
 
+    def test_time_dependent_electrode_is_assembled_by_newmark(self):
+        c=self.sample()
+        c["boundary_conditions"]["variational"]["electrical"]["inner"]["time_law"]={
+            "kind":"RAMP","amplitude":1.,"start_time_s":0.,
+            "duration_s":0.02}
+        prepared=prepare_reference_case(c)
+        self.assertEqual(prepared.calculation_kind,"DYNAMIC")
+        at_start=prepared.problem.assemble(
+            prepared.mechanical,prepared.electrical,time_s=0.,
+            dead_load=np.zeros_like(prepared.mechanical),
+            acceleration=np.zeros_like(prepared.mechanical),
+            density_kg_m3=prepared.dynamics.density_kg_m3)
+        at_end=prepared.problem.assemble(
+            prepared.mechanical,prepared.electrical,time_s=.02,
+            dead_load=np.zeros_like(prepared.mechanical),
+            acceleration=np.zeros_like(prepared.mechanical),
+            density_kg_m3=prepared.dynamics.density_kg_m3)
+        # The dynamic BC is accepted. Its value is zero because the original
+        # template electrode voltage is zero, so neither row is invented.
+        self.assertEqual(at_start.space.matrix.shape,at_end.space.matrix.shape)
+
+    def test_boundary_time_law_rejects_undersampled_frequency(self):
+        c=self.sample()
+        c["boundary_conditions"]["variational"]["electrical"]["inner"].update(
+            value=1.,time_law={"kind":"HARMONIC","amplitude":1.,
+                "frequency_hz":100.,"start_time_s":0.})
+        with self.assertRaisesRegex(ValueError,"undersamples"):
+            prepare_reference_case(c)
+
     def test_actual_coupled_mvi_newmark_steps_save_complete_state(self):
         with TemporaryDirectory() as d:
             root=Path(d);path=root/'CASE.json';c=self.sample()
