@@ -1447,14 +1447,14 @@ class EnhancedSolverGUI(SolverGUI):
         # through its own scrollbar rather than clipping the scheme below screen.
         right_host=ttk.Frame(f)
         right_host.grid(row=0,column=1,sticky="nsew")
-        right_host.columnconfigure(0,weight=1); right_host.rowconfigure(0,weight=1)
+        right_host.columnconfigure(0,weight=1); right_host.rowconfigure(0,weight=0); right_host.rowconfigure(1,weight=1)
         self.problem_right_canvas=tk.Canvas(right_host,highlightthickness=0,borderwidth=0)
-        self.problem_right_canvas.grid(row=0,column=0,sticky="nsew")
+        self.problem_right_canvas.grid(row=1,column=0,sticky="nsew")
         self.problem_right_scroll=ttk.Scrollbar(
             right_host,orient="vertical",command=self.problem_right_canvas.yview,
             style="Green.Vertical.TScrollbar"
         )
-        self.problem_right_scroll.grid(row=0,column=1,sticky="ns")
+        self.problem_right_scroll.grid(row=1,column=1,sticky="ns")
         self.problem_right_canvas.configure(yscrollcommand=self.problem_right_scroll.set)
         right=ttk.Frame(self.problem_right_canvas)
         self.problem_right_inner=right
@@ -1580,10 +1580,16 @@ class EnhancedSolverGUI(SolverGUI):
         self.bc_active_equations.grid(row=5,column=0,columnspan=2,sticky="w",pady=(5,0))
         ttk.Label(bc,text="Preset выбирает физический тип опоры, а решатель автоматически разворачивает его в формулы текущей модели KL/TE1–TE4. Custom позволяет задавать каждую DOF вручную. FREE–FREE без обработки жёстких мод отклоняется.",wraplength=520).grid(row=6,column=0,columnspan=2,sticky="w",pady=(8,0))
 
-        scheme=ttk.LabelFrame(right,text="Схема задачи",padding=8); scheme.pack(fill="both",expand=True)
-        self.scheme_canvas=tk.Canvas(scheme,height=255,background="white",highlightthickness=1,highlightbackground="#aaa")
+        scheme=ttk.LabelFrame(right_host,text="Интерактивный цилиндр · нагрузки и закрепления",padding=8)
+        scheme.grid(row=0,column=0,columnspan=2,sticky="ew",pady=(0,8))
+        self.scheme_canvas=tk.Canvas(scheme,height=215,background="white",highlightthickness=1,highlightbackground="#aaa")
         self.scheme_canvas.pack(fill="both",expand=True)
-        ttk.Button(scheme,text="Обновить схему",command=self._draw_problem_scheme).pack(anchor="w",pady=(6,0))
+        self.scheme_canvas.bind("<Configure>",lambda _e:self._schedule_problem_scheme_redraw(70))
+        actions=ttk.Frame(scheme);actions.pack(fill="x",pady=(5,0))
+        ttk.Label(actions,text="ЛКМ: повернуть · Ctrl+колесо: масштаб",
+                  foreground="#52687a").pack(side="left")
+        ttk.Button(actions,text="Крупно…",command=self._open_cylinder_popup).pack(side="right")
+        ttk.Button(actions,text="Обновить",command=self._draw_problem_scheme).pack(side="right",padx=5)
 
     def _build_load_tab(self):
         f=self.tab_load
@@ -7008,6 +7014,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self.tab_j2=ttk.Frame(self.notebook,padding=10)
         self.tab_online=ttk.Frame(self.notebook,padding=8)
         self.tab_results=ttk.Frame(self.notebook,padding=10)
+        self.tab_cylinder=ttk.Frame(self.notebook,padding=8)
         self.tab_dynamic_setup=ttk.Frame(self.notebook,padding=8)
         self.tab_dynamics=ttk.Frame(self.notebook,padding=10)
         self.tab_files=ttk.Frame(self.notebook,padding=10)
@@ -7015,6 +7022,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
 
         self._build_problem_tab()
         self._build_load_tab()
+        self._build_cylinder_tab()
         self._build_numeric_tab()
         self._build_birger_tab()
         self._build_j2_tab()
@@ -7039,6 +7047,71 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self._refresh_visibility()
         if dynamic and hasattr(self,"tab_dynamic_setup"):
             self.notebook.select(self.tab_dynamic_setup)
+
+    def _build_cylinder_tab(self):
+        from cylinder_live_preview import bind_cylinder_view
+        bind_cylinder_view(self,self.scheme_canvas)
+        frame=ttk.Frame(self.tab_cylinder,padding=8)
+        frame.pack(fill="both",expand=True)
+        head=ttk.Frame(frame);head.pack(fill="x",pady=(0,7))
+        ttk.Label(head,text="Цилиндр · геометрия, закрепления, нагрузка",
+                  font=("Segoe UI Semibold",12)).pack(side="left")
+        ttk.Button(head,text="Отдельное окно…",command=self._open_cylinder_popup).pack(side="right")
+        ttk.Button(head,text="Сбросить вид",command=self._reset_cylinder_view).pack(side="right",padx=6)
+        self.cylinder_large_canvas=tk.Canvas(frame,height=420,background="white",highlightthickness=1,highlightbackground="#aaa")
+        self.cylinder_large_canvas.pack(fill="both",expand=True)
+        self.cylinder_large_canvas.bind("<Configure>",lambda _e:self._schedule_problem_scheme_redraw(55))
+        bind_cylinder_view(self,self.cylinder_large_canvas)
+        footer=ttk.Frame(frame);footer.pack(fill="x",pady=(7,0))
+        ttk.Label(footer,text="ЛКМ: поворот · Ctrl+колесо: масштаб. Схема — не результат расчёта.",
+                  foreground="#52687a").pack(side="left")
+        ttk.Button(footer,text="Нагрузка",command=lambda:self.notebook.select(self.tab_load)).pack(side="right",padx=5)
+        ttk.Button(footer,text="Постановка",command=lambda:self.notebook.select(self.tab_problem)).pack(side="right")
+
+    def _show_cylinder_tab(self):
+        self.notebook.select(self.tab_cylinder)
+        self._schedule_problem_scheme_redraw(25)
+
+    def _reset_cylinder_view(self):
+        self._cylinder_view_angle=0.0
+        self._cylinder_view_zoom=1.0
+        self._schedule_problem_scheme_redraw(25)
+
+    def _open_cylinder_popup(self):
+        from cylinder_live_preview import bind_cylinder_view
+        old=getattr(self,"_cylinder_popup",None)
+        if old is not None and old.winfo_exists():
+            old.lift()
+            return
+        win=tk.Toplevel(self)
+        win.title("Цилиндр — интерактивная постановка")
+        win.geometry("1000x600")
+        win.minsize(650,390)
+        self._cylinder_popup=win
+        container=ttk.Frame(win,padding=8);container.pack(fill="both",expand=True)
+        canvas=tk.Canvas(container,background="white",highlightthickness=1,highlightbackground="#aaa")
+        canvas.pack(fill="both",expand=True)
+        self.cylinder_popup_canvas=canvas
+        bind_cylinder_view(self,canvas)
+        canvas.bind("<Configure>",lambda _e:self._schedule_problem_scheme_redraw(55))
+        ttk.Button(container,text="Сбросить вид",command=self._reset_cylinder_view).pack(anchor="e",pady=(5,0))
+        def close():
+            self.cylinder_popup_canvas=None
+            self._cylinder_popup=None
+            win.destroy()
+        win.protocol("WM_DELETE_WINDOW",close)
+        self._schedule_problem_scheme_redraw(30)
+
+    def _draw_problem_scheme(self):
+        # Preserve detailed old preview and also render the pinned/full-size views.
+        EnhancedSolverGUI._draw_problem_scheme(self)
+        from cylinder_live_preview import render_cylinder_view
+        for key in ("scheme_canvas","cylinder_large_canvas","cylinder_popup_canvas"):
+            canvas=getattr(self,key,None)
+            if canvas is not None:
+                try:
+                    if canvas.winfo_exists():render_cylinder_view(self,canvas)
+                except tk.TclError:pass
 
     def _build_dynamic_setup_tab(self):
         """Responsive, scrollable Newmark input page (GUI only, no PDE changes)."""
@@ -7124,6 +7197,8 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self.dynamic_route_status.pack(anchor="w",fill="x",pady=(4,8))
         commands=ttk.Frame(routecard)
         commands.pack(anchor="w",fill="x")
+        ttk.Button(commands,text="Цилиндр: нагрузки и КУ",
+                   command=self._show_cylinder_tab).pack(anchor="w",fill="x",pady=(0,6))
         ttk.Button(commands,text="Открыть связанный CASE…",
                    command=self.open_reference_case).pack(anchor="w",fill="x",pady=(0,6))
         ttk.Button(commands,text="Настройки МВИ / МКР…",
@@ -7592,12 +7667,12 @@ class FinalSolverGUI(EnhancedSolverGUI):
         if not hasattr(self,"notebook"):return
         try:selected=str(self.notebook.select())
         except Exception:selected=""
-        for tab in (self.tab_problem,self.tab_load,self.tab_dynamic_setup,self.tab_numeric,self.tab_birger,self.tab_j2,self.tab_online,self.tab_results,self.tab_dynamics,self.tab_files,self.tab_run):
+        for tab in (self.tab_problem,self.tab_load,self.tab_cylinder,self.tab_dynamic_setup,self.tab_numeric,self.tab_birger,self.tab_j2,self.tab_online,self.tab_results,self.tab_dynamics,self.tab_files,self.tab_run):
             try:self.notebook.forget(tab)
             except Exception:pass
         expert=self._v("ui_level","BASIC").get()=="EXPERT"
         # Historical Birger/J2 widgets are not available in the flexo interface.
-        tabs=[(self.tab_problem,"1 · Постановка"),(self.tab_load,"2 · Нагрузка")]
+        tabs=[(self.tab_problem,"1 · Постановка"),(self.tab_load,"2 · Нагрузка"),(self.tab_cylinder,"Цилиндр · схема")]
         if self._v("calculation_kind","STATIC").get()=="DYNAMIC":
             tabs.append((self.tab_dynamic_setup,"3 · Параметры динамики"))
         if expert:tabs.append((self.tab_numeric,"Численные настройки"))
