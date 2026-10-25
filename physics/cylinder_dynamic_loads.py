@@ -20,7 +20,7 @@ from pathlib import Path
 import numpy as np
 
 TIME_LAWS = (
-    "CONSTANT", "STEP", "RAMP", "HARMONIC", "DAMPED_HARMONIC",
+    "CONSTANT", "STEP", "RAMP", "SMOOTHSTEP", "HARMONIC", "DAMPED_HARMONIC",
     "MULTIHARMONIC", "CHIRP_LINEAR", "RECTANGULAR_PULSE",
     "HALF_SINE_PULSE", "TRIANGULAR_PULSE", "GAUSSIAN_PULSE",
     "TABULATED",
@@ -74,11 +74,11 @@ def normalize_time_law(raw, *, base_dir=None):
         return params[key]
     if name != "TABULATED":
         get("amplitude",1.)
-    if name in ("STEP","RAMP","HARMONIC","DAMPED_HARMONIC","MULTIHARMONIC",
+    if name in ("STEP","RAMP","SMOOTHSTEP","HARMONIC","DAMPED_HARMONIC","MULTIHARMONIC",
                 "CHIRP_LINEAR","RECTANGULAR_PULSE","HALF_SINE_PULSE",
                 "TRIANGULAR_PULSE"):
         get("start_time_s",0.)
-    if name in ("RAMP","CHIRP_LINEAR","RECTANGULAR_PULSE","HALF_SINE_PULSE",
+    if name in ("RAMP","SMOOTHSTEP","CHIRP_LINEAR","RECTANGULAR_PULSE","HALF_SINE_PULSE",
                 "TRIANGULAR_PULSE"):
         get("duration_s",None,positive=True)
     if name in ("HARMONIC","DAMPED_HARMONIC"):
@@ -152,6 +152,11 @@ class TimeLaw:
         if k=="CONSTANT":y=np.full_like(x,A)
         elif k=="STEP":y=A*(tau>=0)
         elif k=="RAMP":y=A*np.clip(tau/p["duration_s"],0,1)
+        elif k=="SMOOTHSTEP":
+            # Quintic C2 transition, f=f'=f''=0 at activation,
+            # f=A and f'=f''=0 at the end of the transition.
+            u=np.clip(tau/p["duration_s"],0.,1.)
+            y=A*(10*u**3-15*u**4+6*u**5)
         elif k=="HARMONIC":
             y=np.where(tau>=0,A*np.sin(2*np.pi*p["frequency_hz"]*tau+p["phase_rad"]),0.)
         elif k=="DAMPED_HARMONIC":
@@ -186,6 +191,30 @@ class TimeLaw:
         else:raise RuntimeError("unreachable time-law kind")
         return float(y) if arr.ndim==0 else y
 
+    def essential_kinematics(self,t_s):
+        """Exact value/velocity/acceleration for C2 essential support motions.
+
+        Other load laws may be valid as forces but are not automatically safe
+        as prescribed displacements (jumps/kinks need impulsive reactions).
+        Returns f, df/dt, d2f/dt2 in physical seconds; scalar time only.
+        """
+        t=_float(t_s,"t_s")
+        if self.kind=="CONSTANT":
+            return (float(self.settings.get("amplitude",1.)),0.,0.)
+        if self.kind!="SMOOTHSTEP":
+            raise ValueError("moving essential supports require SMOOTHSTEP C2 time law")
+        p=self.settings
+        u=(t-p["start_time_s"])/p["duration_s"]
+        if u<=0.:
+            return (0.,0.,0.)
+        if u>=1.:
+            return (float(p["amplitude"]),0.,0.)
+        A,T=p["amplitude"],p["duration_s"]
+        value=A*(10*u**3-15*u**4+6*u**5)
+        first=A*(30*u*u-60*u**3+30*u**4)/T
+        second=A*(60*u-180*u*u+120*u**3)/(T*T)
+        return (float(value),float(first),float(second))
+
     def bandwidth_hz(self):
         p=self.settings
         if self.kind in ("HARMONIC","DAMPED_HARMONIC"):
@@ -211,6 +240,10 @@ class TimeLaw:
         if self.kind in ("RECTANGULAR_PULSE","HALF_SINE_PULSE","TRIANGULAR_PULSE"):
             if dt>self.settings["duration_s"]/6:
                 raise ValueError("pulse is insufficiently time-resolved; need >=6 steps in pulse")
+        if self.kind=="SMOOTHSTEP" and dt>self.settings["duration_s"]/12:
+            raise ValueError(
+                "moving/smoothstep excitation insufficiently time-resolved; "
+                "require >=12 steps over C2 transition")
         return True
 
 
