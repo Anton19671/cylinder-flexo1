@@ -27,6 +27,7 @@ import numpy as np
 
 from flexo_gradient_g3d import G3DMaterial, enthalpy_parts
 from cylinder_kl_exact_inertia import kl_inertial_weak_action
+from cylinder_kelvin_voigt import kelvin_voigt_thickness_weak, KelvinVoigtGlobal
 from cuf_g3d_weak import (
     CUFSurfaceJets, mass_matrix_te, gauss_thickness,
     thickness_weak_coefficients as _cuf_weak,
@@ -356,6 +357,43 @@ class CylinderFunctional:
                 parts["external_charge"]=-float(np.sum(self.W[None,...]*charge*phi))
             parts["total_stationary_functional"]=total
         return FunctionalResult(self.theory,total,parts,rmech,relec,gaugevec,gauge)
+
+    def kelvin_voigt_action(self,mechanical,velocity,*,eta_s):
+        """Assemble the nonlinear material dissipative weak force for any theory.
+
+        This is the velocity-gradient first variation of the *same* finite
+        strain geometry as the conservative G3D/flexoelectric functional.
+        Electrical equations and conservative enthalpy are unmodified.
+        """
+        eta=float(eta_s)
+        if not math.isfinite(eta) or eta<0:
+            raise ValueError("micro.eta_s must be finite and nonnegative [s]")
+        nx,ns=self.ops.shape
+        q=_check_fields(mechanical,(self.n_mechanical,nx,ns),"viscous mechanical state")
+        v=_check_fields(velocity,q.shape,"viscous velocity")
+        force=np.zeros_like(q)
+        if eta==0:
+            return KelvinVoigtGlobal(force,0.)
+        electric_zeros=np.zeros((1,nx,ns))
+        jets_q=self._field_derivatives(q,MECHANICAL_DERIVATIVES[:self.n_derivatives])
+        jets_v=self._field_derivatives(v,MECHANICAL_DERIVATIVES[:self.n_derivatives])
+        z_electric=self._field_derivatives(electric_zeros,ELECTRICAL_DERIVATIVES)
+        coefficients=np.zeros((self.n_derivatives,self.n_mechanical,nx,ns))
+        power=0.
+        for i in range(nx):
+            for j in range(ns):
+                state=self._make_jets(jets_q,z_electric,i,j)
+                rate=self._make_jets(jets_v,z_electric,i,j)
+                weak=kelvin_voigt_thickness_weak(state,rate,self.material,
+                    theory=self.theory,radius_m=self.R,thickness_m=self.h,
+                    eta_s=eta,n_gauss=self.n_gauss)
+                coefficients[:,:,i,j]=weak.mechanical.T
+                power+=self.W[i,j]*weak.power_w_per_m2
+        for k,(_,dx,ds) in enumerate(MECHANICAL_DERIVATIVES[:self.n_derivatives]):
+            force+=_assemble_adjoint(coefficients[k],self.W,self.dxp[dx],self.dsp[ds])
+        if not np.isfinite(force).all() or not math.isfinite(power):
+            raise ValueError("INVALID_KELVIN_VOIGT_GLOBAL_DISSIPATION")
+        return KelvinVoigtGlobal(force,float(power))
 
     def mass_proportional_damping_action(self,velocity,*,density_kg_m3,
                                           mass_damping_rate_per_s,mechanical=None):
