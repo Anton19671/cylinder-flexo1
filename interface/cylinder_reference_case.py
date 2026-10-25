@@ -8,7 +8,8 @@ import json
 import os
 import numpy as np
 
-from cylinder_functional_assembly import CylinderFunctional, surface_trapezoid, surface_sbp21
+from cylinder_functional_assembly import (CylinderFunctional,
+    surface_trapezoid, surface_sbp21, surface_sbp21_csr)
 from cylinder_boundary_spatial import BoundarySpatialProblem
 from cylinder_variational_fdm import StaticFDMSettings, solve_static_fdm, state_scales
 from cylinder_variational_mvi import StaticMVISettings, solve_static_mvi
@@ -128,8 +129,12 @@ def prepare_reference_case(case, *, base_dir=None):
     if grid.get("stencil") is not None:
         raise ValueError("reference operators are selected with grid.operator_scheme, not stencil")
     operator_scheme=str(grid.get("operator_scheme","LEGACY_REFERENCE")).upper()
-    if operator_scheme not in ("LEGACY_REFERENCE","SBP21_PERIODIC_ODD"):
-        raise ValueError("grid.operator_scheme must be LEGACY_REFERENCE or SBP21_PERIODIC_ODD")
+    if operator_scheme not in (
+            "LEGACY_REFERENCE","SBP21_PERIODIC_ODD","SBP21_PERIODIC_ODD_CSR"):
+        raise ValueError("grid.operator_scheme must be LEGACY_REFERENCE, "
+                         "SBP21_PERIODIC_ODD or SBP21_PERIODIC_ODD_CSR")
+    if operator_scheme=="SBP21_PERIODIC_ODD_CSR" and not matrix_free:
+        raise ValueError("SBP21_PERIODIC_ODD_CSR requires FDM MATRIX_FREE_GMRES")
     # Matrix-free FDM has no dense null-space basis: keep a distinct,
     # explicit node cap until sparse physical derivative operators exist.
     max_nodes=8192 if matrix_free else 256
@@ -146,7 +151,10 @@ def prepare_reference_case(case, *, base_dir=None):
                    and theory[-1] in "1234" else 7 if theory=="REDDY" else 3)
     if n_gauss<minimum_gauss:
         raise ValueError(f"{theory}: n_gauss >= {minimum_gauss} required to avoid thickness underintegration")
-    surface=(surface_sbp21(nx,ns,length,radius) if operator_scheme=="SBP21_PERIODIC_ODD"
+    surface=(surface_sbp21_csr(nx,ns,length,radius)
+             if operator_scheme=="SBP21_PERIODIC_ODD_CSR"
+             else surface_sbp21(nx,ns,length,radius)
+             if operator_scheme=="SBP21_PERIODIC_ODD"
              else surface_trapezoid(nx,ns,length,radius))
     functional=CylinderFunctional(theory,material,radius_m=radius,thickness_m=thickness,
         surface_operators=surface,n_gauss=n_gauss)

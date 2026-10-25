@@ -84,28 +84,86 @@ def periodic_sbp_odd_gradient(n,perimeter_m):
     return Ds,np.full(n,h)
 
 
+def axial_sbp21_gradient_sparse(n,length_m):
+    """CSR SBP(2,1) axial derivative with O(n) nonzeros and diagonal norm."""
+    _positive_dimension(n,"axial node count",4)
+    L=_positive_length(length_m,"axial length")
+    from scipy import sparse
+    h=L/(n-1)
+    lower=np.full(n-1,-.5/h)
+    upper=np.full(n-1,.5/h)
+    main=np.zeros(n)
+    lower[-1]=-1./h
+    upper[0]=1./h
+    main[0]=-1./h
+    main[-1]=1./h
+    Dx=sparse.diags((lower,main,upper),(-1,0,1),
+                    shape=(n,n),format="csr")
+    wx=np.full(n,h)
+    wx[[0,-1]]*=.5
+    return Dx,wx
+
+
+def periodic_sbp_odd_gradient_sparse(n,perimeter_m):
+    """CSR centered odd-periodic derivative; no even-grid Nyquist null mode."""
+    _positive_dimension(n,"periodic node count",5)
+    if n%2==0:
+        raise ValueError(
+            "SBP periodic centered gradient requires odd ns; "
+            "even ns introduces a checkerboard derivative null mode")
+    L=_positive_length(perimeter_m,"periodic perimeter")
+    from scipy import sparse
+    h=L/n
+    i=np.arange(n,dtype=int)
+    rows=np.concatenate((i,i))
+    cols=np.concatenate(((i-1)%n,(i+1)%n))
+    values=np.concatenate((np.full(n,-.5/h),np.full(n,.5/h)))
+    Ds=sparse.coo_matrix((values,(rows,cols)),shape=(n,n)).tocsr()
+    return Ds,np.full(n,h)
+
+
 def green_identity_defects(Dx,Ds,wx,ws):
-    """Absolute dimensionless matrix defects of both Green identities."""
-    dx=np.asarray(Dx,float)
-    ds=np.asarray(Ds,float)
+    """Exact weighted Green-matrix defects without densifying CSR operators."""
+    from cylinder_surface_linear_algebra import is_sparse_matrix
+    sparse_x=is_sparse_matrix(Dx)
+    sparse_s=is_sparse_matrix(Ds)
+    if sparse_x!=sparse_s:
+        raise ValueError("SBP Dx and Ds must both use dense or both CSR operators")
+    dx=Dx if sparse_x else np.asarray(Dx,float)
+    ds=Ds if sparse_s else np.asarray(Ds,float)
     wx=np.asarray(wx,float)
     ws=np.asarray(ws,float)
-    if dx.ndim!=2 or ds.ndim!=2 or dx.shape[0]!=dx.shape[1] or ds.shape[0]!=ds.shape[1]:
+    if (dx.ndim!=2 or ds.ndim!=2 or
+        dx.shape[0]!=dx.shape[1] or ds.shape[0]!=ds.shape[1]):
         raise ValueError("SBP derivative matrices must be square")
-    if wx.shape!=(len(dx),) or ws.shape!=(len(ds),):
+    if wx.shape!=(dx.shape[0],) or ws.shape!=(ds.shape[0],):
         raise ValueError("SBP quadrature weight shapes do not match derivatives")
-    if any(not np.isfinite(z).all() for z in (dx,ds,wx,ws)):
-        raise ValueError("nonfinite SBP derivative or quadrature weight")
-    if np.any(wx<=0) or np.any(ws<=0):
-        raise ValueError("SBP quadrature weights must be strictly positive")
-    bx=np.zeros_like(dx)
-    bx[0,0]=-1.
-    bx[-1,-1]=1.
-    qx=wx[:,None]*dx
-    qs=ws[:,None]*ds
-    axial=float(np.max(np.abs(qx+qx.T-bx)))
-    periodic=float(np.max(np.abs(qs+qs.T)))
-    scale=max(1.,float(np.max(np.abs(qx))),float(np.max(np.abs(qs))))
+    entries=(dx.data,ds.data) if sparse_x else (dx,ds)
+    if (not all(np.isfinite(a).all() for a in (*entries,wx,ws)) or
+        np.any(wx<=0) or np.any(ws<=0)):
+        raise ValueError("SBP requires finite matrices and strictly positive weights")
+    if sparse_x:
+        from scipy import sparse
+        qx=(sparse.diags(wx)@dx).tocsr()
+        qs=(sparse.diags(ws)@ds).tocsr()
+        bx=sparse.csr_matrix(
+            ([-1.,1.],([0,len(wx)-1],[0,len(wx)-1])),
+            shape=dx.shape)
+        ax=(qx+qx.T-bx).tocsr()
+        az=(qs+qs.T).tocsr()
+        peak=lambda a:float(np.max(np.abs(a.data),initial=0.))
+        axial=peak(ax);periodic=peak(az)
+        scale=max(1.,peak(qx),peak(qs))
+    else:
+        bx=np.zeros_like(dx)
+        bx[0,0]=-1.
+        bx[-1,-1]=1.
+        qx=wx[:,None]*dx
+        qs=ws[:,None]*ds
+        axial=float(np.max(np.abs(qx+qx.T-bx)))
+        periodic=float(np.max(np.abs(qs+qs.T)))
+        scale=max(1.,float(np.max(np.abs(qx))),
+                  float(np.max(np.abs(qs))))
     return {"axial":axial,"periodic":periodic,
             "relative_max":max(axial,periodic)/scale}
 
@@ -126,5 +184,7 @@ def require_green_identity(Dx,Ds,wx,ws,*,relative_tolerance=3.e-12):
 
 
 __all__=("SBP_OPERATOR_SCHEME","axial_sbp21_gradient",
-         "periodic_sbp_odd_gradient","green_identity_defects",
+         "periodic_sbp_odd_gradient",
+         "axial_sbp21_gradient_sparse","periodic_sbp_odd_gradient_sparse",
+         "green_identity_defects",
          "require_green_identity")

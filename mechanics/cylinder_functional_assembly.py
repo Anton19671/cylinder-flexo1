@@ -32,7 +32,12 @@ from cylinder_g3d_natural_edges import axial_natural_end_tractions
 from cylinder_sbp_green_reduction import split_coupled_sbp_residual
 from cylinder_sbp_derivatives import (
     SBP_OPERATOR_SCHEME, axial_sbp21_gradient, periodic_sbp_odd_gradient,
-    require_green_identity,
+    require_green_identity, axial_sbp21_gradient_sparse,
+    periodic_sbp_odd_gradient_sparse,
+)
+from cylinder_surface_linear_algebra import (
+    is_sparse_matrix, check_matrix, apply_biaxial,
+    apply_weighted_adjoint, operator_power,
 )
 from cuf_g3d_weak import (
     CUFSurfaceJets, mass_matrix_te, gauss_thickness,
@@ -113,41 +118,76 @@ def surface_sbp21(n_axial,n_circumference,length_m,radius_m):
     require_green_identity(Dx,Ds,wx,ws)
     return SurfaceOperators(Dx,Ds,wx,ws)
 
+def surface_sbp21_csr(n_axial,n_circumference,length_m,radius_m):
+    """O(nx+ns) CSR SBP21/odd-periodic reference operators.
+
+    This is opt-in for Newton--Krylov FDM only. The original dense
+    operators and MVI ranks remain unchanged.
+    """
+    R=float(radius_m)
+    if not math.isfinite(R) or R<=0:
+        raise ValueError("R must be finite positive")
+    Dx,wx=axial_sbp21_gradient_sparse(n_axial,length_m)
+    Ds,ws=periodic_sbp_odd_gradient_sparse(n_circumference,2*math.pi*R)
+    require_green_identity(Dx,Ds,wx,ws)
+    return SurfaceOperators(Dx,Ds,wx,ws)
+
 
 @dataclass(frozen=True)
 class SurfaceOperators:
-    Dx: np.ndarray
-    Ds: np.ndarray
+    Dx: object
+    Ds: object
     wx: np.ndarray
     ws: np.ndarray
 
     def __post_init__(self):
-        Dx=np.asarray(self.Dx,dtype=float)
-        Ds=np.asarray(self.Ds,dtype=float)
         wx=np.asarray(self.wx,dtype=float)
         ws=np.asarray(self.ws,dtype=float)
-        if Dx.ndim!=2 or Dx.shape[0]!=Dx.shape[1] or Dx.shape[0]<4:
-            raise ValueError("Dx must be a square matrix of size >=4")
-        if Ds.ndim!=2 or Ds.shape[0]!=Ds.shape[1] or Ds.shape[0]<4:
-            raise ValueError("Ds must be a square matrix of size >=4")
-        if wx.shape!=(Dx.shape[0],) or ws.shape!=(Ds.shape[0],):
-            raise ValueError("integration weights must match differentiation grids")
-        if any(not np.isfinite(x).all() for x in (Dx,Ds,wx,ws)):
-            raise ValueError("surface operators contain nonfinite values")
+        if wx.ndim!=1 or ws.ndim!=1 or len(wx)<4 or len(ws)<4:
+            raise ValueError("surface quadrature requires at least 4 nodes")
+        sparse_x=is_sparse_matrix(self.Dx)
+        sparse_s=is_sparse_matrix(self.Ds)
+        if sparse_x!=sparse_s:
+            raise ValueError("Dx and Ds must both be dense or both CSR")
+        Dx=check_matrix(self.Dx,len(wx),"Dx")
+        Ds=check_matrix(self.Ds,len(ws),"Ds")
+        if not np.isfinite(wx).all() or not np.isfinite(ws).all():
+            raise ValueError("surface quadrature weights must be finite")
         if np.any(wx<=0) or np.any(ws<=0):
             raise ValueError("surface quadrature weights must be positive")
         for name,D in (("Dx",Dx),("Ds",Ds)):
-            if np.max(np.abs(D@np.ones(len(D))))>1.e-10*max(1.,np.linalg.norm(D,np.inf)):
+            if np.max(np.abs(D@np.ones(len(D))),initial=0)>1.e-10*max(
+                    1.,float(np.max(np.abs(D.data),initial=0))
+                    if sparse_x else float(np.linalg.norm(D,np.inf))):
                 raise ValueError(f"{name}: derivative of a constant is not zero")
-        # Electric gauge must be the ONLY null mode of the periodic first
-        # derivative. A centred D1 on an even grid has a second (checkerboard)
-        # zero mode: reject it explicitly.
-        vals=np.linalg.svd(Ds,compute_uv=False)
-        rank=int(np.count_nonzero(vals>max(vals[0],1.)*1.e-11))
-        if rank!=Ds.shape[0]-1:
-            raise ValueError("Ds has spurious null modes (possible even-grid checkerboard)")
-        for name,a in (("Dx",Dx),("Ds",Ds),("wx",wx),("ws",ws)):
-            object.__setattr__(self,name,a.copy())
+        if sparse_x:
+            # Full dense SVD is forbidden. Accept only the explicit,
+            # mathematically characterized SBP21/odd-periodic stencil.
+            # Even periodic counts are rejected to avoid checkerboards.
+            refx,refwx=axial_sbp21_gradient_sparse(len(wx),float(np.sum(wx)))
+            refs,refws=periodic_sbp_odd_gradient_sparse(len(ws),float(np.sum(ws)))
+            if not (np.allclose(wx,refwx,rtol=2.e-12,atol=0.) and
+                    np.allclose(ws,refws,rtol=2.e-12,atol=0.)):
+                raise ValueError("CSR surface weights must match diagonal SBP norm")
+            for name,D,ref in (("Dx",Dx,refx),("Ds",Ds,refs)):
+                error=(D-ref).tocsr()
+                peak=float(np.max(np.abs(error.data),initial=0))
+                scale=max(1.,float(np.max(np.abs(ref.data),initial=0)))
+                if peak>2.e-12*scale:
+                    raise ValueError(
+                        f"{name}: CSR reference requires canonical SBP stencil")
+            require_green_identity(Dx,Ds,wx,ws)
+        else:
+            # Original dense reference: retain rank validation of the
+            # periodic derivative and its checkerboard-null protection.
+            values=np.linalg.svd(Ds,compute_uv=False)
+            rank=int(np.count_nonzero(
+                values>max(values[0],1.)*1.e-11))
+            if rank!=Ds.shape[0]-1:
+                raise ValueError(
+                    "Ds has spurious null modes (possible even-grid checkerboard)")
+        for name,value in (("Dx",Dx),("Ds",Ds),("wx",wx),("ws",ws)):
+            object.__setattr__(self,name,value.copy())
 
     @property
     def shape(self):
@@ -158,8 +198,8 @@ class SurfaceOperators:
         return np.outer(self.wx,self.ws)
 
     def derivative_powers(self,max_order):
-        return ({k:np.linalg.matrix_power(self.Dx,k) for k in range(max_order+1)},
-                {k:np.linalg.matrix_power(self.Ds,k) for k in range(max_order+1)})
+        return ({k:operator_power(self.Dx,k) for k in range(max_order+1)},
+                {k:operator_power(self.Ds,k) for k in range(max_order+1)})
 
 
 def _theory_shape(theory):
@@ -179,11 +219,11 @@ def _check_fields(value,expected,name):
 
 def _surface_derivative(field,Dx,Ds):
     # Each component has a surface grid: (components,nx,ns).
-    return np.einsum('ij,cjk,lk->cil',Dx,field,Ds,optimize=True)
+    return apply_biaxial(field,Dx,Ds)
 
 
 def _assemble_adjoint(coeff,wxws,Dx,Ds):
-    return np.einsum('ij,cjk,kl->cil',Dx.T,coeff*wxws[None,...],Ds,optimize=True)
+    return apply_weighted_adjoint(coeff,wxws,Dx,Ds)
 
 
 def _basis_moments(potential_order,R,h):
@@ -629,6 +669,7 @@ class CylinderFunctional:
 
 
 __all__=("CylinderFunctional","SurfaceOperators","FunctionalResult",
-         "surface_trapezoid","surface_sbp21","periodic_face_gradient","axial_fd_gradient",
+         "surface_trapezoid","surface_sbp21","surface_sbp21_csr",
+         "periodic_face_gradient","axial_fd_gradient",
          "MECHANICAL_DERIVATIVES","ELECTRICAL_DERIVATIVES")
 

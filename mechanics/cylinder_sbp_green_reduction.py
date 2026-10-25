@@ -29,6 +29,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import numpy as np
+from cylinder_surface_linear_algebra import (
+    is_sparse_matrix, apply_biaxial, apply_weighted_adjoint,
+    dense_row, operator_power,
+)
 
 from cylinder_sbp_derivatives import require_green_identity
 from cylinder_g3d_natural_edges import axial_natural_end_tractions
@@ -72,12 +76,8 @@ def _make_field_split(coefficient, powers, W, ws, ends, electric=False):
     for idx,(ax,az) in enumerate(powers["orders"]):
         tensor=coefficient[idx]
         d_x=xp[ax];d_s=sp[az]
-        direct+=np.einsum(
-            "ki,ckj,jl->cil",d_x,W[None,...]*tensor,d_s,
-            optimize=True)
-        strong+=(-1.)**(ax+az)*np.einsum(
-            "ik,ckj,lj->cil",d_x,tensor,d_s,
-            optimize=True)
+        direct+=apply_weighted_adjoint(tensor,W,d_x,d_s)
+        strong+=(-1.)**(ax+az)*apply_biaxial(tensor,d_x,d_s)
     bulk=W[None,...]*strong
     boundary=np.zeros_like(bulk)
     for end in (ends.left,ends.right):
@@ -92,10 +92,10 @@ def _make_field_split(coefficient, powers, W, ws, ends, electric=False):
             # Virtual variations d_n q=n_x D_x q and
             # d_nn q=D_x^2 q for either end.
             boundary+=(
-                (end.n_x*dx[i,:])[None,:,None]
+                (end.n_x*dense_row(dx,i))[None,:,None]
                 *end.normal_double_traction[:,None,:]*ws[None,None,:])
             boundary+=(
-                Dxx[i,:][None,:,None]
+                dense_row(Dxx,i)[None,:,None]
                 *end.normal_triple_traction[:,None,:]*ws[None,None,:])
     reconstructed=bulk+boundary
     absolute=float(np.max(np.abs(direct-reconstructed),initial=0.))
@@ -120,8 +120,8 @@ def split_coupled_sbp_residual(operators, mechanical_coefficients,
     three-jet electric potential approximation used by the coupled
     G3D/flexoelectric functional for every TE potential order.
     """
-    dx=np.asarray(operators.Dx,float)
-    ds=np.asarray(operators.Ds,float)
+    dx=operators.Dx if is_sparse_matrix(operators.Dx) else np.asarray(operators.Dx,float)
+    ds=operators.Ds if is_sparse_matrix(operators.Ds) else np.asarray(operators.Ds,float)
     wx=np.asarray(operators.wx,float)
     ws=np.asarray(operators.ws,float)
     report=require_green_identity(dx,ds,wx,ws)
@@ -144,8 +144,8 @@ def split_coupled_sbp_residual(operators, mechanical_coefficients,
             raise ValueError("electrical jets require [phi,phi_x,phi_s]")
     ends=axial_natural_end_tractions(
         mc,mechanical_derivatives,dx,ds,electrical_coefficients=ec)
-    xp=[np.linalg.matrix_power(dx,k) for k in range(4)]
-    sp=[np.linalg.matrix_power(ds,k) for k in range(4)]
+    xp=[operator_power(dx,k) for k in range(4)]
+    sp=[operator_power(ds,k) for k in range(4)]
     W=np.outer(wx,ws)
     common={"xp":xp,"sp":sp,"Dx":dx,"Dx2":xp[2],"orders":orders}
     m=_make_field_split(mc,common,W,ws,ends)

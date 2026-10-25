@@ -45,6 +45,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import numpy as np
+from cylinder_surface_linear_algebra import (
+    is_sparse_matrix, apply_biaxial, operator_power,
+)
 
 
 @dataclass(frozen=True)
@@ -103,14 +106,15 @@ def axial_natural_end_tractions(mechanical_coefficients, derivative_orders,
        [phi, phi_x, phi_s] (no electric strain gradient postulated).
     """
     a=np.asarray(mechanical_coefficients,dtype=float)
-    dx=np.asarray(Dx,dtype=float)
-    ds=np.asarray(Ds,dtype=float)
+    dx=Dx if is_sparse_matrix(Dx) else np.asarray(Dx,dtype=float)
+    ds=Ds if is_sparse_matrix(Ds) else np.asarray(Ds,dtype=float)
     if (a.ndim!=4 or not a.size or not np.isfinite(a).all() or
         a.shape[1]<1 or a.shape[2]<2 or a.shape[3]<2):
         raise ValueError("invalid finite G3D mechanical jet coefficient tensor")
     nder,ncomp,nx,ns=a.shape
     if (dx.shape!=(nx,nx) or ds.shape!=(ns,ns) or
-        not np.isfinite(dx).all() or not np.isfinite(ds).all()):
+        not np.isfinite(dx.data if is_sparse_matrix(dx) else dx).all() or
+        not np.isfinite(ds.data if is_sparse_matrix(ds) else ds).all()):
         raise ValueError("G3D end derivatives require matching finite Dx and Ds")
     if len(derivative_orders)!=nder:
         raise ValueError("natural end jet order count does not match coefficients")
@@ -135,8 +139,8 @@ def axial_natural_end_tractions(mechanical_coefficients, derivative_orders,
         if e.ndim!=4 or e.shape[0]!=3 or e.shape[2:]!=(nx,ns) or (
             e.shape[1]<1 or not np.isfinite(e).all()):
             raise ValueError("G3D electric flux needs (3,npotential,nx,ns)")
-    xpow=[np.eye(nx),dx,dx@dx]
-    spow=[np.eye(ns),ds,ds@ds]
+    xpow=[operator_power(dx,k) for k in range(3)]
+    spow=[operator_power(ds,k) for k in range(3)]
     flux=[np.zeros((ncomp,nx,ns),float) for _ in range(3)]
     # Exact algebraic signs from axial and periodic integration by parts.
     # q_xxs enters two different natural fluxes and MUST NOT be doubled.
@@ -144,8 +148,7 @@ def axial_natural_end_tractions(mechanical_coefficients, derivative_orders,
         for k in range(min(3,ax)):
             da=ax-1-k
             sign=-1. if (da+az)%2 else 1.
-            derivative=np.einsum("ij,cjk,lk->cil",
-                                 xpow[da],a[idx],spow[az],optimize=True)
+            derivative=apply_biaxial(a[idx],xpow[da],spow[az])
             flux[k]+=sign*derivative
     if any(not np.isfinite(f).all() for f in flux):
         raise ValueError("nonfinite G3D natural end flux")

@@ -24,6 +24,9 @@ from __future__ import annotations
 
 import math
 import numpy as np
+from cylinder_surface_linear_algebra import (
+    is_sparse_matrix, apply_axial, apply_periodic,
+)
 
 
 def _state(value, expected, label):
@@ -35,12 +38,12 @@ def _state(value, expected, label):
 
 def _normal_data(q, v, a, Dx, Ds, R):
     """Return n, n_t, n_tt, and A/B at all surface quadrature nodes."""
-    qx=np.einsum("ij,cjk->cik",Dx,q,optimize=True)
-    qs=np.einsum("ij,ckj->cki",Ds,q,optimize=True)
-    vx=np.einsum("ij,cjk->cik",Dx,v,optimize=True)
-    vs=np.einsum("ij,ckj->cki",Ds,v,optimize=True)
-    ax=np.einsum("ij,cjk->cik",Dx,a,optimize=True)
-    ass=np.einsum("ij,ckj->cki",Ds,a,optimize=True)
+    qx=apply_axial(q,Dx)
+    qs=apply_periodic(q,Ds)
+    vx=apply_axial(v,Dx)
+    vs=apply_periodic(v,Ds)
+    ax=apply_axial(a,Dx)
+    ass=apply_periodic(a,Ds)
 
     def axial(t,with_identity):
         return np.stack((t[0]+(1. if with_identity else 0.),t[1],t[2]),axis=-1)
@@ -84,15 +87,16 @@ def kl_inertial_jet_coefficients(mechanical, velocity, acceleration, *,
     the continuum-form natural-end diagnostic. Includes the
     D2n(q)[qdot,qdot] (gyroscopic/geometric) acceleration term.
     """
-    Dx=np.asarray(Dx,float)
-    Ds=np.asarray(Ds,float)
+    Dx=Dx if is_sparse_matrix(Dx) else np.asarray(Dx,float)
+    Ds=Ds if is_sparse_matrix(Ds) else np.asarray(Ds,float)
     wx=np.asarray(wx,float)
     ws=np.asarray(ws,float)
     if Dx.ndim!=2 or Ds.ndim!=2 or Dx.shape[0]!=Dx.shape[1] or Ds.shape[0]!=Ds.shape[1]:
         raise ValueError("KL inertia derivative matrices must be square")
     nx,ns=Dx.shape[0],Ds.shape[0]
     if wx.shape!=(nx,) or ws.shape!=(ns,) or not (
-        np.isfinite(Dx).all() and np.isfinite(Ds).all() and
+        np.isfinite(Dx.data if is_sparse_matrix(Dx) else Dx).all() and
+        np.isfinite(Ds.data if is_sparse_matrix(Ds) else Ds).all() and
         np.isfinite(wx).all() and np.isfinite(ws).all()):
         raise ValueError("KL inertia has invalid finite quadrature/derivative matrices")
     if np.any(wx<=0) or np.any(ws<=0):
@@ -138,13 +142,11 @@ def kl_inertial_weak_action(mechanical, velocity, acceleration, *,
         radius_m=radius_m,thickness_m=thickness_m,
         density_kg_m3=density_kg_m3)
     W=np.asarray(wx,float)[:,None]*np.asarray(ws,float)[None,:]
-    Dx=np.asarray(Dx,float)
-    Ds=np.asarray(Ds,float)
+    Dx=Dx if is_sparse_matrix(Dx) else np.asarray(Dx,float)
+    Ds=Ds if is_sparse_matrix(Ds) else np.asarray(Ds,float)
     out=(coefficients[0]*W[None,...]
-         +np.einsum("ki,ckj->cij",Dx,coefficients[1]*W[None,...],
-                    optimize=True)
-         +np.einsum("kj,cik->cij",Ds,coefficients[2]*W[None,...],
-                    optimize=True))
+         +apply_axial(coefficients[1]*W[None,...],Dx.T)
+         +apply_periodic(coefficients[2]*W[None,...],Ds.T))
     if not np.isfinite(out).all():
         raise ValueError("INVALID_KL_INERTIAL_WEAK_RESIDUAL")
     return out
@@ -156,7 +158,8 @@ def kl_kinetic_energy(mechanical, velocity, *, Dx, Ds, wx, ws,
     q=np.asarray(mechanical,float);v=np.asarray(velocity,float)
     zeros=np.zeros_like(v)
     # Reuse the validated map and return an integral scalar in joules.
-    Dx=np.asarray(Dx,float);Ds=np.asarray(Ds,float)
+    Dx=Dx if is_sparse_matrix(Dx) else np.asarray(Dx,float)
+    Ds=Ds if is_sparse_matrix(Ds) else np.asarray(Ds,float)
     wx=np.asarray(wx,float);ws=np.asarray(ws,float)
     R,h,rho=map(float,(radius_m,thickness_m,density_kg_m3))
     if not (np.isfinite([R,h,rho]).all() and R>h/2>0 and rho>0):

@@ -17,6 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import isfinite
 import numpy as np
+from cylinder_surface_linear_algebra import dense_row
 
 from cylinder_dynamic_loads import normalize_time_law
 
@@ -225,10 +226,13 @@ def validate_boundary_passport(spec,*,electrical_enabled,calculation_kind="STATI
 
 def _row_weights(order,k,nx,ns,side,j,ops):
     i=0 if side=="left" else nx-1
-    if order==0:axis=np.eye(nx)[i]
-    elif order==1:axis=ops.Dx[i]
-    else:axis=(ops.Dx@ops.Dx)[i]
-    nz=np.flatnonzero(abs(axis)>1e-14)
+    if order==0:
+        return ((k*nx+i)*ns+j,),(1.,)
+    if order==1:
+        axis=dense_row(ops.Dx,i)
+    else:
+        axis=dense_row(ops.Dx@ops.Dx,i)
+    nz=np.flatnonzero(np.abs(axis)>1e-14)
     return (tuple((k*nx+int(a))*ns+j for a in nz),
             tuple(float(axis[a]) for a in nz))
 
@@ -311,13 +315,15 @@ def compile_boundary_program(functional,mechanical,electrical=None,*,spec=None,
             raise ValueError("negative spring stiffness")
         for j,wj in enumerate(ops.ws):
             v=q[:,loc,j]
-            vx=dx[loc]@q[:,:,j].T
-            vxx=dxx[loc]@q[:,:,j].T
+            rowx=dense_row(dx,loc)
+            rowxx=dense_row(dxx,loc)
+            vx=rowx@q[:,:,j].T
+            vxx=rowxx@q[:,:,j].T
             energy+=wj*(.5*float(np.dot(spring,(v-rest)**2))
                         -float(traction@v+double@vx+triple@vxx))
             result_m[:,loc,j]+=wj*(spring*(v-rest)-traction)
-            result_m[:,:,j]-=wj*(double[:,None]*dx[loc][None,:]
-                                 +triple[:,None]*dxx[loc][None,:])
+            result_m[:,:,j]-=wj*(double[:,None]*rowx[None,:]
+                                 +triple[:,None]*rowxx[None,:])
 
     if phi is not None:
         p=phi.shape[0];R=float(functional.R);h=float(functional.h)
