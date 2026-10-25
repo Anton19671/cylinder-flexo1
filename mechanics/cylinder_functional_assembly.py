@@ -26,6 +26,7 @@ import math
 import numpy as np
 
 from flexo_gradient_g3d import G3DMaterial, enthalpy_parts
+from cylinder_kl_exact_inertia import kl_inertial_weak_action
 from cuf_g3d_weak import (
     CUFSurfaceJets, mass_matrix_te, gauss_thickness,
     thickness_weak_coefficients as _cuf_weak,
@@ -357,7 +358,7 @@ class CylinderFunctional:
         return FunctionalResult(self.theory,total,parts,rmech,relec,gaugevec,gauge)
 
     def mass_proportional_damping_action(self,velocity,*,density_kg_m3,
-                                          mass_damping_rate_per_s):
+                                          mass_damping_rate_per_s,mechanical=None):
         """Consistent mechanical C*v, C=alpha_M*M, alpha_M measured in 1/s.
 
         Uses the very same full CUF/director mass operator as acceleration;
@@ -366,9 +367,10 @@ class CylinderFunctional:
         rate=float(mass_damping_rate_per_s)
         if not math.isfinite(rate) or rate<0:
             raise ValueError("mass damping rate must be finite nonnegative [1/s]")
-        return rate*self.mass_action(velocity,density_kg_m3=density_kg_m3)
+        return rate*self.mass_action(velocity,density_kg_m3=density_kg_m3,
+                                     mechanical=mechanical)
 
-    def mass_action(self,acceleration,*,density_kg_m3):
+    def mass_action(self,acceleration,*,density_kg_m3,mechanical=None,velocity=None):
         """Consistent mechanical inertia from the SAME director/CUF ansatz.
 
         No time integration is executed. KL finite-rotation kinetic energy
@@ -381,9 +383,15 @@ class CylinderFunctional:
         nx,ns=self.ops.shape
         accel=_check_fields(acceleration,(self.n_mechanical,nx,ns),"acceleration")
         if self.theory=="KL":
-            raise NotImplementedError(
-                "exact nonlinear KL director inertia needs q-dependent mass/gyroscopic terms"
-            )
+            if mechanical is None:
+                raise ValueError("KL exact nonlinear inertia requires current mechanical state")
+            q=_check_fields(mechanical,accel.shape,"KL current displacement")
+            v=np.zeros_like(q) if velocity is None else _check_fields(
+                velocity,accel.shape,"KL current velocity")
+            return kl_inertial_weak_action(
+                q,v,accel,Dx=self.ops.Dx,Ds=self.ops.Ds,
+                wx=self.ops.wx,ws=self.ops.ws,radius_m=self.R,
+                thickness_m=self.h,density_kg_m3=density)
         if self.theory.startswith("CUF_"):
             N=int(self.theory[-1])
             m=mass_matrix_te(radius_m=self.R,thickness_m=self.h,
