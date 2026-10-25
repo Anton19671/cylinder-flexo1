@@ -50,10 +50,18 @@ class TraceStep:
     acceleration: np.ndarray
 
 
-def effective_step_acceptance(converged, relative_residual, tolerance):
-    """Use the actual full admissible Newmark residual, not an XY projection.
+def effective_step_acceptance(converged, relative_residual, tolerance, *,
+                              absolute_residual=None, absolute_tolerance=None):
+    """Require full-equilibrium convergence and one *scaled* residual criterion.
 
-    Return the boolean decision and a stable status for persisted output.
+    The spatial Newton solver uses R <= abs_tol + rel_tol*R_initial,
+    with R dimensionless after state/enthalpy scaling. A separate Newmark
+    gate that tests only R/R_initial can incorrectly reject a fully solved
+    weak-load state when R_initial is near the absolute Newton floor.
+
+    Accept either the requested relative residual or the spatial absolute
+    floor, always on the FULL admissible residual, never an XY half-step.
+    Both scalar residual diagnostics must be finite and nonnegative.
     """
     if not isinstance(converged, (bool, np.bool_)):
         raise TypeError("converged must be boolean")
@@ -61,13 +69,24 @@ def effective_step_acceptance(converged, relative_residual, tolerance):
     limit = float(tolerance)
     if not np.isfinite(limit) or limit <= 0:
         raise ValueError("relative Newmark tolerance must be finite positive")
+    if (absolute_residual is None) != (absolute_tolerance is None):
+        raise ValueError("absolute scaled residual and tolerance must be supplied together")
+    abs_ok = False
+    if absolute_residual is not None:
+        absolute = float(absolute_residual)
+        floor = float(absolute_tolerance)
+        if not np.isfinite(floor) or floor < 0:
+            raise ValueError("absolute scaled tolerance must be finite nonnegative")
+        if not np.isfinite(absolute) or absolute < 0:
+            return False, "INVALID_FULL_EFFECTIVE_RESIDUAL"
+        abs_ok = absolute <= floor
     if not np.isfinite(residual) or residual < 0:
         return False, "INVALID_FULL_EFFECTIVE_RESIDUAL"
     if not converged:
         return False, "SPATIAL_SOLVE_NOT_CONVERGED"
-    if residual > limit:
-        return False, "FULL_EFFECTIVE_RESIDUAL_ABOVE_TOLERANCE"
-    return True, "ACCEPTED"
+    if residual <= limit or abs_ok:
+        return True, "ACCEPTED"
+    return False, "FULL_EFFECTIVE_RESIDUAL_ABOVE_TOLERANCE"
 
 
 class MechanicalTraceNewmark:
