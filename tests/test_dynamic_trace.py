@@ -1,0 +1,88 @@
+"""Regression checks for the Newmark full-residual and moving trace gate."""
+from types import SimpleNamespace
+import unittest
+import numpy as np
+from cylinder_dynamic_trace import (mechanical_trace_matrix,MechanicalTraceNewmark,
+                                    effective_step_acceptance)
+
+
+class TraceNewmarkTest(unittest.TestCase):
+    def make(self):
+        c=np.array([[1.,0.]])
+        m=MechanicalTraceNewmark(c,[0.],[0.,0.],[0.,0.],[0.,0.],
+                                 t=0.,dt=.1,beta=.25,gamma=.5)
+        return c,m
+
+    def test_mechanical_extraction_ignores_electric_rows(self):
+        rows=[SimpleNamespace(field="mechanical",indices=(0,1),
+                              weights=(2.,-2.),prescribed=4.),
+              SimpleNamespace(field="electrical",indices=(0,),
+                              weights=(1.,),prescribed=8.)]
+        c,d=mechanical_trace_matrix(rows,3)
+        np.testing.assert_allclose(c,[[1/np.sqrt(2),-1/np.sqrt(2),0.]])
+        np.testing.assert_allclose(d,[np.sqrt(2)])
+
+    def test_no_mechanical_constraints(self):
+        c,d=mechanical_trace_matrix([],3)
+        self.assertEqual(c.shape,(0,3))
+        m=MechanicalTraceNewmark(c,d,[0.,0.,0.],[0.,0.,0.],[0.,0.,0.],
+                                  t=0.,dt=.1,beta=.25,gamma=.5)
+        p=m.preview(c,d,.1)
+        self.assertEqual(m.accept(p,[.1,0,0],[2,0,0],[0,0,0]),
+                         dict(displacement=0.,velocity=0.,acceleration=0.))
+
+    def test_empty_trace_and_indices(self):
+        row=SimpleNamespace(field="mechanical",indices=(0,1),
+                            weights=(1.,-1.),prescribed=0.)
+        with self.assertRaisesRegex(ValueError,"trace index out of range"):
+            mechanical_trace_matrix([row],1)
+        with self.assertRaisesRegex(ValueError,"empty mechanical"):
+            mechanical_trace_matrix([SimpleNamespace(field="mechanical",
+                indices=(0,),weights=(0.,),prescribed=0.)],2)
+
+    def test_stationary_support(self):
+        c,m=self.make();p=m.preview(c,[0.],.1)
+        self.assertEqual(m.accept(p,[0.,3.],[0.,1.],[0.,2.]),
+                         dict(displacement=0.,velocity=0.,acceleration=0.))
+
+    def test_moving_support_predictors_and_accept(self):
+        c,m=self.make()
+        p=m.preview(c,[.01],.1)
+        self.assertAlmostEqual(p.acceleration[0],4.)
+        self.assertAlmostEqual(p.velocity[0],.2)
+        m.accept(p,[.01,0],[.2,0],[4.,0])
+        p=m.preview(c,[.03],.2)
+        self.assertAlmostEqual(p.acceleration[0],-4.)
+        self.assertAlmostEqual(p.velocity[0],.2)
+        self.assertLess(m.accept(p,[.03,0],[.2,0],[-4.,0])["velocity"],1.e-12)
+
+    def test_rejected_step_does_not_mutate_state(self):
+        c,m=self.make();p=m.preview(c,[.01],.1)
+        with self.assertRaisesRegex(ValueError,"velocity drift"):
+            m.accept(p,[.01,0],[0.,0.],[4.,0])
+        self.assertEqual(m.t,0.)
+        self.assertEqual(m.d[0],0.)
+
+    def test_changed_trace_matrix_rejected(self):
+        c,m=self.make()
+        with self.assertRaisesRegex(ValueError,"matrix changed"):
+            m.preview(c+.01,[0.],.1)
+
+    def test_initial_displacement_invalid(self):
+        with self.assertRaisesRegex(ValueError,"initial displacement drift"):
+            MechanicalTraceNewmark(np.array([[1.,0.]]),[.1],[0.,0.],
+                                   [0.,0.],[0.,0.],t=0,dt=.1,beta=.25,gamma=.5)
+
+    def test_full_residual_gate(self):
+        self.assertEqual(effective_step_acceptance(True,1.e-8,1.e-7),(True,"ACCEPTED"))
+        self.assertEqual(effective_step_acceptance(False,0.,1.e-7),
+                         (False,"SPATIAL_SOLVE_NOT_CONVERGED"))
+        self.assertEqual(effective_step_acceptance(True,2.e-7,1.e-7),
+                         (False,"FULL_EFFECTIVE_RESIDUAL_ABOVE_TOLERANCE"))
+        self.assertEqual(effective_step_acceptance(True,np.inf,1.e-7),
+                         (False,"INVALID_FULL_EFFECTIVE_RESIDUAL"))
+        with self.assertRaises(ValueError):
+            effective_step_acceptance(True,0.,0.)
+
+
+if __name__=="__main__":unittest.main()
