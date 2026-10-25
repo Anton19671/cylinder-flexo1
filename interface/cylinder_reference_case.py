@@ -10,7 +10,7 @@ import numpy as np
 
 from cylinder_functional_assembly import CylinderFunctional, surface_trapezoid, surface_sbp21
 from cylinder_boundary_spatial import BoundarySpatialProblem
-from cylinder_variational_fdm import StaticFDMSettings, solve_static_fdm
+from cylinder_variational_fdm import StaticFDMSettings, solve_static_fdm, state_scales
 from cylinder_variational_mvi import StaticMVISettings, solve_static_mvi
 from cylinder_variational_dynamic import solve_dynamic_fdm, solve_dynamic_mvi
 from cylinder_newmark_mvi import NewmarkSettings, validate_dynamic_case
@@ -64,7 +64,7 @@ class ReferenceCase:
     dead_load: np.ndarray
     free_charge: np.ndarray | None
     factors: tuple
-    settings: StaticFDMSettings
+    settings: object
     method: str
     mvi_settings: StaticMVISettings | None
     calculation_kind: str
@@ -90,6 +90,12 @@ def prepare_reference_case(case, *, base_dir=None):
     method=str(case.get("method","")).upper()
     if method not in ("FDM","MVI"):
         raise ValueError("reference backend requires FDM or MVI")
+    fdm_backend=str(case.get("fdm_backend","DENSE_REFERENCE")).upper()
+    if fdm_backend not in ("DENSE_REFERENCE","MATRIX_FREE_GMRES"):
+        raise ValueError("fdm_backend must be DENSE_REFERENCE or MATRIX_FREE_GMRES")
+    if method!="FDM" and fdm_backend!="DENSE_REFERENCE":
+        raise ValueError("MATRIX_FREE_GMRES currently available for FDM only; MVI unchanged")
+    matrix_free=(method=="FDM" and fdm_backend=="MATRIX_FREE_GMRES")
     if str(case.get("geometry_model","")).upper()!="GREEN_LAGRANGE":
         raise ValueError("reference backend requires full GREEN_LAGRANGE")
     if str(case.get("material_model","")).upper()!="HOOKE":
@@ -122,7 +128,11 @@ def prepare_reference_case(case, *, base_dir=None):
     operator_scheme=str(grid.get("operator_scheme","LEGACY_REFERENCE")).upper()
     if operator_scheme not in ("LEGACY_REFERENCE","SBP21_PERIODIC_ODD"):
         raise ValueError("grid.operator_scheme must be LEGACY_REFERENCE or SBP21_PERIODIC_ODD")
-    if nx*ns>256:raise ValueError("reference backend limited to 256 surface nodes")
+    # Matrix-free FDM has no dense null-space basis: keep a distinct,
+    # explicit node cap until sparse physical derivative operators exist.
+    max_nodes=8192 if matrix_free else 256
+    if nx*ns>max_nodes:
+        raise ValueError(f"{fdm_backend}: surface node count exceeds {max_nodes}")
     quad=case.get("quadrature") or {}
     if str(quad.get("type","")).upper()!="GAUSS":raise ValueError("reference quadrature requires GAUSS")
     n_gauss=_integer(quad.get("n_gauss"),"n_gauss",2)
@@ -140,7 +150,9 @@ def prepare_reference_case(case, *, base_dir=None):
         surface_operators=surface,n_gauss=n_gauss)
     q=np.zeros((functional.n_mechanical,nx,ns))
     p=np.zeros((order+1,nx,ns)) if functional.electrical_on else None
-    if q.size+(0 if p is None else p.size)>4096:raise ValueError("reference nodal DOF limit exceeded")
+    total_dofs=q.size+(0 if p is None else p.size)
+    if not matrix_free and total_dofs>4096:
+        raise ValueError("dense reference nodal DOF limit exceeded")
     bc=case.get("boundary_conditions") or {}
     spec=bc.get("variational")
     if not isinstance(spec,dict):raise ValueError("explicit boundary_conditions.variational required")
@@ -183,19 +195,17 @@ def prepare_reference_case(case, *, base_dir=None):
     else:
         if factors not in (None,[]):raise ValueError("DYNAMIC uses dynamics.time_law, not static load_factors")
         factors=()
-    fdm_backend=str(case.get("fdm_backend","DENSE_REFERENCE")).upper()
-    if fdm_backend not in ("DENSE_REFERENCE","MATRIX_FREE_GMRES"):
-        raise ValueError("fdm_backend must be DENSE_REFERENCE or MATRIX_FREE_GMRES")
-    if method!="FDM" and fdm_backend!="DENSE_REFERENCE":
-        raise ValueError("MATRIX_FREE_GMRES currently available for FDM only; MVI unchanged")
-    if fdm_backend=="MATRIX_FREE_GMRES":
+    if matrix_free:
         from cylinder_matrixfree_fdm import MatrixFreeNewtonSettings
+
     options=case.get("reference_newton",{})
     if not isinstance(options,dict):raise ValueError("reference_newton must be an object")
     try:
         settings=(MatrixFreeNewtonSettings(**options) if fdm_backend=="MATRIX_FREE_GMRES"
                   else StaticFDMSettings(**options))
     except TypeError as exc:raise ValueError("invalid reference_newton fields") from exc
+    if matrix_free and total_dofs>settings.max_total_dofs:
+        raise ValueError("MATRIX_FREE_NODAL_DOF_SAFETY_LIMIT")
     mvi_settings=None
     if method=="MVI":
         mvi_options=case.get("reference_mvi",{})
@@ -274,23 +284,61 @@ def prepare_reference_case(case, *, base_dir=None):
     # CASE valid; dry-run validation must not generate any output files.
     # Create the problem only after CASE-local time tables were resolved above.
     problem=BoundarySpatialProblem(functional,bc_spec=spec,calculation_kind=kind)
-    if kind=="STATIC":
-        a=problem.assemble(q,p,dead_load=dead,free_charge=charge)
+    if matrix_free:
+        from cylinder_matrixfree_fdm import SparseTraceProjector
+        scales=state_scales(functional,q,p,settings)
+        time0=None if kind=="STATIC" else dynamic.settings.t_start_s
+        projector=SparseTraceProjector.from_problem(
+            problem,q,p,scales,time_s=time0,
+            max_rows=settings.max_constraint_rows)
+        if kind=="STATIC":
+            # Full variational residual also validates charge conservation,
+            # spring work, loads and electrodes, but requires no SVD.
+            problem.evaluate_effective_residual(
+                q,p,dead_load=dead,free_charge=charge)
+        else:
+            factor0=dynamic.time_law.value(time0)
+            loaded=factor0*dead
+            loaded_charge=None if charge is None else factor0*charge
+            # Project prescribed mechanical/electric traces without building
+            # a full nodal identity, dense constraint matrix or SVD basis.
+            initial=q.ravel() if p is None else np.concatenate(
+                (q.ravel(),p.ravel()))
+            u=scales*projector.project_affine(initial/scales)
+            q=u[:q.size].reshape(q.shape)
+            p=None if p is None else u[q.size:].reshape(p.shape)
+            _,r,_=problem.evaluate_effective_residual(
+                q,p,dead_load=loaded,free_charge=loaded_charge,time_s=time0,
+                acceleration=np.zeros_like(q),
+                density_kg_m3=dynamic.density_kg_m3)
+            # The initial state must be in equilibrium in every admissible
+            # (including electric saddle) direction. A small projected
+            # full residual is necessary before ZERO Newmark predictors.
+            g=projector.project_null(scales*r)
+            floor=1.e-10*max(1.,float(np.max(scales)))
+            if np.max(np.abs(g),initial=0)>floor:
+                raise ValueError(
+                    "ZERO initial conditions are not in equilibrium at "
+                    "start_time_s; delay the load or supply a preloaded-state route")
     else:
-        t0=dynamic.settings.t_start_s;factor0=dynamic.time_law.value(t0)
-        a=problem.assemble(q,p,dead_load=factor0*dead,
-            free_charge=None if charge is None else factor0*charge,time_s=t0,
-            acceleration=np.zeros_like(q),density_kg_m3=dynamic.density_kg_m3)
-        state=a.space.origin
-        q=state[:q.size].reshape(q.shape)
-        p=None if p is None else state[q.size:].reshape(p.shape)
-        a=problem.assemble(q,p,dead_load=factor0*dead,
-            free_charge=None if charge is None else factor0*charge,time_s=t0,
-            acceleration=np.zeros_like(q),density_kg_m3=dynamic.density_kg_m3)
-        if np.max(abs(a.projected_residual),initial=0)>1.e-10:
-            raise ValueError("ZERO initial conditions are not in equilibrium at start_time_s; delay the load or supply a preloaded-state route")
-    if fdm_backend=="DENSE_REFERENCE" and a.space.basis.shape[1]>settings.max_free_dofs:
-        raise ValueError("reference free-DOF limit exceeded; use a smaller verification grid")
+        # Original dense reference route remains bit-for-bit unchanged.
+        if kind=="STATIC":
+            a=problem.assemble(q,p,dead_load=dead,free_charge=charge)
+        else:
+            t0=dynamic.settings.t_start_s;factor0=dynamic.time_law.value(t0)
+            a=problem.assemble(q,p,dead_load=factor0*dead,
+                free_charge=None if charge is None else factor0*charge,time_s=t0,
+                acceleration=np.zeros_like(q),density_kg_m3=dynamic.density_kg_m3)
+            state=a.space.origin
+            q=state[:q.size].reshape(q.shape)
+            p=None if p is None else state[q.size:].reshape(p.shape)
+            a=problem.assemble(q,p,dead_load=factor0*dead,
+                free_charge=None if charge is None else factor0*charge,time_s=t0,
+                acceleration=np.zeros_like(q),density_kg_m3=dynamic.density_kg_m3)
+            if np.max(abs(a.projected_residual),initial=0)>1.e-10:
+                raise ValueError("ZERO initial conditions are not in equilibrium at start_time_s; delay the load or supply a preloaded-state route")
+        if a.space.basis.shape[1]>settings.max_free_dofs:
+            raise ValueError("reference free-DOF limit exceeded; use a smaller verification grid")
     if not isinstance(case.get("output_dir"),str) or not case["output_dir"].strip():
         raise ValueError("explicit output_dir required")
     return ReferenceCase(problem,q,p,dead,charge,factors,settings,method,mvi_settings,kind,dynamic,fdm_backend)
