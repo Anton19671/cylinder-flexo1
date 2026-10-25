@@ -16,8 +16,10 @@ from cylinder_variational_dynamic import solve_dynamic_fdm, solve_dynamic_mvi
 from cylinder_newmark_mvi import NewmarkSettings, validate_dynamic_case
 from cylinder_dynamic_loads import normalize_time_law
 from cylinder_variational_loads import project_radial_load
-from cylinder_dynamic_trace import (MechanicalTraceNewmark, mechanical_trace_matrix,
-                                    effective_step_acceptance, require_zero_initial_support_motion)
+from cylinder_dynamic_trace import (
+    MechanicalTraceNewmark, mechanical_trace_matrix,
+    SparseMechanicalTraceNewmark, sparse_mechanical_trace_matrix,
+    effective_step_acceptance, require_zero_initial_support_motion)
 from cylinder_newmark_audit import audit_newmark_step
 from flexo_gradient_g3d import G3DMaterial
 from flexo_scale_policy import micro_material_from_case, flexoelectric_enabled
@@ -500,8 +502,13 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
             q,p,time_s=newmark.t_start_s,
             acceleration=np.zeros_like(q),
             density_kg_m3=dyn.density_kg_m3).edge
-    trace_c,trace_d=mechanical_trace_matrix(initial_edge.constraints,q.size)
-    trace_monitor=MechanicalTraceNewmark(trace_c,trace_d,q,velocity,acceleration,
+    sparse_trace=prepared.fdm_backend=="MATRIX_FREE_GMRES"
+    trace_matrix=(sparse_mechanical_trace_matrix if sparse_trace
+                  else mechanical_trace_matrix)
+    monitor_class=(SparseMechanicalTraceNewmark if sparse_trace
+                   else MechanicalTraceNewmark)
+    trace_c,trace_d=trace_matrix(initial_edge.constraints,q.size)
+    trace_monitor=monitor_class(trace_c,trace_d,q,velocity,acceleration,
         t=newmark.t_start_s,dt=newmark.dt_s,beta=newmark.beta,gamma=newmark.gamma)
     initial=out/"REFERENCE_DYNAMIC_INITIAL.npz"
     arrays={"time_s":np.array(newmark.t_start_s),"mechanical":q,
@@ -521,7 +528,7 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
                 trace_edge=prepared.problem.assemble(
                     q,p,time_s=time_s,acceleration=np.zeros_like(q),
                     density_kg_m3=dyn.density_kg_m3).edge
-            trace_new_c,trace_new_d=mechanical_trace_matrix(
+            trace_new_c,trace_new_d=trace_matrix(
                 trace_edge.constraints,q.size)
             expected_trace=trace_monitor.preview(trace_new_c,trace_new_d,time_s)
             q_predictor=q+newmark.dt_s*velocity+newmark.dt_s**2*(.5-newmark.beta)*acceleration
