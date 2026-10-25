@@ -77,6 +77,7 @@ class ReferenceDynamics:
     density_kg_m3: float
     time_law: object
     mass_damping_rate_per_s: float = 0.0
+    eta_s: float = 0.0
 
 
 def prepare_reference_case(case, *, base_dir=None):
@@ -196,12 +197,13 @@ def prepare_reference_case(case, *, base_dir=None):
         if contract["damping"]=="EXTERNAL_OPERATOR":
             raise ValueError("reference backend does not accept an external damping operator")
         damping_rate=contract["mass_damping_rate_per_s"]
+        material_eta_s=0.0
         if scale=="MICRO":
             material_density=_real(case["micro"]["rho_kg_m3"],"micro.rho_kg_m3",True)
             if not np.isclose(contract["density_kg_m3"],material_density,rtol=1.e-12,atol=0.):
                 raise ValueError("dynamics.density_kg_m3 must equal micro.rho_kg_m3")
-            if _real(case["micro"]["eta_s"],"micro.eta_s")!=0.:
-                raise ValueError("nonzero micro.eta_s damping is not yet connected to the effective residual")
+            material_eta_s=_real(case["micro"]["eta_s"],"micro.eta_s")
+            if material_eta_s<0:raise ValueError("micro.eta_s must be nonnegative")
         d=case["dynamics"]
         initial=d.get("initial_conditions",{"type":"ZERO"})
         if not isinstance(initial,dict) or set(initial)!={"type"} or str(initial["type"]).upper()!="ZERO":
@@ -212,7 +214,7 @@ def prepare_reference_case(case, *, base_dir=None):
             beta=contract["newmark_beta"],gamma=contract["newmark_gamma"],
             t_start_s=contract["start_time_s"],
             residual_tolerance_relative=contract["residual_tolerance_relative"])
-        dynamic=ReferenceDynamics(settings_dynamic,contract["density_kg_m3"],law,damping_rate)
+        dynamic=ReferenceDynamics(settings_dynamic,contract["density_kg_m3"],law,damping_rate,material_eta_s)
         # All end loads, electrode potentials and free charges share a physical
         # time grid with Newmark. Validate their sampling and table coverage
         # before producing any output, not after a step has been accepted.
@@ -414,6 +416,7 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
         "newmark":{"beta":newmark.beta,"gamma":newmark.gamma,
                    "dt_s":newmark.dt_s,"start_time_s":newmark.t_start_s},
         "electric_inertia":False,
+        "material_viscosity":{"kind":"KELVIN_VOIGT_GREEN_LAGRANGE","eta_s":dyn.eta_s},
         "damping":{"kind":"MASS_PROPORTIONAL" if dyn.mass_damping_rate_per_s else "NONE",
                    "mass_damping_rate_per_s":dyn.mass_damping_rate_per_s},
         "convergence_meaning":"full admissible effective Newmark residual"}
@@ -455,6 +458,7 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
                 velocity_predictor=velocity_predictor,time_s=time_s,dt_s=newmark.dt_s,
                 beta=newmark.beta,gamma=newmark.gamma,density_kg_m3=dyn.density_kg_m3,
                 mass_damping_rate_per_s=dyn.mass_damping_rate_per_s,
+                eta_s=dyn.eta_s,
                 dead_load=factor*prepared.dead_load,
                 free_charge=None if prepared.free_charge is None else factor*prepared.free_charge,
                 settings=prepared.settings,on_iteration=report,**extra)
@@ -495,6 +499,11 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
                 "constraint_reaction":result.constraint_reaction,
                 "x_m":np.linspace(0,float(case["geometry"]["L"]),q.shape[1]),
                 "s_m":np.arange(q.shape[2])*2*np.pi*f.R/q.shape[2]}
+            if dyn.eta_s:
+                visc=f.kelvin_voigt_action(result.mechanical,result.velocity,eta_s=dyn.eta_s)
+                arrays["material_viscous_force"]=visc.mechanical_force
+                arrays["material_dissipation_power_w"]=np.array(visc.power_w)
+                arrays["damping_force"]+=visc.mechanical_force
             if result.electrical is not None:arrays["electrical"]=result.electrical
             if prepared.method=="MVI":arrays.update(x_profiles=result.x_profiles,
                 y_profiles=result.y_profiles,lift_scaled=result.lift_scaled,
