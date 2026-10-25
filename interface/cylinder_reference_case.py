@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Explicit small-grid CASE route for the variational static FDM/MVI backend."""
+"""Explicit small-grid CASE route for coupled variational FDM/MVI solves."""
 from dataclasses import dataclass
 from pathlib import Path
+import csv
 import json
 import os
 import numpy as np
@@ -10,6 +11,9 @@ from cylinder_functional_assembly import CylinderFunctional, surface_trapezoid
 from cylinder_boundary_spatial import BoundarySpatialProblem
 from cylinder_variational_fdm import StaticFDMSettings, solve_static_fdm
 from cylinder_variational_mvi import StaticMVISettings, solve_static_mvi
+from cylinder_variational_dynamic import solve_dynamic_fdm, solve_dynamic_mvi
+from cylinder_newmark_mvi import NewmarkSettings, validate_dynamic_case
+from cylinder_dynamic_loads import normalize_time_law
 from flexo_gradient_g3d import G3DMaterial
 from flexo_scale_policy import micro_material_from_case, flexoelectric_enabled
 import final_progress as progress
@@ -58,13 +62,23 @@ class ReferenceCase:
     settings: StaticFDMSettings
     method: str
     mvi_settings: StaticMVISettings | None
+    calculation_kind: str
+    dynamics: object | None
 
 
-def prepare_reference_case(case):
+@dataclass(frozen=True)
+class ReferenceDynamics:
+    settings: NewmarkSettings
+    density_kg_m3: float
+    time_law: object
+
+
+def prepare_reference_case(case, *, base_dir=None):
     """Validate without creating directories or substituting another backend."""
     if selected_backend(case)!=BACKEND:raise ValueError("explicit reference backend required")
-    if str(case.get("calculation_kind","")).upper()!="STATIC":
-        raise ValueError("reference backend currently requires STATIC")
+    kind=str(case.get("calculation_kind","")).upper()
+    if kind not in ("STATIC","DYNAMIC"):
+        raise ValueError("reference backend requires STATIC or DYNAMIC")
     method=str(case.get("method","")).upper()
     if method not in ("FDM","MVI"):
         raise ValueError("reference backend requires FDM or MVI")
@@ -130,7 +144,7 @@ def prepare_reference_case(case):
                 "newton","linear","inner_mvi","fdm_operator_scheme"):
         if case.get(key) is not None:
             raise ValueError(key+": legacy fields are not accepted by reference backend")
-    problem=BoundarySpatialProblem(functional,bc_spec=spec)
+    problem=BoundarySpatialProblem(functional,bc_spec=spec,calculation_kind=kind)
     loads=case.get("reference_loads")
     definition=case.get("load_definition")
     if loads is not None and definition is not None:raise ValueError("choose reference_loads or load_definition")
@@ -158,9 +172,13 @@ def prepare_reference_case(case):
         radial=2*(int(theory[-1])+1) if theory.startswith("CUF_") else 2
         dead[radial]=_real(definition.get("q"),"pressure q")
         charge=None;factors=definition.get("load_factors")
-    if not isinstance(factors,list) or not factors:raise ValueError("explicit nonempty load_factors required")
-    factors=tuple(_real(x,"load factor") for x in factors)
-    if len(factors)>100:raise ValueError("reference static series limited to 100 load factors")
+    if kind=="STATIC":
+        if not isinstance(factors,list) or not factors:raise ValueError("explicit nonempty load_factors required")
+        factors=tuple(_real(x,"load factor") for x in factors)
+        if len(factors)>100:raise ValueError("reference static series limited to 100 load factors")
+    else:
+        if factors not in (None,[]):raise ValueError("DYNAMIC uses dynamics.time_law, not static load_factors")
+        factors=()
     options=case.get("reference_newton",{})
     if not isinstance(options,dict):raise ValueError("reference_newton must be an object")
     try:settings=StaticFDMSettings(**options)
@@ -175,14 +193,59 @@ def prepare_reference_case(case):
         if rank>min(nx,ns):raise ValueError("MVI rank exceeds grid dimensions; increase nx and ns")
     elif case.get("reference_mvi") is not None or case.get("rank") is not None:
         raise ValueError("MVI settings require method=MVI")
+    dynamic=None
+    if kind=="DYNAMIC":
+        contract=validate_dynamic_case(case)
+        if contract["damping"]!="NONE":raise ValueError("reference dynamics currently requires damping=NONE")
+        if scale=="MICRO":
+            material_density=_real(case["micro"]["rho_kg_m3"],"micro.rho_kg_m3",True)
+            if not np.isclose(contract["density_kg_m3"],material_density,rtol=1.e-12,atol=0.):
+                raise ValueError("dynamics.density_kg_m3 must equal micro.rho_kg_m3")
+            if _real(case["micro"]["eta_s"],"micro.eta_s")!=0.:
+                raise ValueError("nonzero micro.eta_s damping is not yet connected to the effective residual")
+        if theory=="KL":
+            raise ValueError("DYNAMIC KL requires exact configuration-dependent director inertia; use FSDT, REDDY or CUF")
+        d=case["dynamics"]
+        initial=d.get("initial_conditions",{"type":"ZERO"})
+        if not isinstance(initial,dict) or set(initial)!={"type"} or str(initial["type"]).upper()!="ZERO":
+            raise ValueError("reference dynamics currently requires initial_conditions.type=ZERO")
+        law=normalize_time_law(d.get("time_law"),base_dir=base_dir)
+        law.validate_time_grid(contract["start_time_s"],contract["time_step_s"],contract["n_steps"])
+        settings_dynamic=NewmarkSettings(contract["time_step_s"],contract["n_steps"],
+            beta=contract["newmark_beta"],gamma=contract["newmark_gamma"],
+            t_start_s=contract["start_time_s"],
+            residual_tolerance_relative=contract["residual_tolerance_relative"])
+        dynamic=ReferenceDynamics(settings_dynamic,contract["density_kg_m3"],law)
+        # Essential traces with a time law need their exact velocity and
+        # acceleration data. That contract is kept closed until those data are explicit.
+        for site,data in spec.get("mechanical",{}).items():
+            if isinstance(data,dict) and "time_law" in data and str(data.get("support","FREE")).upper()!="FREE":
+                raise ValueError(f"{site}: time-dependent essential mechanical BC needs explicit velocity/acceleration")
+        for site,data in spec.get("electrical",{}).items():
+            if isinstance(data,dict) and "time_law" in data and str(data.get("mode","INSULATED")).upper()=="POTENTIAL":
+                raise ValueError(f"{site}: time-dependent prescribed potential is not yet connected")
     # Compile charge compatibility and all trace equations before declaring a
     # CASE valid; dry-run validation must not generate any output files.
-    a=problem.assemble(q,p,dead_load=dead,free_charge=charge)
+    if kind=="STATIC":
+        a=problem.assemble(q,p,dead_load=dead,free_charge=charge)
+    else:
+        t0=dynamic.settings.t_start_s;factor0=dynamic.time_law.value(t0)
+        a=problem.assemble(q,p,dead_load=factor0*dead,
+            free_charge=None if charge is None else factor0*charge,time_s=t0,
+            acceleration=np.zeros_like(q),density_kg_m3=dynamic.density_kg_m3)
+        state=a.space.origin
+        q=state[:q.size].reshape(q.shape)
+        p=None if p is None else state[q.size:].reshape(p.shape)
+        a=problem.assemble(q,p,dead_load=factor0*dead,
+            free_charge=None if charge is None else factor0*charge,time_s=t0,
+            acceleration=np.zeros_like(q),density_kg_m3=dynamic.density_kg_m3)
+        if np.max(abs(a.projected_residual),initial=0)>1.e-10:
+            raise ValueError("ZERO initial conditions are not in equilibrium at start_time_s; delay the load or supply a preloaded-state route")
     if a.space.basis.shape[1]>settings.max_free_dofs:
         raise ValueError("reference free-DOF limit exceeded; use a smaller verification grid")
     if not isinstance(case.get("output_dir"),str) or not case["output_dir"].strip():
         raise ValueError("explicit output_dir required")
-    return ReferenceCase(problem,q,p,dead,charge,factors,settings,method,mvi_settings)
+    return ReferenceCase(problem,q,p,dead,charge,factors,settings,method,mvi_settings,kind,dynamic)
 
 
 def _write_json(path,data):
@@ -193,8 +256,23 @@ def _write_json(path,data):
     os.replace(temp,path)
 
 
+def _write_dynamic_history(path,steps):
+    temp=path.with_name(path.name+".tmp")
+    columns=("index","time_s","load_factor","w_middle_abs_max_m",
+             "velocity_abs_max_m_per_s","acceleration_abs_max_m_per_s2",
+             "max_potential_coefficient_abs","admissible_residual_scaled")
+    with temp.open("w",encoding="utf-8",newline="") as stream:
+        writer=csv.DictWriter(stream,fieldnames=columns)
+        writer.writeheader()
+        for step in steps:writer.writerow({key:step.get(key) for key in columns})
+        stream.flush();os.fsync(stream.fileno())
+    os.replace(temp,path)
+
+
 def run_reference_case(case,case_path):
-    prepared=prepare_reference_case(case)
+    prepared=prepare_reference_case(case,base_dir=Path(case_path).parent)
+    if prepared.calculation_kind=="DYNAMIC":
+        return run_reference_dynamic_case(case,case_path,prepared=prepared)
     out=Path(case["output_dir"])
     if not out.is_absolute():out=Path(case_path).parent/out
     out=out.resolve()
@@ -282,6 +360,110 @@ def run_reference_case(case,case_path):
     return summary
 
 
+def run_reference_dynamic_case(case,case_path,*,prepared=None):
+    """Advance the coupled mechanical/electric fields by Newmark in time."""
+    prepared=prepare_reference_case(case,base_dir=Path(case_path).parent) if prepared is None else prepared
+    if prepared.calculation_kind!="DYNAMIC":raise ValueError("dynamic reference CASE required")
+    out=Path(case["output_dir"])
+    if not out.is_absolute():out=Path(case_path).parent/out
+    out=out.resolve()
+    if out.exists() and any(out.iterdir()):raise ValueError("OUTPUT_DIR_NOT_EMPTY: reference results must not be mixed")
+    out.mkdir(parents=True,exist_ok=True)
+    _write_json(out/"REFERENCE_CASE.json",case)
+    dyn=prepared.dynamics;newmark=dyn.settings;f=prepared.problem.functional
+    summary={"solver_backend":BACKEND,"experimental":True,"calculation_kind":"DYNAMIC",
+        "method":prepared.method,"theory":f.theory,"geometry_model":"GREEN_LAGRANGE",
+        "material_model":"HOOKE","field_order":"component,x,s",
+        "thickness_basis":"(2*z/h)**k","units":{"system":"SI_N_M_PA"},
+        "output_dir":str(out),"status":"NOT_STARTED","converged":False,
+        "accepted_steps":0,"requested_steps":newmark.n_steps,"steps":[],
+        "mesh_convergence_verified":False,"time_step_convergence_verified":False,
+        "scale_model":case["scale_model"],"gradient_enabled":f.material.ell_m>0,
+        "electrical_enabled":f.electrical_on,"density_kg_m3":dyn.density_kg_m3,
+        "newmark":{"beta":newmark.beta,"gamma":newmark.gamma,
+                   "dt_s":newmark.dt_s,"start_time_s":newmark.t_start_s},
+        "electric_inertia":False,
+        "convergence_meaning":"full admissible effective Newmark residual"}
+    if prepared.mvi_settings is not None:summary["rank"]=prepared.mvi_settings.rank
+    q,p=prepared.mechanical,prepared.electrical
+    velocity=np.zeros_like(q);acceleration=np.zeros_like(q)
+    initial=out/"REFERENCE_DYNAMIC_INITIAL.npz"
+    arrays={"time_s":np.array(newmark.t_start_s),"mechanical":q,
+            "velocity":velocity,"acceleration":acceleration}
+    if p is not None:arrays["electrical"]=p
+    with initial.open("wb") as stream:np.savez_compressed(stream,**arrays)
+    try:
+        progress.configure(out,solver_backend=BACKEND)
+        for index in range(1,newmark.n_steps+1):
+            time_s=newmark.t_start_s+index*newmark.dt_s
+            factor=dyn.time_law.value(time_s)
+            q_predictor=q+newmark.dt_s*velocity+newmark.dt_s**2*(.5-newmark.beta)*acceleration
+            velocity_predictor=velocity+newmark.dt_s*(1-newmark.gamma)*acceleration
+            def report(record):
+                clean={k:v for k,v in record.items() if k!="event"}
+                progress.emit("reference_dynamic_"+record.get("event","newton"),
+                    step=index,time_s=time_s,load_factor=factor,**clean)
+                print(f"REFERENCE_DYNAMIC_{prepared.method} step={index} t={time_s:.9g} "
+                      f"sweep={record.get('sweep',0)} {record.get('direction','FULL')} "
+                      f"it={record['iteration']} Rscaled={record['residual_scaled']:.6e}",flush=True)
+            solve=solve_dynamic_fdm if prepared.method=="FDM" else solve_dynamic_mvi
+            extra={} if prepared.method=="FDM" else {"mvi_settings":prepared.mvi_settings}
+            result=solve(prepared.problem,q,p,q_predictor=q_predictor,
+                velocity_predictor=velocity_predictor,time_s=time_s,dt_s=newmark.dt_s,
+                beta=newmark.beta,gamma=newmark.gamma,density_kg_m3=dyn.density_kg_m3,
+                dead_load=factor*prepared.dead_load,
+                free_charge=None if prepared.free_charge is None else factor*prepared.free_charge,
+                settings=prepared.settings,on_iteration=report,**extra)
+            state_name=(f"REFERENCE_DYNAMIC_STEP_{index:04d}.npz" if result.converged
+                        else "REFERENCE_DYNAMIC_FAILED_ITERATE.npz")
+            temp=out/(state_name+".tmp")
+            arrays={"time_s":np.array(time_s),"load_factor":np.array(factor),
+                "mechanical":result.mechanical,"velocity":result.velocity,
+                "acceleration":result.acceleration,"full_residual":result.full_residual,
+                "constraint_reaction":result.constraint_reaction,
+                "x_m":np.linspace(0,float(case["geometry"]["L"]),q.shape[1]),
+                "s_m":np.arange(q.shape[2])*2*np.pi*f.R/q.shape[2]}
+            if result.electrical is not None:arrays["electrical"]=result.electrical
+            if prepared.method=="MVI":arrays.update(x_profiles=result.x_profiles,
+                y_profiles=result.y_profiles,lift_scaled=result.lift_scaled,
+                state_scales=result.scales)
+            with temp.open("wb") as stream:np.savez_compressed(stream,**arrays)
+            os.replace(temp,out/state_name)
+            history_name=f"REFERENCE_DYNAMIC_{prepared.method}_{index:04d}.json"
+            history=[{k:(None if isinstance(v,float) and not np.isfinite(v) else v)
+                      for k,v in row.items()} for row in result.history]
+            _write_json(out/history_name,history)
+            radial=2*(int(f.theory[-1])+1) if f.theory.startswith("CUF_") else 2
+            step={"index":index,"time_s":time_s,"load_factor":factor,
+                "status":result.status,"converged":result.converged,
+                "iterations":result.iterations,"sweeps":result.sweeps,
+                "admissible_residual_scaled":result.admissible_residual_scaled,
+                "residual_relative_to_initial":result.residual_relative_to_initial,
+                "constraint_defect_scaled":result.constraint_defect_scaled,
+                "w_middle_abs_max_m":float(np.max(abs(result.mechanical[radial]))),
+                "velocity_abs_max_m_per_s":float(np.max(abs(result.velocity))),
+                "acceleration_abs_max_m_per_s2":float(np.max(abs(result.acceleration))),
+                "max_potential_coefficient_abs":None if result.electrical is None else float(np.max(abs(result.electrical))),
+                "state_file":state_name,"history_file":history_name,
+                "full_equilibrium_satisfied":result.converged}
+            if prepared.method=="MVI":step.update(
+                projected_residual_scaled=result.projected_residual_scaled,
+                projected_equilibrium_satisfied=result.projected_equilibrium_satisfied)
+            summary["steps"].append(step);summary["status"]=result.status
+            _write_dynamic_history(out/"REFERENCE_DYNAMIC_HISTORY.csv",summary["steps"])
+            if not result.converged:
+                summary["failed_step_index"]=index;summary["failed_step_code"]=result.status
+                _write_json(out/"FINAL_RUN_SUMMARY.json",summary);break
+            q,p=result.mechanical,result.electrical
+            velocity,acceleration=result.velocity,result.acceleration
+            summary["accepted_steps"]+=1
+            summary["converged"]=summary["accepted_steps"]==newmark.n_steps
+            summary["status"]="CONVERGED" if summary["converged"] else "IN_PROGRESS"
+            _write_json(out/"FINAL_RUN_SUMMARY.json",summary)
+    finally:progress.reset()
+    return summary
+
+
 def run_reference_mvi_series(case,case_path,ranks=range(1,9)):
     """Independent fixed-rank runs; preflight every rank before any output."""
     import copy
@@ -292,7 +474,7 @@ def run_reference_mvi_series(case,case_path,ranks=range(1,9)):
     prepared=[]
     for rank in ranks:
         candidate=copy.deepcopy(case);candidate["rank"]=rank
-        prepare_reference_case(candidate)
+        prepare_reference_case(candidate,base_dir=Path(case_path).parent)
         prepared.append(candidate)
     base=Path(case["output_dir"])
     if not base.is_absolute():base=Path(case_path).parent/base
@@ -319,4 +501,4 @@ def run_reference_mvi_series(case,case_path,ranks=range(1,9)):
 
 
 __all__=("BACKEND","selected_backend","prepare_reference_case","run_reference_case",
-         "run_reference_mvi_series")
+         "run_reference_dynamic_case","run_reference_mvi_series")

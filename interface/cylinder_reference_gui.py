@@ -10,9 +10,10 @@ from tkinter import ttk, filedialog, messagebox
 from cylinder_reference_case import BACKEND, prepare_reference_case
 
 TEMPLATE=Path(__file__).resolve().parent.parent/'config/CASE_REFERENCE_CUF_G3D_STATIC.json'
+DYNAMIC_TEMPLATE=Path(__file__).resolve().parent.parent/'config/CASE_REFERENCE_CUF_G3D_MVI_DYNAMIC.json'
 
 
-def edit_reference_case(original, fields, boundary, load, newton):
+def edit_reference_case(original, fields, boundary, load, newton, dynamics=None):
     """Make one lossless CASE update; fail rather than discard unknown settings."""
     case=copy.deepcopy(original)
     if case.get('solver_backend')!=BACKEND:raise ValueError('Откройте вариационный CASE')
@@ -38,6 +39,9 @@ def edit_reference_case(original, fields, boundary, load, newton):
     method=str(fields['method']).upper()
     if method not in ('MVI','FDM'):raise ValueError('Метод: MVI / FDM')
     case['method']=method
+    kind=str(fields.get('calculation_kind',case.get('calculation_kind','STATIC'))).upper()
+    if kind not in ('STATIC','DYNAMIC'):raise ValueError('Тип задачи: STATIC / DYNAMIC')
+    case['calculation_kind']=kind
     case.pop('fdm_grid',None);case.pop('mvi_grid',None);case.pop('grid',None)
     case['mvi_grid' if method=='MVI' else 'fdm_grid']={'nx':integer('nx'),'ns':integer('ns')}
     if method=='MVI':
@@ -77,10 +81,19 @@ def edit_reference_case(original, fields, boundary, load, newton):
         saved_bc=case.get('micro',{}).get('editor_saved_electrical_bc')
         if saved_bc:bc['electrical']=copy.deepcopy(saved_bc)
     case.setdefault('boundary_conditions',{})['variational']=bc
-    if 'reference_loads' in case:
-        case['reference_loads']=document(load,'Нагрузка')
+    load_data=document(load,'Нагрузка')
+    if kind=='DYNAMIC':
+        factors=load_data.pop('load_factors',None)
+        if factors is not None:case['editor_saved_static_load_factors']=factors
+        raw=dynamics if dynamics is not None else json.dumps(case.get('dynamics',case.get('editor_saved_dynamics',{})))
+        case['dynamics']=document(raw,'Динамика')
     else:
-        case['load_definition']=document(load,'Нагрузка')
+        if 'load_factors' not in load_data:
+            load_data['load_factors']=copy.deepcopy(case.get('editor_saved_static_load_factors',[1.0]))
+        if isinstance(case.get('dynamics'),dict):case['editor_saved_dynamics']=copy.deepcopy(case['dynamics'])
+        case.pop('dynamics',None)
+    if 'reference_loads' in case:case['reference_loads']=load_data
+    else:case['load_definition']=load_data
     case['reference_newton']=document(newton,'Настройки Ньютона')
     prepare_reference_case(case)
     return case
@@ -91,7 +104,10 @@ class ReferenceCaseEditor(tk.Toplevel):
         super().__init__(parent)
         self.parent=parent
         self.path=Path(path) if path else None
-        self.case=copy.deepcopy(case) if case is not None else json.loads(TEMPLATE.read_text(encoding='utf-8'))
+        if case is not None:self.case=copy.deepcopy(case)
+        else:
+            dynamic=str(parent._v('calculation_kind','STATIC').get()).upper()=='DYNAMIC'
+            self.case=json.loads((DYNAMIC_TEMPLATE if dynamic else TEMPLATE).read_text(encoding='utf-8'))
         self.title('Вариационный CASE: G3D / флексо / МВИ / МКР')
         self.geometry('930x780')
         self.transient(parent)
@@ -105,7 +121,7 @@ class ReferenceCaseEditor(tk.Toplevel):
         window=canvas.create_window((0,0),window=body,anchor='nw')
         body.bind('<Configure>',lambda _event:canvas.configure(scrollregion=canvas.bbox('all')))
         canvas.bind('<Configure>',lambda event:canvas.itemconfigure(window,width=event.width))
-        ttk.Label(body,text='Статика · GREEN_LAGRANGE · HOOKE · СИ. Динамика через CASE пока не подключена.',
+        ttk.Label(body,text='GREEN_LAGRANGE · HOOKE · СИ. Статика и динамика Ньюмарка с МВИ/МКР.',
                   foreground='#825400').pack(anchor='w',pady=(0,7))
         def group(title,items):
             box=ttk.LabelFrame(body,text=title,padding=7);box.pack(fill='x',pady=4)
@@ -125,6 +141,7 @@ class ReferenceCaseEditor(tk.Toplevel):
         saved=micro.get('editor_saved_flexo',{})
         method=c.get('method','FDM');grid=c.get('mvi_grid' if method=='MVI' else 'fdm_grid',{})
         group('Теория и метод',[
+            ('Тип задачи','calculation_kind',c.get('calculation_kind','STATIC'),('STATIC','DYNAMIC')),
             ('Теория','theory',c.get('theory','CUF'),('KL','FSDT','REDDY','CUF')),
             ('Порядок CUF','cuf_model',c.get('cuf_model','TE1'),('TE1','TE2','TE3','TE4')),
             ('Пространственный метод','method',method,('FDM','MVI')),
@@ -164,6 +181,13 @@ class ReferenceCaseEditor(tk.Toplevel):
         self.load_text=json_box('Нагрузка и коэффициенты шагов (JSON)',
                                 c.get('reference_loads',c.get('load_definition',{})))
         self.newton_text=json_box('Параметры связанного Ньютона (JSON)',c.get('reference_newton',{}))
+        self.dynamics_text=json_box('Динамика Ньюмарка и закон F(t) (JSON)',
+            c.get('dynamics',c.get('editor_saved_dynamics',{
+                'time_step_s':0.01,'n_steps':20,'density_kg_m3':1300.0,
+                'newmark_beta':0.25,'newmark_gamma':0.5,'start_time_s':0.0,
+                'damping':'NONE','initial_conditions':{'type':'ZERO'},
+                'time_law':{'kind':'HARMONIC','amplitude':1.0,'frequency_hz':1.0,
+                            'phase_rad':0.0,'start_time_s':0.0}})))
         buttons=ttk.Frame(self,padding=8);buttons.pack(fill='x')
         ttk.Button(buttons,text='Проверить',command=self.validate).pack(side='left',padx=4)
         ttk.Button(buttons,text='Сохранить CASE…',command=self.save).pack(side='left',padx=4)
@@ -176,7 +200,7 @@ class ReferenceCaseEditor(tk.Toplevel):
         fields['flexo']=self.flexo.get()
         return edit_reference_case(self.case,fields,
             self.bc_text.get('1.0','end-1c'),self.load_text.get('1.0','end-1c'),
-            self.newton_text.get('1.0','end-1c'))
+            self.newton_text.get('1.0','end-1c'),self.dynamics_text.get('1.0','end-1c'))
 
     def validate(self):
         try:
@@ -199,6 +223,8 @@ class ReferenceCaseEditor(tk.Toplevel):
         self.path=target;self.case=case
         self.parent._v('case_path').set(str(target))
         self.parent._log(f'Вариационный CASE сохранён: {target}\n')
+        try:self.parent._refresh_visibility()
+        except Exception:pass
         return target
 
     def run(self,series=False):

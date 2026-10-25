@@ -2328,11 +2328,11 @@ def validate_final_case(case_json,*,dry_run=True):
     cfg,path=_read_json(case_json)
     from cylinder_reference_case import selected_backend, BACKEND, prepare_reference_case
     if selected_backend(cfg)==BACKEND:
-        reference=prepare_reference_case(cfg)
+        reference=prepare_reference_case(cfg,base_dir=path.parent)
         return {"valid":True,"solver_backend":BACKEND,"experimental":True,
                 "theory":reference.problem.functional.theory,"method":reference.method,
                 "rank":None if reference.mvi_settings is None else reference.mvi_settings.rank,
-                "calculation_kind":"STATIC","scale_model":cfg["scale_model"],
+                "calculation_kind":reference.calculation_kind,"scale_model":cfg["scale_model"],
                 "field_order":"component,x,s",
                 "validation_warnings":["Small-grid reference solve; mesh convergence not verified."]}
     c=_common(cfg)

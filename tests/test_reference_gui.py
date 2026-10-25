@@ -104,5 +104,22 @@ class ReferenceGuiTest(unittest.TestCase):
                     FinalSolverGUI._launch_reference_case(fake,path,c,series=True)
                 process.assert_not_called()
 
+    def test_dynamic_editor_switches_time_contract_without_static_factors(self):
+        c=json.loads((ROOT/'config/CASE_REFERENCE_CUF_G3D_MVI_DYNAMIC.json').read_text())
+        _,fields=self.sample();fields['calculation_kind']='DYNAMIC'
+        dynamics=copy.deepcopy(c['dynamics']);dynamics['n_steps']=7
+        result=edit_reference_case(c,fields,
+            json.dumps(c['boundary_conditions']['variational']),json.dumps(c['load_definition']),
+            json.dumps(c['reference_newton']),json.dumps(dynamics))
+        self.assertEqual(result['calculation_kind'],'DYNAMIC')
+        self.assertEqual(result['dynamics']['n_steps'],7)
+        self.assertNotIn('load_factors',result['load_definition'])
+        fields['calculation_kind']='STATIC'
+        restored=edit_reference_case(result,fields,
+            json.dumps(result['boundary_conditions']['variational']),json.dumps(result['load_definition']),
+            json.dumps(result['reference_newton']),json.dumps(dynamics))
+        self.assertEqual(restored['load_definition']['load_factors'],[1.0])
+        self.assertNotIn('dynamics',restored)
+
 
 if __name__=='__main__':unittest.main()

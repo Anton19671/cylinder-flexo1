@@ -1,0 +1,73 @@
+{
+  "solver_backend": "VARIATIONAL_REFERENCE",
+  "theory": "CUF",
+  "cuf_model": "TE1",
+  "method": "MVI",
+  "rank": 1,
+  "calculation_kind": "DYNAMIC",
+  "scale_model": "MICRO",
+  "mode": "NONLINEAR_ELASTIC",
+  "geometry_model": "GREEN_LAGRANGE",
+  "material_model": "HOOKE",
+  "units": {"system": "SI_N_M_PA"},
+  "geometry": {"L": 1.2, "R": 2.0, "h": 0.2},
+  "material": {"E0": 100.0, "nu0": 0.25},
+  "micro": {
+    "gradient_model": "G3D",
+    "enable_flexoelectric": true,
+    "ell_m": 0.08,
+    "mu1_c_per_m": 0.001,
+    "mu2_c_per_m": -0.002,
+    "kappa_f_per_m": 1.5,
+    "rho_kg_m3": 1300.0,
+    "eta_s": 0.0,
+    "potential_order": 1
+  },
+  "mvi_grid": {"nx": 4, "ns": 4},
+  "quadrature": {"type": "GAUSS", "n_gauss": 3},
+  "boundary_conditions": {
+    "variational": {
+      "mechanical": {
+        "left": {"support": "CLAMPED", "higher": "NATURAL"},
+        "right": {"support": "CLAMPED", "higher": "NATURAL"}
+      },
+      "electrical": {
+        "inner": {"mode": "POTENTIAL", "value": 0.0}
+      }
+    }
+  },
+  "load_definition": {
+    "type": "UNIFORM_RADIAL_FACE",
+    "face": "MIDDLE",
+    "q": 0.01,
+    "kinematics": "DEAD_REFERENCE"
+  },
+  "dynamics": {
+    "time_step_s": 0.01,
+    "n_steps": 20,
+    "density_kg_m3": 1300.0,
+    "newmark_beta": 0.25,
+    "newmark_gamma": 0.5,
+    "start_time_s": 0.0,
+    "residual_tolerance_relative": 1e-7,
+    "damping": "NONE",
+    "initial_conditions": {"type": "ZERO"},
+    "time_law": {
+      "kind": "HARMONIC",
+      "amplitude": 1.0,
+      "frequency_hz": 1.0,
+      "phase_rad": 0.0,
+      "start_time_s": 0.0
+    }
+  },
+  "reference_mvi": {"max_sweeps": 30},
+  "reference_newton": {
+    "relative_tolerance": 1e-7,
+    "absolute_tolerance_scaled": 1e-12,
+    "tangent_step_scaled": 2e-6,
+    "max_iterations": 15,
+    "potential_scale_v": 1.0,
+    "max_free_dofs": 256
+  },
+  "output_dir": "../OUTPUT_REFERENCE_CUF_G3D_MVI_DYNAMIC"
+}
