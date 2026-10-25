@@ -13,8 +13,6 @@ from cylinder_boundary_spatial import BoundarySpatialProblem
 from cylinder_variational_fdm import StaticFDMSettings, solve_static_fdm
 from cylinder_variational_mvi import StaticMVISettings, solve_static_mvi
 from cylinder_variational_dynamic import solve_dynamic_fdm, solve_dynamic_mvi
-from cylinder_matrixfree_fdm import (MatrixFreeNewtonSettings,
-    solve_matrixfree_static_fdm, solve_matrixfree_dynamic_fdm)
 from cylinder_newmark_mvi import NewmarkSettings, validate_dynamic_case
 from cylinder_dynamic_loads import normalize_time_law
 from cylinder_variational_loads import project_radial_load
@@ -190,6 +188,8 @@ def prepare_reference_case(case, *, base_dir=None):
         raise ValueError("fdm_backend must be DENSE_REFERENCE or MATRIX_FREE_GMRES")
     if method!="FDM" and fdm_backend!="DENSE_REFERENCE":
         raise ValueError("MATRIX_FREE_GMRES currently available for FDM only; MVI unchanged")
+    if fdm_backend=="MATRIX_FREE_GMRES":
+        from cylinder_matrixfree_fdm import MatrixFreeNewtonSettings
     options=case.get("reference_newton",{})
     if not isinstance(options,dict):raise ValueError("reference_newton must be an object")
     try:
@@ -354,6 +354,8 @@ def run_reference_case(case,case_path):
                 print(f"REFERENCE_{prepared.method} step={index} sweep={record.get('sweep',0)} "
                       f"{record.get('direction','FULL')} it={record['iteration']} "
                       f"Rscaled={record['residual_scaled']:.6e}",flush=True)
+            if prepared.fdm_backend=="MATRIX_FREE_GMRES":
+                from cylinder_matrixfree_fdm import solve_matrixfree_static_fdm
             solve=(solve_matrixfree_static_fdm if prepared.fdm_backend=="MATRIX_FREE_GMRES"
                    else solve_static_fdm if prepared.method=="FDM" else solve_static_mvi)
             extra={} if prepared.method=="FDM" else {"mvi_settings":prepared.mvi_settings}
@@ -469,6 +471,8 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
                 print(f"REFERENCE_DYNAMIC_{prepared.method} step={index} t={time_s:.9g} "
                       f"sweep={record.get('sweep',0)} {record.get('direction','FULL')} "
                       f"it={record['iteration']} Rscaled={record['residual_scaled']:.6e}",flush=True)
+            if prepared.fdm_backend=="MATRIX_FREE_GMRES":
+                from cylinder_matrixfree_fdm import solve_matrixfree_dynamic_fdm
             solve=(solve_matrixfree_dynamic_fdm if prepared.fdm_backend=="MATRIX_FREE_GMRES"
                    else solve_dynamic_fdm if prepared.method=="FDM" else solve_dynamic_mvi)
             extra={} if prepared.method=="FDM" else {"mvi_settings":prepared.mvi_settings}
