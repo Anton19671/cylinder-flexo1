@@ -17,6 +17,7 @@ from cylinder_newmark_mvi import NewmarkSettings, validate_dynamic_case
 from cylinder_dynamic_loads import normalize_time_law
 from cylinder_dynamic_trace import (MechanicalTraceNewmark, mechanical_trace_matrix,
                                     effective_step_acceptance, require_zero_initial_support_motion)
+from cylinder_newmark_audit import audit_newmark_step
 from flexo_gradient_g3d import G3DMaterial
 from flexo_scale_policy import micro_material_from_case, flexoelectric_enabled
 import final_progress as progress
@@ -475,13 +476,20 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
                 absolute_residual=result.admissible_residual_scaled,
                 absolute_tolerance=prepared.settings.absolute_tolerance_scaled)
             trace_defects=None
+            newmark_kinematic_defects=None
             if accepted:
                 try:
+                    newmark_kinematic_defects=audit_newmark_step(
+                        q,velocity,acceleration,
+                        result.mechanical,result.velocity,result.acceleration,
+                        dt_s=newmark.dt_s,beta=newmark.beta,gamma=newmark.gamma).as_dict()
                     trace_defects=trace_monitor.accept(expected_trace,
                         result.mechanical,result.velocity,result.acceleration)
                 except ValueError as exc:
                     accepted=False
-                    gate_status="MOVING_MECHANICAL_BC_INCONSISTENT"
+                    gate_status=("NEWMARK_KINEMATICS_DRIFT"
+                                 if "NEWMARK_KINEMATICS_DRIFT" in str(exc)
+                                 else "MOVING_MECHANICAL_BC_INCONSISTENT")
                     trace_failure=str(exc)
             state_name=(f"REFERENCE_DYNAMIC_STEP_{index:04d}.npz" if accepted
                         else "REFERENCE_DYNAMIC_FAILED_ITERATE.npz")
@@ -526,8 +534,11 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
                 projected_equilibrium_satisfied=result.projected_equilibrium_satisfied)
             if trace_defects is not None:
                 step["mechanical_trace_defects"]=trace_defects
-            if not accepted and gate_status=="MOVING_MECHANICAL_BC_INCONSISTENT":
-                step["moving_bc_error"]=trace_failure
+            if newmark_kinematic_defects is not None:
+                step["newmark_kinematic_defects"]=newmark_kinematic_defects
+            if not accepted and gate_status in ("MOVING_MECHANICAL_BC_INCONSISTENT",
+                                                 "NEWMARK_KINEMATICS_DRIFT"):
+                step["kinematic_or_boundary_error"]=trace_failure
             summary["steps"].append(step)
             summary["status"]=step["status"]
             _write_dynamic_history(out/"REFERENCE_DYNAMIC_HISTORY.csv",summary["steps"])
