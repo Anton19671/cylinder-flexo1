@@ -67,6 +67,29 @@ class TestDynamicComparison(TestCase):
         self.assertTrue((self.root/"errors.json").is_file())
         self.assertIn("radial_displacement",(self.root/"errors.csv").read_text())
 
+    def test_paired_runner_checks_fdm_before_mvi(self):
+        import sys
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from cylinder_dynamic_comparison import run_dynamic_pair
+        original=self.mvi/"REFERENCE_CASE.json"
+        output=self.root/"paired_fdm_first"
+        order=[]
+        def prepare(case,base_dir=None):
+            order.append(("validate",case["method"]))
+            return object()
+        def run(case,case_path):
+            order.append(("run",case["method"]))
+            # A failed independent baseline must stop the experiment before
+            # the reduced-space MVI is even attempted.
+            return {"converged":False,"status":"REFERENCE_NOT_CONVERGED"}
+        with patch.dict(sys.modules,{"cylinder_reference_case":SimpleNamespace(
+                prepare_reference_case=prepare,run_reference_dynamic_case=run)}):
+            with self.assertRaisesRegex(RuntimeError,"FDM did not converge"):
+                run_dynamic_pair(original,output)
+        self.assertEqual([method for event,method in order if event=="run"],["FDM"])
+        self.assertFalse((output/"MVI").exists())
+
     def test_rejects_changed_physics(self):
         self._edit(self.mvi,"REFERENCE_CASE.json",lambda d:d["geometry"].__setitem__("h",.25))
         with self.assertRaisesRegex(ValueError,"physics"):
