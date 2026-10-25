@@ -28,6 +28,7 @@ import numpy as np
 from flexo_gradient_g3d import G3DMaterial, enthalpy_parts
 from cylinder_kl_exact_inertia import kl_inertial_weak_action
 from cylinder_kelvin_voigt import kelvin_voigt_thickness_weak, KelvinVoigtGlobal
+from cylinder_g3d_natural_edges import axial_natural_end_tractions
 from cuf_g3d_weak import (
     CUFSurfaceJets, mass_matrix_te, gauss_thickness,
     thickness_weak_coefficients as _cuf_weak,
@@ -357,6 +358,42 @@ class CylinderFunctional:
                 parts["external_charge"]=-float(np.sum(self.W[None,...]*charge*phi))
             parts["total_stationary_functional"]=total
         return FunctionalResult(self.theory,total,parts,rmech,relec,gaugevec,gauge)
+
+    def natural_end_fluxes(self,mechanical,electrical=None):
+        """Continuum-form G3D/flexoelectric end fluxes, diagnostic only.
+
+        The reference Dx is not SBP-compatible with the surface quadrature:
+        these sampled strong fluxes MUST NOT replace the existing discrete
+        residual or serve as proof of a microfree boundary condition.
+        """
+        nx,ns=self.ops.shape
+        q=_check_fields(mechanical,(self.n_mechanical,nx,ns),"natural edge q")
+        if self.electrical_on:
+            if electrical is None:
+                raise ValueError("electrical end flux needs potential coefficients")
+            p=np.asarray(electrical,float)
+            if p.ndim!=3 or p.shape[1:]!=(nx,ns) or not 1<=len(p)<=5:
+                raise ValueError("electric end flux shape mismatch")
+            phi=_check_fields(p,p.shape,"natural edge electrical state")
+        else:
+            if electrical is not None:
+                raise ValueError("electrical end flux cannot use disabled potential")
+            phi=np.zeros((1,nx,ns),float)
+        spec=MECHANICAL_DERIVATIVES[:self.n_derivatives]
+        mder=self._field_derivatives(q,spec)
+        eder=self._field_derivatives(phi,ELECTRICAL_DERIVATIVES)
+        mc=np.zeros((self.n_derivatives,self.n_mechanical,nx,ns),float)
+        ec=(np.zeros((3,len(phi),nx,ns)) if self.electrical_on else None)
+        for i in range(nx):
+            for j in range(ns):
+                weak=self._local(self._make_jets(mder,eder,i,j))
+                mc[:,:,i,j]=weak.mechanical.reshape(
+                    self.n_mechanical,self.n_derivatives).T
+                if ec is not None:
+                    ec[:,:,i,j]=weak.electrical.T
+        return axial_natural_end_tractions(
+            mc,spec,self.ops.Dx,self.ops.Ds,
+            electrical_coefficients=ec)
 
     def kelvin_voigt_action(self,mechanical,velocity,*,eta_s):
         """Assemble the nonlinear material dissipative weak force for any theory.
