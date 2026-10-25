@@ -8,7 +8,7 @@ import json
 import os
 import numpy as np
 
-from cylinder_functional_assembly import CylinderFunctional, surface_trapezoid
+from cylinder_functional_assembly import CylinderFunctional, surface_trapezoid, surface_sbp21
 from cylinder_boundary_spatial import BoundarySpatialProblem
 from cylinder_variational_fdm import StaticFDMSettings, solve_static_fdm
 from cylinder_variational_mvi import StaticMVISettings, solve_static_mvi
@@ -117,7 +117,10 @@ def prepare_reference_case(case, *, base_dir=None):
     grid=case.get("fdm_grid" if method=="FDM" else "mvi_grid") or case.get("grid") or {}
     nx=_integer(grid.get("nx"),"nx",4);ns=_integer(grid.get("ns"),"ns",4)
     if grid.get("stencil") is not None:
-        raise ValueError("reference operators are fixed; omit legacy grid.stencil")
+        raise ValueError("reference operators are selected with grid.operator_scheme, not stencil")
+    operator_scheme=str(grid.get("operator_scheme","LEGACY_REFERENCE")).upper()
+    if operator_scheme not in ("LEGACY_REFERENCE","SBP21_PERIODIC_ODD"):
+        raise ValueError("grid.operator_scheme must be LEGACY_REFERENCE or SBP21_PERIODIC_ODD")
     if nx*ns>256:raise ValueError("reference backend limited to 256 surface nodes")
     quad=case.get("quadrature") or {}
     if str(quad.get("type","")).upper()!="GAUSS":raise ValueError("reference quadrature requires GAUSS")
@@ -130,8 +133,10 @@ def prepare_reference_case(case, *, base_dir=None):
                    and theory[-1] in "1234" else 7 if theory=="REDDY" else 3)
     if n_gauss<minimum_gauss:
         raise ValueError(f"{theory}: n_gauss >= {minimum_gauss} required to avoid thickness underintegration")
+    surface=(surface_sbp21(nx,ns,length,radius) if operator_scheme=="SBP21_PERIODIC_ODD"
+             else surface_trapezoid(nx,ns,length,radius))
     functional=CylinderFunctional(theory,material,radius_m=radius,thickness_m=thickness,
-        surface_operators=surface_trapezoid(nx,ns,length,radius),n_gauss=n_gauss)
+        surface_operators=surface,n_gauss=n_gauss)
     q=np.zeros((functional.n_mechanical,nx,ns))
     p=np.zeros((order+1,nx,ns)) if functional.electrical_on else None
     if q.size+(0 if p is None else p.size)>4096:raise ValueError("reference nodal DOF limit exceeded")
