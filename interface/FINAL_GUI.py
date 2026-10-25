@@ -6417,9 +6417,12 @@ class FinalSolverGUI(EnhancedSolverGUI):
                 "newmark_beta":self._v("dyn_beta","0.25").get().strip(),
                 "newmark_gamma":self._v("dyn_gamma","0.5").get().strip(),
                 "start_time_s":self._v("dyn_t0","0").get().strip(),
-                "damping":"NONE",
+                "damping":self._v("dyn_damping","NONE").get(),
                 "initial_conditions":{"type":"ZERO"},
             }
+            if cfg["dynamics"]["damping"]=="MASS_PROPORTIONAL":
+                cfg["dynamics"]["mass_damping_rate_per_s"]=self._v(
+                    "dyn_mass_damping_rate").get().strip()
             from cylinder_newmark_mvi import validate_dynamic_case
             from cylinder_dynamic_loads import normalize_time_law
             kind=self._v("dyn_law","HARMONIC").get().upper()
@@ -6700,6 +6703,8 @@ class FinalSolverGUI(EnhancedSolverGUI):
             put("calculation_kind",str(cfg.get("calculation_kind","STATIC")).upper())
             dynamics=cfg.get("dynamics") if isinstance(cfg.get("dynamics"),dict) else {}
             if dynamics:
+                put("dyn_damping",str(dynamics.get("damping","NONE")).upper())
+                put("dyn_mass_damping_rate",dynamics.get("mass_damping_rate_per_s",""))
                 for gui_key,source_key in (
                     ("dyn_dt","time_step_s"),("dyn_steps","n_steps"),
                     ("dyn_t0","start_time_s"),("dyn_density","density_kg_m3"),
@@ -7422,7 +7427,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         masscard.columnconfigure(1,weight=1)
         field(masscard,0,"Плотность ρ [кг/м³]","dyn_density","")
         self.dyn_damping_summary=ttk.Label(
-            masscard,text="Демпфирование: отсутствует (C = 0).",
+            masscard,text="Демпфирование: нет",
             foreground="#52687a",justify="left")
         self.dyn_damping_summary.grid(
             row=1,column=0,columnspan=2,sticky="w",pady=(8,2))
@@ -7433,15 +7438,26 @@ class FinalSolverGUI(EnhancedSolverGUI):
         ttk.Label(self.dyn_damping_expert,text="Демпфирование").grid(
             row=0,column=0,sticky="w",padx=(0,12),pady=5)
         damping=ttk.Combobox(
-            self.dyn_damping_expert,values=("NONE · без демпфирования",),
-            state="disabled",width=25)
-        damping.set("NONE · без демпфирования")
+            self.dyn_damping_expert,
+            textvariable=self._v("dyn_damping","NONE"),
+            values=("NONE","MASS_PROPORTIONAL"),
+            state="readonly",width=25)
         damping.grid(row=0,column=1,sticky="ew",pady=5)
+        self.dyn_mass_damping_widgets=[]
+        rate_label=ttk.Label(self.dyn_damping_expert,text="αM [1/с]")
+        rate_entry=ttk.Entry(
+            self.dyn_damping_expert,
+            textvariable=self._v("dyn_mass_damping_rate",""),width=15)
+        rate_label.grid(row=1,column=0,sticky="w",pady=5)
+        rate_entry.grid(row=1,column=1,sticky="ew",pady=5)
+        self.dyn_mass_damping_widgets=[rate_label,rate_entry]
         ttk.Label(
             self.dyn_damping_expert,
-            text="Ненулевое демпфирование пока не подключено к связанному решателю.",
-            foreground="#926100",wraplength=340,justify="left"
-        ).grid(row=1,column=0,columnspan=2,sticky="w",pady=(6,2))
+            text="C = αM · M: диссипация по скорости. Не является градиентной вязкостью micro.eta_s.",
+            foreground="#52687a",wraplength=340,justify="left"
+        ).grid(row=2,column=0,columnspan=2,sticky="w",pady=(6,2))
+        damping.bind("<<ComboboxSelected>>",
+                     lambda _e:self._refresh_expert_control_visibility())
 
         routecard=ttk.LabelFrame(left,text="3. Пространственный решатель и связанный CASE",padding=(12,10))
         routecard.pack(fill="x",pady=(0,12))
@@ -8023,11 +8039,19 @@ class FinalSolverGUI(EnhancedSolverGUI):
                 self.dyn_newmark_shortcut.grid()
         damping=getattr(self,"dyn_damping_expert",None)
         if damping is not None:
+            active=self._v("dyn_damping","NONE").get()=="MASS_PROPORTIONAL"
+            for widget in getattr(self,"dyn_mass_damping_widgets",()):
+                if active:widget.grid()
+                else:widget.grid_remove()
             if expert:
                 damping.grid()
                 self.dyn_damping_summary.grid_remove()
             else:
                 damping.grid_remove()
+                self.dyn_damping_summary.configure(
+                    text=("Демпфирование: C = αM · M, αM = "+self._v(
+                        "dyn_mass_damping_rate").get()+" 1/с")
+                    if active else "Демпфирование: отсутствует (C = 0)")
                 self.dyn_damping_summary.grid()
 
     def _apply_ui_level_layout(self):
