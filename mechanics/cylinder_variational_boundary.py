@@ -179,13 +179,18 @@ def validate_boundary_passport(spec,*,electrical_enabled,calculation_kind="STATI
         if support!="CUSTOM" and "fixed_components" in site:
             raise ValueError(side+": fixed_components requires CUSTOM")
         for key in ("prescribed","traction","double_traction","triple_traction",
+                    "normal_double_traction","normal_triple_traction",
                     "spring","spring_reference"):
             if key in site:
                 values=_vector(site[key],n,side+"."+key)
                 if key=="spring" and np.any(values<0):
                     raise ValueError(side+": spring must be nonnegative")
-                if key=="triple_traction" and theory.startswith("CUF_") and np.any(values):
+                if key in ("triple_traction","normal_triple_traction") and theory.startswith("CUF_") and np.any(values):
                     raise ValueError("triple_traction requires third surface jets")
+        for axial,normal in (("double_traction","normal_double_traction"),
+                             ("triple_traction","normal_triple_traction")):
+            if axial in site and normal in site:
+                raise ValueError(f"{side}: choose global-x {axial} OR outward-normal {normal}")
         if "time_law" in site:
             parsed=normalize_time_law(site["time_law"])
             if kind=="STATIC" and parsed.kind!="CONSTANT":
@@ -291,8 +296,13 @@ def compile_boundary_program(functional,mechanical,electrical=None,*,spec=None,
                         add("mechanical",ids,w,0.,f"{side} micro d_xx q{k} s{j}")
 
         traction=factor*_vector(site.get("traction"),n,side+" traction")
-        double=factor*_vector(site.get("double_traction"),n,side+" double")
-        triple=factor*_vector(site.get("triple_traction"),n,side+" triple")
+        sign=-1. if side=="left" else 1.
+        double=factor*(_vector(site.get("double_traction"),n,side+" double")
+                       +sign*_vector(site.get("normal_double_traction"),n,
+                                     side+" normal double"))
+        triple=factor*(_vector(site.get("triple_traction"),n,side+" triple")
+                       +_vector(site.get("normal_triple_traction"),n,
+                                side+" normal triple"))
         if functional.n_derivatives<10 and np.any(triple):
             raise ValueError("triple_traction requires third surface jets")
         spring=_vector(site.get("spring"),n,side+" spring")
