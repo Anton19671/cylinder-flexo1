@@ -1413,10 +1413,11 @@ class EnhancedSolverGUI(SolverGUI):
         return lab,ent
 
     def _build_problem_tab(self):
-        f=self.tab_problem; f.columnconfigure(0,weight=1); f.columnconfigure(1,weight=1); f.rowconfigure(0,weight=1)
+        f=self.tab_problem; f.columnconfigure(0,weight=1); f.columnconfigure(1,weight=1); f.columnconfigure(2,weight=0); f.rowconfigure(0,weight=1)
 
         # Keep all inputs reachable on Windows displays with scaling enabled.
         left_host=ttk.Frame(f)
+        self.problem_left_host=left_host
         left_host.grid(row=0,column=0,sticky="nsew",padx=(0,8))
         left_host.columnconfigure(0,weight=1); left_host.rowconfigure(0,weight=1)
         self.problem_left_canvas=tk.Canvas(left_host,highlightthickness=0,borderwidth=0)
@@ -1445,6 +1446,7 @@ class EnhancedSolverGUI(SolverGUI):
         # Product-style right-side workspace: BC editing and the live cylinder
         # occupy independent tabs, instead of compressing one another vertically.
         right_host=ttk.Frame(f)
+        self.problem_right_host=right_host
         right_host.grid(row=0,column=1,sticky="nsew")
         right_host.columnconfigure(0,weight=1)
         right_host.rowconfigure(0,weight=1)
@@ -1467,10 +1469,10 @@ class EnhancedSolverGUI(SolverGUI):
         ttk.Label(bc_toolbar,text="Граничные условия",
                   font=("Segoe UI Semibold",13),foreground="#17324d").grid(
                       row=0,column=0,sticky="w")
-        ttk.Label(bc_toolbar,text="Опоры, допускаемые перемещения и реакции на торцах",
+        ttk.Label(bc_toolbar,text="Настройка торцов x = 0 и x = L",
                   font=("Segoe UI",9),foreground="#52687a").grid(
                       row=1,column=0,sticky="w",pady=(3,0))
-        ttk.Button(bc_toolbar,text="Показать цилиндр",
+        ttk.Button(bc_toolbar,text="Схема",
                    command=lambda:self.problem_right_tabs.select(scheme_page)).grid(
                        row=0,column=1,rowspan=2,sticky="e",padx=(12,0))
 
@@ -1719,6 +1721,41 @@ class EnhancedSolverGUI(SolverGUI):
             scheme_page,text="Вернуться к краевым условиям",
             command=lambda:self.problem_right_tabs.select(bc_page)
         ).grid(row=1,column=0,sticky="e",pady=(8,0))
+
+        # The dedicated preview is mapped next to the boundary editor on
+        # desktop-size windows; on small screens the Cylinder/Scheme tabs remain.
+        preview_host=ttk.LabelFrame(
+            f,text="Цилиндр · интерактивная схема",padding=(10,10))
+        self.problem_side_preview=preview_host
+        preview_host.grid(row=0,column=2,sticky="nsew")
+        preview_host.columnconfigure(0,weight=1)
+        preview_host.rowconfigure(0,weight=1)
+        self.problem_side_canvas=tk.Canvas(
+            preview_host,background="white",height=300,
+            highlightthickness=1,highlightbackground="#b5c5d2")
+        self.problem_side_canvas.grid(row=0,column=0,sticky="nsew")
+        self.problem_side_canvas.bind(
+            "<Configure>",lambda _e:self._schedule_problem_scheme_redraw(65))
+        preview_actions=ttk.Frame(preview_host)
+        preview_actions.grid(row=1,column=0,sticky="ew",pady=(9,0))
+        preview_actions.columnconfigure(0,weight=1)
+        ttk.Button(
+            preview_actions,text="Крупно…",
+            command=self._open_cylinder_popup
+        ).grid(row=0,column=0,sticky="ew",padx=(0,5))
+        ttk.Button(
+            preview_actions,text="Вкладка цилиндра",
+            command=self._show_cylinder_tab
+        ).grid(row=0,column=1,sticky="ew")
+        ttk.Label(
+            preview_host,
+            text="ЛКМ — поворот · Ctrl+колесо — масштаб. "
+                 "Нагрузки и закрепления обновляются автоматически.",
+            foreground="#52687a",wraplength=275,justify="left"
+        ).grid(row=2,column=0,sticky="ew",pady=(9,0))
+        self._problem_layout_is_wide=None
+        preview_host.grid_remove()
+        f.bind("<Configure>",self._arrange_problem_workstation,add="+")
 
     def _build_load_tab(self):
         f=self.tab_load
@@ -7031,7 +7068,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         # minsize 1120x720 extended beyond smaller/scaled laptop screens.
         screen_w=max(640,int(self.winfo_screenwidth()))
         screen_h=max(480,int(self.winfo_screenheight()))
-        window_w=min(1380,max(640,screen_w-40))
+        window_w=min(1640,max(640,screen_w-40))
         window_h=min(900,max(480,screen_h-80))
         pos_x=max(0,(screen_w-window_w)//2)
         pos_y=max(0,(screen_h-window_h)//2)
@@ -7178,6 +7215,10 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self._refresh_material_mode()
         self._update_units()
         self._install_global_scroll_dispatch()
+        self.notebook.bind(
+            "<<NotebookTabChanged>>",
+            lambda _e:self._schedule_problem_scheme_redraw(70),add="+")
+        self._schedule_problem_scheme_redraw(100)
 
     def _on_calculation_kind_change(self):
         """Switch to the dedicated setup page without destroying GUI inputs."""
@@ -7186,9 +7227,47 @@ class FinalSolverGUI(EnhancedSolverGUI):
         if dynamic and hasattr(self,"tab_dynamic_setup"):
             self.notebook.select(self.tab_dynamic_setup)
 
+    def _arrange_problem_workstation(self,event=None):
+        """Three readable desktop work areas; preserve two-pane compact mode."""
+        try:
+            width=int(self.tab_problem.winfo_width())
+            if width<=1:return
+            wide=width>=1210
+            if getattr(self,"_problem_layout_is_wide",None)==wide:return
+            self._problem_layout_is_wide=wide
+            if wide:
+                self.tab_problem.columnconfigure(0,weight=5)
+                self.tab_problem.columnconfigure(1,weight=6)
+                self.tab_problem.columnconfigure(2,weight=4)
+                self.problem_right_host.grid_configure(padx=(0,9))
+                self.problem_side_preview.grid()
+            else:
+                self.tab_problem.columnconfigure(0,weight=1)
+                self.tab_problem.columnconfigure(1,weight=1)
+                self.tab_problem.columnconfigure(2,weight=0)
+                self.problem_right_host.grid_configure(padx=0)
+                self.problem_side_preview.grid_remove()
+            self._schedule_problem_scheme_redraw(70)
+        except tk.TclError:return
+
     def _build_cylinder_tab(self):
         from cylinder_live_preview import bind_cylinder_view
         bind_cylinder_view(self,self.scheme_canvas)
+        bind_cylinder_view(self,self.problem_side_canvas)
+        # Changes made on any page repaint all views without changing solver input.
+        if not getattr(self,"_cylinder_live_trace_installed",False):
+            for name in (
+                "L","R","h","theory","cuf_model","unit_system","scale_model",
+                "micro_flexoelectric","bc_mode","bc_left","bc_right",
+                "load_type","load_q","load_p_line","load_point_P",
+                "load_pressure_direction","load_face","load_x1","load_x2",
+                "load_c0","load_c1","load_c2","load_band_width",
+                "load_point_x0","load_point_theta0","load_harmonic_m",
+                "load_harmonic_n","load_coord","calculation_kind","dyn_law"
+            ):
+                self._v(name).trace_add(
+                    "write",lambda *_args:self._schedule_problem_scheme_redraw(65))
+            self._cylinder_live_trace_installed=True
         frame=ttk.Frame(self.tab_cylinder,padding=8)
         frame.pack(fill="both",expand=True)
         head=ttk.Frame(frame);head.pack(fill="x",pady=(0,7))
@@ -7241,15 +7320,24 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self._schedule_problem_scheme_redraw(30)
 
     def _draw_problem_scheme(self):
-        # Preserve detailed old preview and also render the pinned/full-size views.
-        EnhancedSolverGUI._draw_problem_scheme(self)
+        """Update each cylinder view independently; no single preview can hide all."""
+        try:
+            EnhancedSolverGUI._draw_problem_scheme(self)
+        except Exception as exc:
+            try:self._log(f"LEGACY LOAD SCHEME WARNING: {type(exc).__name__}: {exc}\n")
+            except Exception:pass
         from cylinder_live_preview import render_cylinder_view
-        for key in ("scheme_canvas","cylinder_large_canvas","cylinder_popup_canvas"):
+        for key in (
+            "scheme_canvas","problem_side_canvas","dynamic_live_canvas",
+            "cylinder_large_canvas","cylinder_popup_canvas"
+        ):
             canvas=getattr(self,key,None)
-            if canvas is not None:
-                try:
-                    if canvas.winfo_exists():render_cylinder_view(self,canvas)
-                except tk.TclError:pass
+            if canvas is None:continue
+            try:
+                if canvas.winfo_exists():render_cylinder_view(self,canvas)
+            except Exception as exc:
+                try:self._log(f"CYLINDER VIEW {key}: {type(exc).__name__}: {exc}\n")
+                except Exception:pass
 
     def _build_dynamic_setup_tab(self):
         """Responsive, scrollable Newmark input page (GUI only, no PDE changes)."""
@@ -7416,6 +7504,28 @@ class FinalSolverGUI(EnhancedSolverGUI):
                   foreground="#52687a",wraplength=420,justify="left").grid(
                       row=12,column=0,columnspan=2,sticky="w")
         self._refresh_dynamic_law_fields()
+        # Dynamic selection opens this page, so its cylinder must be visible too.
+        from cylinder_live_preview import bind_cylinder_view
+        dyn_preview=ttk.LabelFrame(
+            right,text="5. Цилиндр, нагрузка и закрепления",padding=(12,10))
+        dyn_preview.pack(fill="x",pady=(0,12))
+        self.dynamic_live_canvas=tk.Canvas(
+            dyn_preview,background="white",height=245,
+            highlightthickness=1,highlightbackground="#bac8d3")
+        self.dynamic_live_canvas.pack(fill="x",expand=False)
+        bind_cylinder_view(self,self.dynamic_live_canvas)
+        self.dynamic_live_canvas.bind(
+            "<Configure>",lambda _e:self._schedule_problem_scheme_redraw(60))
+        dyn_preview_actions=ttk.Frame(dyn_preview)
+        dyn_preview_actions.pack(fill="x",pady=(8,0))
+        ttk.Button(
+            dyn_preview_actions,text="Цилиндр — крупно…",
+            command=self._open_cylinder_popup
+        ).pack(side="left",fill="x",expand=True)
+        ttk.Button(
+            dyn_preview_actions,text="Краевые условия",
+            command=lambda:self.notebook.select(self.tab_problem)
+        ).pack(side="right",padx=(7,0))
 
     def _on_dynamic_setup_resize(self,event):
         """Two readable columns on wide screens, a single stack on small ones."""
