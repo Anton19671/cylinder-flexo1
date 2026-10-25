@@ -71,6 +71,7 @@ class ReferenceDynamics:
     settings: NewmarkSettings
     density_kg_m3: float
     time_law: object
+    mass_damping_rate_per_s: float = 0.0
 
 
 def prepare_reference_case(case, *, base_dir=None):
@@ -196,7 +197,9 @@ def prepare_reference_case(case, *, base_dir=None):
     dynamic=None
     if kind=="DYNAMIC":
         contract=validate_dynamic_case(case)
-        if contract["damping"]!="NONE":raise ValueError("reference dynamics currently requires damping=NONE")
+        if contract["damping"]=="EXTERNAL_OPERATOR":
+            raise ValueError("reference backend does not accept an external damping operator")
+        damping_rate=contract["mass_damping_rate_per_s"]
         if scale=="MICRO":
             material_density=_real(case["micro"]["rho_kg_m3"],"micro.rho_kg_m3",True)
             if not np.isclose(contract["density_kg_m3"],material_density,rtol=1.e-12,atol=0.):
@@ -215,7 +218,7 @@ def prepare_reference_case(case, *, base_dir=None):
             beta=contract["newmark_beta"],gamma=contract["newmark_gamma"],
             t_start_s=contract["start_time_s"],
             residual_tolerance_relative=contract["residual_tolerance_relative"])
-        dynamic=ReferenceDynamics(settings_dynamic,contract["density_kg_m3"],law)
+        dynamic=ReferenceDynamics(settings_dynamic,contract["density_kg_m3"],law,damping_rate)
         # Essential traces with a time law need their exact velocity and
         # acceleration data. That contract is kept closed until those data are explicit.
         for site,data in spec.get("mechanical",{}).items():
@@ -383,6 +386,8 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
         "newmark":{"beta":newmark.beta,"gamma":newmark.gamma,
                    "dt_s":newmark.dt_s,"start_time_s":newmark.t_start_s},
         "electric_inertia":False,
+        "damping":{"kind":"MASS_PROPORTIONAL" if dyn.mass_damping_rate_per_s else "NONE",
+                   "mass_damping_rate_per_s":dyn.mass_damping_rate_per_s},
         "convergence_meaning":"full admissible effective Newmark residual"}
     if prepared.mvi_settings is not None:summary["rank"]=prepared.mvi_settings.rank
     q,p=prepared.mechanical,prepared.electrical
@@ -411,6 +416,7 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
             result=solve(prepared.problem,q,p,q_predictor=q_predictor,
                 velocity_predictor=velocity_predictor,time_s=time_s,dt_s=newmark.dt_s,
                 beta=newmark.beta,gamma=newmark.gamma,density_kg_m3=dyn.density_kg_m3,
+                mass_damping_rate_per_s=dyn.mass_damping_rate_per_s,
                 dead_load=factor*prepared.dead_load,
                 free_charge=None if prepared.free_charge is None else factor*prepared.free_charge,
                 settings=prepared.settings,on_iteration=report,**extra)
@@ -419,7 +425,11 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
             temp=out/(state_name+".tmp")
             arrays={"time_s":np.array(time_s),"load_factor":np.array(factor),
                 "mechanical":result.mechanical,"velocity":result.velocity,
-                "acceleration":result.acceleration,"full_residual":result.full_residual,
+                "acceleration":result.acceleration,
+                "damping_force":(
+                    dyn.mass_damping_rate_per_s*
+                    f.mass_action(result.velocity,density_kg_m3=dyn.density_kg_m3)),
+                "full_residual":result.full_residual,
                 "constraint_reaction":result.constraint_reaction,
                 "x_m":np.linspace(0,float(case["geometry"]["L"]),q.shape[1]),
                 "s_m":np.arange(q.shape[2])*2*np.pi*f.R/q.shape[2]}
