@@ -135,9 +135,27 @@ def prepare_reference_case(case, *, base_dir=None):
                          "SBP21_PERIODIC_ODD or SBP21_PERIODIC_ODD_CSR")
     if operator_scheme=="SBP21_PERIODIC_ODD_CSR" and not matrix_free:
         raise ValueError("SBP21_PERIODIC_ODD_CSR requires FDM MATRIX_FREE_GMRES")
-    # Matrix-free FDM has no dense null-space basis: keep a distinct,
-    # explicit node cap until sparse physical derivative operators exist.
-    max_nodes=8192 if matrix_free else 256
+    if matrix_free:
+        from cylinder_matrixfree_fdm import MatrixFreeNewtonSettings
+        early=case.get("reference_newton",{})
+        if not isinstance(early,dict):
+            raise ValueError("reference_newton must be an object")
+        max_nodes=_integer(early.get("max_surface_nodes",
+            MatrixFreeNewtonSettings.max_surface_nodes),
+            "reference_newton.max_surface_nodes",1)
+        max_dofs=_integer(early.get("max_total_dofs",
+            MatrixFreeNewtonSettings.max_total_dofs),
+            "reference_newton.max_total_dofs",1)
+        count=(3 if theory=="KL" else 5 if theory in ("FSDT","REDDY")
+               else 3*(int(theory[-1])+1) if theory.startswith("CUF_TE")
+                  and theory[-1] in "1234" else None)
+        if count is None:
+            raise ValueError("unsupported variational shell theory")
+        potential_fields=order+1 if material.kappa_f_per_m>0 else 0
+        if nx*ns*(count+potential_fields)>max_dofs:
+            raise ValueError("MATRIX_FREE_NODAL_DOF_SAFETY_LIMIT")
+    else:
+        max_nodes=256
     if nx*ns>max_nodes:
         raise ValueError(f"{fdm_backend}: surface node count exceeds {max_nodes}")
     quad=case.get("quadrature") or {}
