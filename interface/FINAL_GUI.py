@@ -1620,8 +1620,21 @@ class EnhancedSolverGUI(SolverGUI):
             foreground="#52687a",justify="left"
         ).grid(row=4,column=0,columnspan=2,sticky="w",pady=(9,0))
 
-        editors=ttk.LabelFrame(right,text="02  ·  Подробная настройка условий",padding=(14,12))
-        editors.pack(fill="x",pady=(0,12))
+        # Expert-only editing tools occupy a stable grid row.  In ordinary
+        # mode the row is replaced by a clear action for opening Expert mode.
+        self.bc_advanced_region=ttk.Frame(right)
+        self.bc_advanced_region.pack(fill="x",pady=(0,12))
+        self.bc_advanced_region.columnconfigure(0,weight=1)
+        editors=ttk.LabelFrame(
+            self.bc_advanced_region,text="02  ·  Расширенные краевые условия",
+            padding=(14,12))
+        self.bc_expert_editors=editors
+        editors.grid(row=0,column=0,sticky="ew")
+        self.bc_expert_shortcut=ttk.Button(
+            self.bc_advanced_region,
+            text="Расширенные КУ: ручные, упругие, G3D, электрические…",
+            command=self._open_expert_bc_settings)
+        self.bc_expert_shortcut.grid(row=1,column=0,sticky="ew")
         self.bc_actions_frame=ttk.Frame(editors)
         self.bc_actions_frame.pack(fill="x")
         self.bc_edit_btn=ttk.Button(
@@ -1637,6 +1650,7 @@ class EnhancedSolverGUI(SolverGUI):
 
         status_card=ttk.LabelFrame(
             right,text="03  ·  Применяемые ограничения и уравнения",padding=(14,12))
+        self.bc_status_card=status_card
         status_card.pack(fill="x",pady=(0,12))
         self.bc_summary=ttk.Label(
             status_card,text="Выберите тип закрепления для обоих торцов.",
@@ -7286,30 +7300,60 @@ class FinalSolverGUI(EnhancedSolverGUI):
         timecard=ttk.LabelFrame(left,text="1. Время и схема Ньюмарка",padding=(12,10))
         timecard.pack(fill="x",pady=(0,12))
         timecard.columnconfigure(1,weight=1)
+        # Every-day inputs remain visible. Non-default Newmark coefficients and
+        # time origin are expert controls, but never reset on mode changes.
         for idx,(title,key,default) in enumerate((
             ("Шаг времени Δt [с]","dyn_dt",""),
             ("Число временных шагов","dyn_steps",""),
+        )):
+            field(timecard,idx,title,key,default)
+        self.dyn_newmark_expert=ttk.Frame(timecard)
+        self.dyn_newmark_expert.grid(row=2,column=0,columnspan=2,sticky="ew")
+        self.dyn_newmark_expert.columnconfigure(1,weight=1)
+        for idx,(title,key,default) in enumerate((
             ("Начальное время [с]","dyn_t0","0"),
             ("Параметр β","dyn_beta","0.25"),
             ("Параметр γ","dyn_gamma","0.5"),
         )):
-            field(timecard,idx,title,key,default)
-        ttk.Label(timecard,text="Схема Ньюмарка. Параметры проверяются перед расчётом.",
-                  foreground="#52687a",wraplength=340,justify="left").grid(
-                      row=5,column=0,columnspan=2,sticky="w",pady=(7,2))
+            field(self.dyn_newmark_expert,idx,title,key,default)
+        self.dyn_newmark_summary=ttk.Label(
+            timecard,text="",foreground="#52687a",justify="left",wraplength=360)
+        self.dyn_newmark_summary.grid(row=3,column=0,columnspan=2,sticky="w",pady=(8,3))
+        self.dyn_newmark_shortcut=ttk.Button(
+            timecard,text="Настроить параметры Ньюмарка β, γ, t₀…",
+            command=self._open_expert_dynamic_settings)
+        self.dyn_newmark_shortcut.grid(row=4,column=0,columnspan=2,sticky="ew",pady=(3,5))
+        self.dyn_newmark_expert_note=ttk.Label(
+            timecard,text="Параметры проверяются при подготовке CASE.",
+            foreground="#52687a",wraplength=340,justify="left")
+        self.dyn_newmark_expert_note.grid(
+            row=5,column=0,columnspan=2,sticky="w",pady=(8,3))
 
         masscard=ttk.LabelFrame(left,text="2. Масса и демпфирование",padding=(12,10))
         masscard.pack(fill="x",pady=(0,12))
         masscard.columnconfigure(1,weight=1)
         field(masscard,0,"Плотность ρ [кг/м³]","dyn_density","")
-        ttk.Label(masscard,text="Демпфирование").grid(row=1,column=0,sticky="w",pady=5)
-        damping=ttk.Combobox(masscard,values=("NONE · без демпфирования",),
-                             state="disabled",width=25)
+        self.dyn_damping_summary=ttk.Label(
+            masscard,text="Демпфирование: отсутствует (C = 0).",
+            foreground="#52687a",justify="left")
+        self.dyn_damping_summary.grid(
+            row=1,column=0,columnspan=2,sticky="w",pady=(8,2))
+        self.dyn_damping_expert=ttk.Frame(masscard)
+        self.dyn_damping_expert.grid(
+            row=2,column=0,columnspan=2,sticky="ew",pady=(5,2))
+        self.dyn_damping_expert.columnconfigure(1,weight=1)
+        ttk.Label(self.dyn_damping_expert,text="Демпфирование").grid(
+            row=0,column=0,sticky="w",padx=(0,12),pady=5)
+        damping=ttk.Combobox(
+            self.dyn_damping_expert,values=("NONE · без демпфирования",),
+            state="disabled",width=25)
         damping.set("NONE · без демпфирования")
-        damping.grid(row=1,column=1,sticky="ew",pady=5)
-        ttk.Label(masscard,text="Ненулевое демпфирование пока не подключено к связанному решателю.",
-                  foreground="#926100",wraplength=350,justify="left").grid(
-                      row=2,column=0,columnspan=2,sticky="w",pady=(6,2))
+        damping.grid(row=0,column=1,sticky="ew",pady=5)
+        ttk.Label(
+            self.dyn_damping_expert,
+            text="Ненулевое демпфирование пока не подключено к связанному решателю.",
+            foreground="#926100",wraplength=340,justify="left"
+        ).grid(row=1,column=0,columnspan=2,sticky="w",pady=(6,2))
 
         routecard=ttk.LabelFrame(left,text="3. Пространственный решатель и связанный CASE",padding=(12,10))
         routecard.pack(fill="x",pady=(0,12))
@@ -7808,6 +7852,74 @@ class FinalSolverGUI(EnhancedSolverGUI):
             if selected in visible:self.notebook.select(selected)
         except Exception:pass
 
+    def _open_expert_bc_settings(self):
+        """One-click access to full BC editors, preserving every input."""
+        self._v("ui_level","BASIC").set("EXPERT")
+        self._apply_ui_level_layout()
+        self.notebook.select(self.tab_problem)
+        self.problem_right_tabs.select(self.problem_right_bc_tab)
+        def reveal():
+            try:
+                self.problem_right_canvas.update_idletasks()
+                inner_height=max(1,self.problem_right_inner.winfo_height())
+                destination=max(0,self.bc_advanced_region.winfo_y()-28)
+                self.problem_right_canvas.yview_moveto(
+                    min(1,destination/inner_height))
+            except tk.TclError:pass
+        self.after_idle(reveal)
+
+    def _open_expert_dynamic_settings(self):
+        """Open advanced Newmark values in-place on the dynamic setup page."""
+        self._v("ui_level","BASIC").set("EXPERT")
+        self._apply_ui_level_layout()
+        if hasattr(self,"tab_dynamic_setup"):
+            self.notebook.select(self.tab_dynamic_setup)
+
+    def _refresh_expert_control_visibility(self):
+        """Only presentation changes; hidden physical values are never altered."""
+        expert=self._v("ui_level","BASIC").get()=="EXPERT"
+        bc_editors=getattr(self,"bc_expert_editors",None)
+        bc_shortcut=getattr(self,"bc_expert_shortcut",None)
+        if bc_editors is not None and bc_shortcut is not None:
+            if expert:
+                bc_editors.grid()
+                bc_shortcut.grid_remove()
+            else:
+                bc_editors.grid_remove()
+                bc_shortcut.grid()
+            self.bc_status_card.configure(
+                text=("03" if expert else "02")+
+                     "  ·  Применяемые ограничения и уравнения")
+            if expert:
+                self.bc_help_note.pack(fill="x",anchor="w",pady=(0,12))
+            else:
+                self.bc_help_note.pack_forget()
+        adv=getattr(self,"dyn_newmark_expert",None)
+        if adv is not None:
+            if expert:
+                adv.grid()
+                self.dyn_newmark_summary.grid_remove()
+                self.dyn_newmark_shortcut.grid_remove()
+                self.dyn_newmark_expert_note.grid()
+            else:
+                adv.grid_remove()
+                self.dyn_newmark_expert_note.grid_remove()
+                self.dyn_newmark_summary.configure(
+                    text="Ньюмарк: β={beta} · γ={gamma} · t₀={t0} с".format(
+                        beta=self._v("dyn_beta","0.25").get(),
+                        gamma=self._v("dyn_gamma","0.5").get(),
+                        t0=self._v("dyn_t0","0").get()))
+                self.dyn_newmark_summary.grid()
+                self.dyn_newmark_shortcut.grid()
+        damping=getattr(self,"dyn_damping_expert",None)
+        if damping is not None:
+            if expert:
+                damping.grid()
+                self.dyn_damping_summary.grid_remove()
+            else:
+                damping.grid_remove()
+                self.dyn_damping_summary.grid()
+
     def _apply_ui_level_layout(self):
         if not hasattr(self,"notebook"):return
         expert=self._v("ui_level","BASIC").get()=="EXPERT"
@@ -7852,6 +7964,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
 
         self._sync_display_selectors()
         self._refresh_basic_grid_visibility()
+        self._refresh_expert_control_visibility()
 
     def _refresh_basic_grid_visibility(self):
         if not hasattr(self,"basic_fdm_controls"):return
@@ -7905,6 +8018,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self._sync_display_selectors()
         self._refresh_basic_grid_visibility()
         self._rebuild_visible_tabs()
+        self._refresh_expert_control_visibility()
         pending=self._v("theory","CUF").get() in capreg.PLANNED_THEORIES
         micro_pending=self._v("scale_model","MACRO").get()=="MICRO"
         dynamics_pending=self._v("calculation_kind","STATIC").get()=="DYNAMIC"
