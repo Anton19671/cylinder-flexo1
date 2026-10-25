@@ -26,7 +26,7 @@ import math
 import numpy as np
 
 from flexo_gradient_g3d import G3DMaterial, enthalpy_parts
-from cylinder_kl_exact_inertia import kl_inertial_weak_action
+from cylinder_kl_exact_inertia import kl_inertial_weak_action, kl_inertial_jet_coefficients
 from cylinder_kelvin_voigt import kelvin_voigt_thickness_weak, KelvinVoigtGlobal
 from cylinder_g3d_natural_edges import axial_natural_end_tractions
 from cuf_g3d_weak import (
@@ -359,8 +359,10 @@ class CylinderFunctional:
             parts["total_stationary_functional"]=total
         return FunctionalResult(self.theory,total,parts,rmech,relec,gaugevec,gauge)
 
-    def natural_end_fluxes(self,mechanical,electrical=None):
-        """Continuum-form G3D/flexoelectric end fluxes, diagnostic only.
+    def natural_end_fluxes(self,mechanical,electrical=None,*,velocity=None,
+                           acceleration=None,density_kg_m3=None,eta_s=0.0,
+                           mass_damping_rate_per_s=0.0):
+        """Continuum-form total dynamic end fluxes, diagnostic only.
 
         The reference Dx is not SBP-compatible with the surface quadrature:
         these sampled strong fluxes MUST NOT replace the existing discrete
@@ -391,6 +393,56 @@ class CylinderFunctional:
                     self.n_mechanical,self.n_derivatives).T
                 if ec is not None:
                     ec[:,:,i,j]=weak.electrical.T
+        if eta_s or acceleration is not None or mass_damping_rate_per_s:
+            if velocity is None or acceleration is None or density_kg_m3 is None:
+                raise ValueError("dynamic end fluxes require q, velocity, acceleration and density")
+            v=_check_fields(velocity,q.shape,"natural edge velocity")
+            a=_check_fields(acceleration,q.shape,"natural edge acceleration")
+            rho=float(density_kg_m3)
+            if not math.isfinite(rho) or rho<=0:
+                raise ValueError("invalid density for dynamic natural end flux")
+            eta=float(eta_s);alpha=float(mass_damping_rate_per_s)
+            if not (math.isfinite(eta) and eta>=0 and
+                    math.isfinite(alpha) and alpha>=0):
+                raise ValueError("invalid viscous or mass damping coefficient")
+            zero_elec=self._field_derivatives(
+                np.zeros((1,nx,ns)),ELECTRICAL_DERIVATIVES)
+            if eta:
+                from cylinder_kelvin_voigt import kelvin_voigt_thickness_weak
+                vmder=self._field_derivatives(v,spec)
+                for i in range(nx):
+                    for j in range(ns):
+                        visc=kelvin_voigt_thickness_weak(
+                            self._make_jets(mder,zero_elec,i,j),
+                            self._make_jets(vmder,zero_elec,i,j),
+                            self.material,theory=self.theory,radius_m=self.R,
+                            thickness_m=self.h,eta_s=eta,n_gauss=self.n_gauss)
+                        mc[:,:,i,j]+=visc.mechanical.T
+            if self.theory=="KL":
+                mass=kl_inertial_jet_coefficients(
+                    q,v,a,Dx=self.ops.Dx,Ds=self.ops.Ds,wx=self.ops.wx,
+                    ws=self.ops.ws,radius_m=self.R,thickness_m=self.h,
+                    density_kg_m3=rho)
+                for k in range(3): mc[k]+=mass[k]
+                if alpha:
+                    damp=kl_inertial_jet_coefficients(
+                        q,np.zeros_like(v),v,Dx=self.ops.Dx,Ds=self.ops.Ds,
+                        wx=self.ops.wx,ws=self.ops.ws,radius_m=self.R,
+                        thickness_m=self.h,density_kg_m3=rho)
+                    for k in range(3): mc[k]+=alpha*damp[k]
+            elif self.theory in ("FSDT","REDDY"):
+                for multiplier,field in ((1.,a),(alpha,v)):
+                    if not multiplier:continue
+                    der=self._field_derivatives(field,spec)
+                    for i in range(nx):
+                        for j in range(ns):
+                            mass=_director_mass(self._make_jets(der,zero_elec,i,j),
+                                theory=self.theory,radius_m=self.R,
+                                thickness_m=self.h,density_kg_m3=rho,
+                                n_gauss=self.n_gauss)
+                            mc[:3,:,i,j]+=multiplier*mass.T
+            # CUF mass is local in generalized q: no axial derivative,
+            # therefore its inertial end-traction contribution is zero.
         return axial_natural_end_tractions(
             mc,spec,self.ops.Dx,self.ops.Ds,
             electrical_coefficients=ec)
