@@ -66,6 +66,57 @@ def mechanical_trace_matrix(rows, count):
     return c / norm[:, None], d / norm
 
 
+def sparse_mechanical_trace_matrix(rows, count):
+    """Return normalized sparse C_mech and d without any dense trace rows.
+
+    Duplicate indices within a physical row are algebraically combined
+    before Euclidean row normalization (as in the dense reference).
+    Electric electrodes and the gauge are excluded from this mechanical
+    Newmark kinematic monitor.
+    """
+    if (isinstance(count,(bool,np.bool_)) or
+        not isinstance(count,(int,np.integer)) or count<1):
+        raise ValueError("mechanical trace requires positive integer state size")
+    try:
+        from scipy import sparse
+    except ImportError as exc:
+        raise ImportError(
+            "sparse mechanical Newmark traces require scipy>=1.11") from exc
+    rows=[row for row in rows if row.field=="mechanical"]
+    ridx=[];cidx=[];values=[];target=np.zeros(len(rows),float)
+    for i,row in enumerate(rows):
+        if len(row.indices)!=len(row.weights):
+            raise ValueError("mechanical trace index/weight count mismatch")
+        prescribed=float(row.prescribed)
+        if not np.isfinite(prescribed):
+            raise ValueError("nonfinite mechanical trace")
+        target[i]=prescribed
+        for index,weight in zip(row.indices,row.weights):
+            if (isinstance(index,(bool,np.bool_)) or
+                not isinstance(index,(int,np.integer)) or
+                not 0<=index<count):
+                raise ValueError("mechanical trace index out of range")
+            if isinstance(weight,(bool,np.bool_)):
+                raise ValueError("nonfinite mechanical trace")
+            w=float(weight)
+            if not np.isfinite(w):
+                raise ValueError("nonfinite mechanical trace")
+            if w:
+                ridx.append(i);cidx.append(int(index));values.append(w)
+    c=sparse.coo_matrix(
+        (values,(ridx,cidx)),shape=(len(rows),int(count)),
+        dtype=float).tocsr()
+    c.sum_duplicates()
+    c.eliminate_zeros()
+    norm=np.sqrt(np.asarray(c.multiply(c).sum(axis=1)).reshape(-1))
+    if np.any(~np.isfinite(norm)) or np.any(norm<=0):
+        raise ValueError("empty mechanical BC trace")
+    if len(rows):
+        c=(sparse.diags(1./norm)@c).tocsr()
+        target=target/norm
+    return c,target
+
+
 @dataclass(frozen=True)
 class TraceStep:
     time_s: float
@@ -188,5 +239,67 @@ class MechanicalTraceNewmark:
         return delta
 
 
+class SparseMechanicalTraceNewmark(MechanicalTraceNewmark):
+    """Moving-support Newmark gate without dense mechanical constraint C.
+
+    Newmark support kinematics are identical to MechanicalTraceNewmark.
+    Matrix comparisons use sparse differences; prescribed d(t) may move,
+    but the operator C must not change between accepted time steps.
+    """
+
+    def __init__(self,c,d,q,v,a,*,t,dt,beta,gamma,
+                 atol=1.e-10,rtol=1.e-8):
+        try:
+            from scipy import sparse
+        except ImportError as exc:
+            raise ImportError(
+                "sparse mechanical Newmark traces require scipy>=1.11") from exc
+        if not sparse.issparse(c):
+            raise TypeError("sparse Newmark monitor requires a sparse trace matrix")
+        self.c=sparse.csr_matrix(c,dtype=float).copy()
+        self.c.sum_duplicates()
+        self.c.eliminate_zeros()
+        if (self.c.ndim!=2 or self.c.shape[1]<1 or
+            not np.isfinite(self.c.data).all()):
+            raise ValueError("invalid initial sparse mechanical trace matrix")
+        self.d=_vector(d,(self.c.shape[0],),"initial trace target")
+        self.t,self.dt,self.beta,self.gamma=map(float,(t,dt,beta,gamma))
+        self.atol,self.rtol=float(atol),float(rtol)
+        if (not np.isfinite([self.t,self.dt,self.beta,self.gamma,
+                             self.atol,self.rtol]).all() or
+            self.dt<=0 or self.beta<=0 or self.gamma<0 or
+            self.atol<=0 or self.rtol<0 or self.t+self.dt<=self.t):
+            raise ValueError("invalid Newmark mechanical trace settings")
+        self.v=np.asarray(self.c@_vector(
+            v,(self.c.shape[1],),"initial velocity")).reshape(-1)
+        self.a=np.asarray(self.c@_vector(
+            a,(self.c.shape[1],),"initial acceleration")).reshape(-1)
+        self._verify("initial displacement",
+                     np.asarray(self.c@_vector(
+                         q,(self.c.shape[1],),"initial displacement")).reshape(-1),
+                     self.d)
+
+    def preview(self,c,d,t):
+        from scipy import sparse
+        if not sparse.issparse(c):
+            raise TypeError("moving sparse trace matrix must stay sparse")
+        c=sparse.csr_matrix(c,dtype=float)
+        if c.shape!=self.c.shape or not np.isfinite(c.data).all():
+            raise ValueError("moving trace matrix changed")
+        difference=c-self.c
+        if (difference.nnz and
+            np.max(np.abs(difference.data))>1.e-12):
+            raise ValueError("moving BC constraint matrix changed")
+        target=_vector(d,self.d.shape,"moving trace target")
+        tt=self._verify_next_time(t)
+        predicted=(self.d+self.dt*self.v+
+                   self.dt**2*(.5-self.beta)*self.a)
+        acceleration=(target-predicted)/(self.beta*self.dt**2)
+        velocity=(self.v+self.dt*((1-self.gamma)*self.a+
+                                  self.gamma*acceleration))
+        return TraceStep(tt,target,velocity,acceleration)
+
+
 __all__ = ("TraceStep", "MechanicalTraceNewmark", "mechanical_trace_matrix",
+           "SparseMechanicalTraceNewmark", "sparse_mechanical_trace_matrix",
            "effective_step_acceptance", "require_zero_initial_support_motion")
