@@ -5656,6 +5656,8 @@ class FinalSolverGUI(EnhancedSolverGUI):
         cbuttons=ttk.Frame(casebox); cbuttons.grid(row=1,column=0,columnspan=3,sticky="w",pady=(7,0))
         ttk.Button(cbuttons,text="Сохранить CASE",command=self.save_case).pack(side="left",padx=(0,5))
         ttk.Button(cbuttons,text="Загрузить CASE",command=self.load_case).pack(side="left",padx=5)
+        ttk.Button(cbuttons,text="Новый CASE: G3D / флексо / МВИ…",
+                   command=self.open_reference_case).pack(side="left",padx=5)
 
         pars=ttk.LabelFrame(f,text="Preset интерфейса",padding=7)
         pars.grid(row=7,column=0,columnspan=3,sticky="ew",pady=(4,4)); pars.columnconfigure(1,weight=1)
@@ -5717,6 +5719,12 @@ class FinalSolverGUI(EnhancedSolverGUI):
             self._set_top_running_state(False);messagebox.showerror("Запуск — ошибка",str(exc));self._log(f"START FAIL: {type(exc).__name__}: {exc}\n")
 
     def run_mvi_series(self):
+        active=self._active_reference_case()
+        if active is not None:
+            path,cfg=active
+            try:self._launch_reference_case(path,cfg,series=True)
+            except Exception as exc:messagebox.showerror("МВИ 1–8",str(exc))
+            return
         if self.vars["method"].get()!="MVI":
             messagebox.showwarning("МВИ-1…8","Серия доступна только при method=MVI");return
         if self.proc is not None and self.proc.poll() is None:
@@ -6111,6 +6119,12 @@ class FinalSolverGUI(EnhancedSolverGUI):
         return True
 
     def run_case(self):
+        active=self._active_reference_case()
+        if active is not None:
+            path,cfg=active
+            try:self._launch_reference_case(path,cfg)
+            except Exception as exc:messagebox.showerror("Запуск CASE",str(exc))
+            return
         if self.post_proc is not None and self.post_proc.poll() is None:
             messagebox.showwarning("Постобработка","Дождитесь окончания постобработки предыдущего расчёта или выберите другую папку результатов.")
             return
@@ -6126,6 +6140,14 @@ class FinalSolverGUI(EnhancedSolverGUI):
         return self._run_case_auto_bundle()
 
     def validate_case(self):
+        active=self._active_reference_case()
+        if active is not None:
+            path,_=active
+            try:
+                result=validate_final_case(path)
+                messagebox.showinfo("Проверка CASE",f"Вариационный {result['method']} принят; сеточная сходимость не проверена.")
+            except Exception as exc:messagebox.showerror("Проверка CASE",str(exc))
+            return
         if not self._preflight_or_show(): return
         return super().validate_case()
 
@@ -6348,6 +6370,55 @@ class FinalSolverGUI(EnhancedSolverGUI):
             state=json.loads(Path(p).read_text(encoding="utf-8")); self.vars["parameters_path"].set(p); self._apply_gui_state(state); self._log(f"GUI parameters loaded: {p}\n")
         except Exception as exc:messagebox.showerror("Открытие параметров",str(exc))
 
+    def _active_reference_case(self):
+        """Distinguish the opt-in reference file from the ordinary GUI fields."""
+        path=Path(self._v("case_path").get().strip())
+        if not path.is_file():return None
+        try:cfg=json.loads(path.read_text(encoding="utf-8"))
+        except (OSError,ValueError):return None
+        return (path,cfg) if isinstance(cfg,dict) and cfg.get("solver_backend")=="VARIATIONAL_REFERENCE" else None
+
+    def open_reference_case(self,case=None,path=None):
+        from cylinder_reference_gui import ReferenceCaseEditor
+        return ReferenceCaseEditor(self,case,path)
+
+    def save_case(self):
+        active=self._active_reference_case()
+        if active is not None:
+            self.open_reference_case(active[1],active[0]);return
+        return super().save_case()
+
+    def _launch_reference_case(self,path,cfg,*,series=False):
+        """Run the exact saved CASE with the normal GUI process controls."""
+        if self.proc is not None and self.proc.poll() is None:
+            raise ValueError("Расчёт уже выполняется")
+        from cylinder_reference_case import prepare_reference_case
+        import copy
+        if series:
+            if cfg.get("method")!="MVI":raise ValueError("Серия 1–8 требует метода МВИ")
+            for rank in range(1,9):
+                candidate=copy.deepcopy(cfg);candidate["rank"]=rank
+                prepare_reference_case(candidate)
+        else:prepare_reference_case(cfg)
+        output=Path(cfg["output_dir"])
+        if not output.is_absolute():output=path.parent/output
+        output=output.resolve()
+        result_dir=output/"MVI_1_8_SERIES" if series else output
+        if result_dir.exists() and any(result_dir.iterdir()):
+            raise ValueError(f"Папка результатов не пуста: {result_dir}")
+        self.run_output_dir=result_dir
+        loads=cfg.get("reference_loads") or cfg.get("load_definition") or {}
+        self.expected_steps=8 if series else len(loads.get("load_factors",[]))
+        self.run_kind="REFERENCE_SERIES" if series else "REFERENCE_CASE"
+        self._stop_requested=False;self._paused=False;self._paused_pids=[]
+        cmd=[sys.executable,str(APP_DIR/("RUN_MVI_1_8.py" if series else "RUN_FINAL_CASE.py")),str(path)]
+        self._log("\n=== REFERENCE START ===\n"+" ".join(cmd)+"\n")
+        self._progress_reset(self.expected_steps)
+        self.proc=subprocess.Popen(cmd,cwd=str(APP_DIR),stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,text=True,bufsize=1,encoding="utf-8",errors="replace")
+        self._set_top_running_state(True)
+        threading.Thread(target=self._read_process_output,daemon=True).start()
+
     def load_case(self):
         """Restore a saved FINAL_CASE without changing its physical meaning."""
         p=filedialog.askopenfilename(title="Загрузить CASE",filetypes=[("JSON","*.json"),("All files","*.*")])
@@ -6357,8 +6428,12 @@ class FinalSolverGUI(EnhancedSolverGUI):
             if not isinstance(cfg,dict):raise ValueError("CASE должен содержать JSON-объект")
             from cylinder_reference_case import selected_backend, BACKEND
             if selected_backend(cfg)==BACKEND:
-                raise ValueError("Проверочный вариационный CASE запускается через RUN_FINAL_CASE.py. "
-                                 "Редактор GUI пока не поддерживает его отдельные поля нагрузки и решателя.")
+                from cylinder_reference_case import prepare_reference_case
+                prepare_reference_case(cfg)
+                self._v("case_path").set(p)
+                self.open_reference_case(cfg,p)
+                self._log(f"Вариационный CASE загружен: {p}\n")
+                return
             if cfg.get("format")=="CYLINDER_GUI_PARAMETERS_V2":
                 raise ValueError(
                     "Выбран файл параметров интерфейса, а не FINAL_CASE.json. "
@@ -7534,6 +7609,14 @@ class FinalSolverGUI(EnhancedSolverGUI):
                     foreground=status_color,
                 )
             except Exception:pass
+        active=self._active_reference_case()
+        if active is not None and hasattr(self,"model_info"):
+            cfg=active[1]
+            micro=cfg.get("micro") or {}
+            flag="ВКЛ" if micro.get("enable_flexoelectric",False) and cfg.get("scale_model")=="MICRO" else "ВЫКЛ"
+            self.model_info.configure(text=f"Вариационный CASE · {cfg.get('theory')} "
+                f"{cfg.get('cuf_model','')} · {cfg.get('method')} · флексо {flag}. "
+                "Проверочный расчёт на малой сетке; динамика пока недоступна.",foreground="#9a6700")
         if not hasattr(self,"basic_grid_info"):return
         try:
             if self._v("method","FDM").get()=="MVI":
