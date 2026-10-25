@@ -52,12 +52,17 @@ class MatrixFreeNewtonSettings:
     krylov_rtol: float = 3.e-2
     krylov_restart: int = 40
     krylov_max_matvecs: int = 180
+    krylov_preconditioner: str = "NONE"
+    ilu_drop_tolerance: float = 1.e-3
+    ilu_fill_factor: float = 8.
+    ilu_max_surface_nodes: int = 8192
     max_total_dofs: int = 100_000
     max_constraint_rows: int = 20_000
 
     def __post_init__(self):
         positive=("relative_tolerance","tangent_step_scaled",
-                  "potential_scale_v","krylov_rtol")
+                  "potential_scale_v","krylov_rtol",
+                  "ilu_drop_tolerance","ilu_fill_factor")
         finite=("absolute_tolerance_scaled",)+positive
         for name in finite:
             raw=getattr(self,name)
@@ -69,10 +74,15 @@ class MatrixFreeNewtonSettings:
             if not math.isfinite(value) or value<0 or (name in positive and value==0):
                 raise ValueError(name+": invalid sign/nonfinite")
             object.__setattr__(self,name,value)
+        if self.krylov_preconditioner not in ("NONE","PHYSICS_BLOCK_ILU"):
+            raise ValueError("krylov_preconditioner must be NONE or PHYSICS_BLOCK_ILU")
+        if self.ilu_drop_tolerance>=1. or self.ilu_fill_factor<1.:
+            raise ValueError("invalid ILU drop tolerance or fill factor")
         if self.krylov_rtol>=1.:
             raise ValueError("krylov_rtol must be strictly less than one")
         for name in ("max_iterations","max_halvings","krylov_restart",
-                     "krylov_max_matvecs","max_total_dofs","max_constraint_rows"):
+                     "krylov_max_matvecs","max_total_dofs","max_constraint_rows",
+                     "ilu_max_surface_nodes"):
             val=getattr(self,name)
             if isinstance(val,(bool,np.bool_)) or not isinstance(val,int) or val<1:
                 raise ValueError(name+": positive integer required")
@@ -245,6 +255,15 @@ def _solve(problem, q0, p0, *, time_s, dead_load, free_charge,
     data=evaluate(z)
     initial=float(np.linalg.norm(data[2]))
     tol=settings.absolute_tolerance_scaled+settings.relative_tolerance*initial
+    preconditioner=None
+    if settings.krylov_preconditioner=="PHYSICS_BLOCK_ILU":
+        from cylinder_krylov_block_preconditioner import PhysicsBlockILU
+        preconditioner=PhysicsBlockILU(
+            f,scales,e_scale,projector,
+            drop_tolerance=settings.ilu_drop_tolerance,
+            fill_factor=settings.ilu_fill_factor,
+            max_surface_nodes=settings.ilu_max_surface_nodes,
+            dynamic=dynamic)
     history=[]
     iterations=0
     converged=False
@@ -255,6 +274,7 @@ def _solve(problem, q0, p0, *, time_s, dead_load, free_charge,
         rec={"iteration":index,"residual_scaled":norm,
              "residual_relative_to_initial":norm/initial if initial else 0.,
              "linear_solver":"MATRIX_FREE_GMRES",
+             "linear_preconditioner":settings.krylov_preconditioner,
              "constraint_defect_scaled":float(np.max(
                  np.abs(projector.defect(z)),initial=0))}
         history.append(rec)
@@ -294,6 +314,7 @@ def _solve(problem, q0, p0, *, time_s, dead_load, free_charge,
         try:
             correction,info=sla.gmres(
                 linear,-g,rtol=settings.krylov_rtol,atol=0.,
+                M=None if preconditioner is None else preconditioner.linear_operator(),
                 restart=settings.krylov_restart,
                 maxiter=settings.krylov_max_matvecs,
                 callback=lambda residual:linear_history.append(float(residual)),
@@ -309,6 +330,10 @@ def _solve(problem, q0, p0, *, time_s, dead_load, free_charge,
             status="KRYLOV_LINEAR_SOLVE_NOT_CONVERGED"
             break
         correction=projector.project_null(correction)
+        true_linear=float(np.linalg.norm(action(correction)+g))
+        rec["krylov_true_residual_scaled"]=true_linear
+        if true_linear>max(1.e-11,2.*settings.krylov_rtol*norm):
+            status="KRYLOV_TRUE_RESIDUAL_TOO_LARGE";break
         rec["increment_scaled"]=float(np.max(np.abs(correction),initial=0))
         merit=norm
         for halving in range(settings.max_halvings+1):
