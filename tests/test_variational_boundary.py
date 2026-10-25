@@ -50,6 +50,42 @@ class VariationalBoundaryTest(unittest.TestCase):
         m=self.ops.shape[0]*self.ops.shape[1]
         self.assertEqual({row.indices[0]//m for row in result.constraints},{0,5,10})
 
+    def test_outward_normal_double_traction_left_right_signs(self):
+        f=self.functional("CUF_TE1",False)
+        q=np.zeros((f.n_mechanical,*self.ops.shape))
+        n=f.n_mechanical
+        magnitude=[0.]*n;magnitude[0]=2.
+        for side,sign in (("left",-1.),("right",1.)):
+            with self.subTest(side=side):
+                normal={"mechanical":{side:{"normal_double_traction":magnitude}}}
+                axial={"mechanical":{side:{"double_traction":[sign*x for x in magnitude]}}}
+                a=compile_boundary_program(f,q,spec=normal)
+                b=compile_boundary_program(f,q,spec=axial)
+                np.testing.assert_allclose(a.mechanical_residual_correction,
+                                           b.mechanical_residual_correction)
+                self.assertAlmostEqual(a.potential_correction_j,b.potential_correction_j)
+
+    def test_outward_normal_triple_traction_same_on_both_ends(self):
+        f=self.functional("FSDT",False)
+        q=np.zeros((f.n_mechanical,*self.ops.shape))
+        force=[1.,0.,0.,0.,0.]
+        for side in ("left","right"):
+            a=compile_boundary_program(f,q,spec={"mechanical":{
+                side:{"normal_triple_traction":force}}})
+            b=compile_boundary_program(f,q,spec={"mechanical":{
+                side:{"triple_traction":force}}})
+            np.testing.assert_array_equal(a.mechanical_residual_correction,
+                                          b.mechanical_residual_correction)
+
+    def test_mixed_axial_and_normal_traces_fail(self):
+        f=self.functional("CUF_TE1",False)
+        q=np.zeros((f.n_mechanical,*self.ops.shape))
+        spec={"mechanical":{"left":{
+            "double_traction":[0.]*f.n_mechanical,
+            "normal_double_traction":[0.]*f.n_mechanical}}}
+        with self.assertRaisesRegex(ValueError,"OR outward-normal"):
+            compile_boundary_program(f,q,spec=spec)
+
     def test_reference_higher_trace_switching(self):
         for theory in ("KL","FSDT","REDDY","CUF_TE3"):
             with self.subTest(theory=theory):
