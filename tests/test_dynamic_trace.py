@@ -117,4 +117,65 @@ class TraceNewmarkTest(unittest.TestCase):
             effective_step_acceptance(True,0.,0.)
 
 
+class SparseTraceNewmarkTest(unittest.TestCase):
+    def test_sparse_matches_dense_on_moving_support(self):
+        from types import SimpleNamespace
+        from cylinder_dynamic_trace import (sparse_mechanical_trace_matrix,
+                                            SparseMechanicalTraceNewmark)
+        rows=[SimpleNamespace(field="mechanical",indices=(0,3),
+            weights=(2.,-2.),prescribed=0.),
+            SimpleNamespace(field="electrical",indices=(1,),
+            weights=(1.,),prescribed=3.)]
+        cd,dd=mechanical_trace_matrix(rows,6)
+        cs,ds=sparse_mechanical_trace_matrix(rows,6)
+        np.testing.assert_allclose(cs.toarray(),cd)
+        np.testing.assert_allclose(ds,dd)
+        zero=np.zeros(6)
+        dense=MechanicalTraceNewmark(cd,dd,zero,zero,zero,
+            t=0.,dt=.1,beta=.25,gamma=.5)
+        sparse=SparseMechanicalTraceNewmark(cs,ds,zero,zero,zero,
+            t=0.,dt=.1,beta=.25,gamma=.5)
+        new_target=np.array([.01])
+        pd=dense.preview(cd,new_target,.1)
+        ps=sparse.preview(cs,new_target,.1)
+        np.testing.assert_allclose(pd.velocity,ps.velocity)
+        np.testing.assert_allclose(pd.acceleration,ps.acceleration)
+        q=np.zeros(6);q[0]=.01*np.sqrt(2)
+        v=np.zeros(6);v[0]=.2*np.sqrt(2)
+        a=np.zeros(6);a[0]=4*np.sqrt(2)
+        np.testing.assert_allclose(
+            list(dense.accept(pd,q,v,a).values()),
+            list(sparse.accept(ps,q,v,a).values()))
+
+    def test_sparse_rejected_step_does_not_advance(self):
+        from scipy import sparse
+        from cylinder_dynamic_trace import SparseMechanicalTraceNewmark
+        c=sparse.csr_matrix([[1.,0.,0.]])
+        z=np.zeros(3)
+        monitor=SparseMechanicalTraceNewmark(c,[0.],z,z,z,
+            t=0.,dt=.1,beta=.25,gamma=.5)
+        step=monitor.preview(c,[.01],.1)
+        with self.assertRaisesRegex(ValueError,"velocity drift"):
+            monitor.accept(step,[.01,0.,0.],z,[4.,0.,0.])
+        self.assertEqual(monitor.t,0.)
+        with self.assertRaisesRegex(ValueError,"matrix changed"):
+            monitor.preview(sparse.csr_matrix([[1.,.01,0.]]),[0.],.1)
+
+    def test_sparse_large_state_without_dense_matrix(self):
+        from types import SimpleNamespace
+        from cylinder_dynamic_trace import (sparse_mechanical_trace_matrix,
+                                            SparseMechanicalTraceNewmark)
+        n=30000
+        rows=[SimpleNamespace(field="mechanical",
+            indices=(0,n-1),weights=(1.,-1.),prescribed=0.)]
+        c,d=sparse_mechanical_trace_matrix(rows,n)
+        self.assertEqual(c.nnz,2)
+        self.assertEqual(c.shape,(1,n))
+        z=np.zeros(n)
+        monitor=SparseMechanicalTraceNewmark(c,d,z,z,z,
+            t=0.,dt=.1,beta=.25,gamma=.5)
+        target=monitor.preview(c,d,.1)
+        self.assertEqual(monitor.accept(target,z,z,z)["displacement"],0.)
+
+
 if __name__=="__main__":unittest.main()
