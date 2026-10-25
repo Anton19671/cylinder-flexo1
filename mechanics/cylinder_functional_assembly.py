@@ -356,6 +356,18 @@ class CylinderFunctional:
             parts["total_stationary_functional"]=total
         return FunctionalResult(self.theory,total,parts,rmech,relec,gaugevec,gauge)
 
+    def mass_proportional_damping_action(self,velocity,*,density_kg_m3,
+                                          mass_damping_rate_per_s):
+        """Consistent mechanical C*v, C=alpha_M*M, alpha_M measured in 1/s.
+
+        Uses the very same full CUF/director mass operator as acceleration;
+        there is no electric inertia and no approximation of micro.eta_s.
+        """
+        rate=float(mass_damping_rate_per_s)
+        if not math.isfinite(rate) or rate<0:
+            raise ValueError("mass damping rate must be finite nonnegative [1/s]")
+        return rate*self.mass_action(velocity,density_kg_m3=density_kg_m3)
+
     def mass_action(self,acceleration,*,density_kg_m3):
         """Consistent mechanical inertia from the SAME director/CUF ansatz.
 
