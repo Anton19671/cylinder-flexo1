@@ -29,6 +29,7 @@ from flexo_gradient_g3d import G3DMaterial, enthalpy_parts
 from cylinder_kl_exact_inertia import kl_inertial_weak_action, kl_inertial_jet_coefficients
 from cylinder_kelvin_voigt import kelvin_voigt_thickness_weak, KelvinVoigtGlobal
 from cylinder_g3d_natural_edges import axial_natural_end_tractions
+from cylinder_sbp_green_reduction import split_coupled_sbp_residual
 from cylinder_sbp_derivatives import (
     SBP_OPERATOR_SCHEME, axial_sbp21_gradient, periodic_sbp_odd_gradient,
     require_green_identity,
@@ -373,6 +374,41 @@ class CylinderFunctional:
                 parts["external_charge"]=-float(np.sum(self.W[None,...]*charge*phi))
             parts["total_stationary_functional"]=total
         return FunctionalResult(self.theory,total,parts,rmech,relec,gaugevec,gauge)
+
+    def sbp_green_reduction(self,mechanical,electrical=None):
+        """Exact bulk/edge Green split of the *conservative* nodal weak force.
+
+        Only an SBP-compatible grid is accepted. This is a mathematical
+        identity check and edge diagnostic, not an extra boundary equation.
+        Dynamic inertial/viscous contributions are still evaluated by
+        the full weak residual and their own time-dependent operators.
+        """
+        nx,ns=self.ops.shape
+        q=_check_fields(mechanical,(self.n_mechanical,nx,ns),"SBP Green q")
+        if self.electrical_on:
+            if electrical is None:
+                raise ValueError("SBP Green electric coefficients required")
+            arr=np.asarray(electrical,float)
+            if arr.ndim!=3 or arr.shape[1:]!=(nx,ns) or not 1<=len(arr)<=5:
+                raise ValueError("SBP Green electric coefficient shape mismatch")
+            p=_check_fields(arr,arr.shape,"SBP Green p")
+        else:
+            if electrical is not None:
+                raise ValueError("SBP Green electric field must be disabled")
+            p=np.zeros((1,nx,ns),float)
+        spec=MECHANICAL_DERIVATIVES[:self.n_derivatives]
+        mder=self._field_derivatives(q,spec)
+        eder=self._field_derivatives(p,ELECTRICAL_DERIVATIVES)
+        mc=np.zeros((len(spec),self.n_mechanical,nx,ns))
+        ec=np.zeros((3,len(p),nx,ns)) if self.electrical_on else None
+        for i in range(nx):
+            for j in range(ns):
+                weak=self._local(self._make_jets(mder,eder,i,j))
+                mc[:,:,i,j]=weak.mechanical.reshape(
+                    self.n_mechanical,len(spec)).T
+                if ec is not None:
+                    ec[:,:,i,j]=weak.electrical.T
+        return split_coupled_sbp_residual(self.ops,mc,spec,ec)
 
     def natural_end_fluxes(self,mechanical,electrical=None,*,velocity=None,
                            acceleration=None,density_kg_m3=None,eta_s=0.0,
