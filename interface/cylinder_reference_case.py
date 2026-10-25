@@ -15,6 +15,7 @@ from cylinder_variational_mvi import StaticMVISettings, solve_static_mvi
 from cylinder_variational_dynamic import solve_dynamic_fdm, solve_dynamic_mvi
 from cylinder_newmark_mvi import NewmarkSettings, validate_dynamic_case
 from cylinder_dynamic_loads import normalize_time_law
+from cylinder_dynamic_trace import MechanicalTraceNewmark, mechanical_trace_matrix
 from flexo_gradient_g3d import G3DMaterial
 from flexo_scale_policy import micro_material_from_case, flexoelectric_enabled
 import final_progress as progress
@@ -245,10 +246,10 @@ def prepare_reference_case(case, *, base_dir=None):
                     # CONSTANT displacement may be nonzero, but its prescribed
                     # velocity and acceleration vanish. Moving constraints
                     # require a constrained Newmark DAE, not a mere time factor.
-                    if support!="FREE" and boundary_law.kind!="CONSTANT":
+                    if support!="FREE" and boundary_law.kind not in ("CONSTANT","SMOOTHSTEP"):
                         raise ValueError(
                             f"{site}: time-dependent essential mechanical BC "
-                            "needs explicit velocity/acceleration")
+                            "needs C2 SMOOTHSTEP displacement law")
                 # Electrical POTENTIAL is quasi-static at every time step:
                 # its time-dependent Dirichlet value has no electric inertia
                 # and is imposed by the same affine admissible trace space.
@@ -419,6 +420,11 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
     if prepared.mvi_settings is not None:summary["rank"]=prepared.mvi_settings.rank
     q,p=prepared.mechanical,prepared.electrical
     velocity=np.zeros_like(q);acceleration=np.zeros_like(q)
+    initial_constraints=prepared.problem.assemble(q,p,time_s=newmark.t_start_s,
+        acceleration=np.zeros_like(q),density_kg_m3=dyn.density_kg_m3)
+    trace_c,trace_d=mechanical_trace_matrix(initial_constraints.edge.constraints,q.size)
+    trace_monitor=MechanicalTraceNewmark(trace_c,trace_d,q,velocity,acceleration,
+        t=newmark.t_start_s,dt=newmark.dt_s,beta=newmark.beta,gamma=newmark.gamma)
     initial=out/"REFERENCE_DYNAMIC_INITIAL.npz"
     arrays={"time_s":np.array(newmark.t_start_s),"mechanical":q,
             "velocity":velocity,"acceleration":acceleration}
@@ -429,6 +435,11 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
         for index in range(1,newmark.n_steps+1):
             time_s=newmark.t_start_s+index*newmark.dt_s
             factor=dyn.time_law.value(time_s)
+            trace_at_time=prepared.problem.assemble(q,p,time_s=time_s,
+                acceleration=np.zeros_like(q),density_kg_m3=dyn.density_kg_m3)
+            trace_new_c,trace_new_d=mechanical_trace_matrix(
+                trace_at_time.edge.constraints,q.size)
+            expected_trace=trace_monitor.preview(trace_new_c,trace_new_d,time_s)
             q_predictor=q+newmark.dt_s*velocity+newmark.dt_s**2*(.5-newmark.beta)*acceleration
             velocity_predictor=velocity+newmark.dt_s*(1-newmark.gamma)*acceleration
             def report(record):
@@ -488,6 +499,21 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
                 projected_equilibrium_satisfied=result.projected_equilibrium_satisfied)
             summary["steps"].append(step);summary["status"]=result.status
             _write_dynamic_history(out/"REFERENCE_DYNAMIC_HISTORY.csv",summary["steps"])
+            if result.converged:
+                try:
+                    trace_defects=trace_monitor.accept(expected_trace,
+                        result.mechanical,result.velocity,result.acceleration)
+                    step["mechanical_trace_defects"]=trace_defects
+                except ValueError as exc:
+                    result_failed_message=str(exc)
+                    summary["status"]="MOVING_MECHANICAL_BC_INCONSISTENT"
+                    step["status"]=summary["status"]
+                    step["converged"]=False
+                    step["moving_bc_error"]=result_failed_message
+                    summary["failed_step_index"]=index
+                    summary["failed_step_code"]=summary["status"]
+                    _write_json(out/"FINAL_RUN_SUMMARY.json",summary)
+                    break
             if not result.converged:
                 summary["failed_step_index"]=index;summary["failed_step_code"]=result.status
                 _write_json(out/"FINAL_RUN_SUMMARY.json",summary);break
