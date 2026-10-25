@@ -67,6 +67,44 @@ class BoundarySpatialTest(unittest.TestCase):
                                    a.full_residual@direction,rtol=2e-5,atol=1e-8)
         self.assertLess(a.constraint_max_defect,1e-12)
 
+    def test_fast_effective_residual_equals_full_assembly(self):
+        f=self.functional("CUF_TE1",True)
+        rng=np.random.default_rng(902)
+        q=rng.normal(0,1.e-4,(f.n_mechanical,*self.ops.shape))
+        p=rng.normal(0,1.e-3,(2,*self.ops.shape))
+        velocity=rng.normal(0,1.e-2,q.shape)
+        acceleration=rng.normal(0,1.e-1,q.shape)
+        dead=np.zeros_like(q);dead[4]=.013
+        spec={"mechanical":{"left":{"support":"CLAMPED"}},
+              "electrical":{"inner":{"mode":"POTENTIAL","value":.02}}}
+        problem=BoundarySpatialProblem(f,bc_spec=spec,calculation_kind="DYNAMIC")
+        kw=dict(dead_load=dead,time_s=.01,acceleration=acceleration,
+                density_kg_m3=1300.,velocity=velocity,
+                mass_damping_rate_per_s=.25)
+        original=problem.assemble(q,p,**kw)
+        energy,residual,edge=problem.evaluate_effective_residual(q,p,**kw)
+        self.assertAlmostEqual(energy,original.potential_j,places=12)
+        np.testing.assert_array_equal(residual,original.full_residual)
+        np.testing.assert_array_equal(
+            edge.mechanical_residual_correction,
+            original.edge.mechanical_residual_correction)
+        self.assertEqual(len(edge.constraints),len(original.edge.constraints))
+
+    def test_fast_effective_residual_avoids_affine_svd(self):
+        from unittest.mock import patch
+        f=self.functional("CUF_TE1",True)
+        q=np.zeros((f.n_mechanical,*self.ops.shape))
+        p=np.zeros((2,*self.ops.shape))
+        problem=BoundarySpatialProblem(f,calculation_kind="DYNAMIC")
+        with patch("cylinder_boundary_spatial.affine_trace_space",
+                   side_effect=AssertionError("no SVD on Newton trial")):
+            energy,residual,edge=problem.evaluate_effective_residual(
+                q,p,time_s=0.,acceleration=np.zeros_like(q),
+                density_kg_m3=1300.)
+        self.assertTrue(np.isfinite(energy))
+        self.assertEqual(residual.size,q.size+p.size)
+        self.assertTrue(edge.gauge_required)
+
     def test_insulated_gauge_and_nanocoulomb_balance(self):
         f=self.functional(electric=True)
         q=np.zeros((f.n_mechanical,*self.ops.shape));p=np.zeros((2,*self.ops.shape))
