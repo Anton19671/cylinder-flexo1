@@ -15,7 +15,8 @@ from cylinder_variational_mvi import StaticMVISettings, solve_static_mvi
 from cylinder_variational_dynamic import solve_dynamic_fdm, solve_dynamic_mvi
 from cylinder_newmark_mvi import NewmarkSettings, validate_dynamic_case
 from cylinder_dynamic_loads import normalize_time_law
-from cylinder_dynamic_trace import MechanicalTraceNewmark, mechanical_trace_matrix
+from cylinder_dynamic_trace import (MechanicalTraceNewmark, mechanical_trace_matrix,
+                                    effective_step_acceptance)
 from flexo_gradient_g3d import G3DMaterial
 from flexo_scale_policy import micro_material_from_case, flexoelectric_enabled
 import final_progress as progress
@@ -458,7 +459,21 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
                 dead_load=factor*prepared.dead_load,
                 free_charge=None if prepared.free_charge is None else factor*prepared.free_charge,
                 settings=prepared.settings,on_iteration=report,**extra)
-            state_name=(f"REFERENCE_DYNAMIC_STEP_{index:04d}.npz" if result.converged
+            # Reject a spatial or full-Newmark-residual failure BEFORE writing
+            # the accepted-state name, updating history, or changing q/v/a.
+            accepted,gate_status=effective_step_acceptance(
+                bool(result.converged),result.admissible_residual_scaled,
+                newmark.residual_tolerance_relative)
+            trace_defects=None
+            if accepted:
+                try:
+                    trace_defects=trace_monitor.accept(expected_trace,
+                        result.mechanical,result.velocity,result.acceleration)
+                except ValueError as exc:
+                    accepted=False
+                    gate_status="MOVING_MECHANICAL_BC_INCONSISTENT"
+                    trace_failure=str(exc)
+            state_name=(f"REFERENCE_DYNAMIC_STEP_{index:04d}.npz" if accepted
                         else "REFERENCE_DYNAMIC_FAILED_ITERATE.npz")
             temp=out/(state_name+".tmp")
             arrays={"time_s":np.array(time_s),"load_factor":np.array(factor),
@@ -483,7 +498,8 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
             _write_json(out/history_name,history)
             radial=2*(int(f.theory[-1])+1) if f.theory.startswith("CUF_") else 2
             step={"index":index,"time_s":time_s,"load_factor":factor,
-                "status":result.status,"converged":result.converged,
+                "status":result.status if accepted else gate_status,
+                "converged":accepted,
                 "iterations":result.iterations,"sweeps":result.sweeps,
                 "admissible_residual_scaled":result.admissible_residual_scaled,
                 "residual_relative_to_initial":result.residual_relative_to_initial,
@@ -493,30 +509,23 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
                 "acceleration_abs_max_m_per_s2":float(np.max(abs(result.acceleration))),
                 "max_potential_coefficient_abs":None if result.electrical is None else float(np.max(abs(result.electrical))),
                 "state_file":state_name,"history_file":history_name,
-                "full_equilibrium_satisfied":result.converged}
+                "full_equilibrium_satisfied":accepted,
+                "full_newmark_residual_tolerance":newmark.residual_tolerance_relative}
             if prepared.method=="MVI":step.update(
                 projected_residual_scaled=result.projected_residual_scaled,
                 projected_equilibrium_satisfied=result.projected_equilibrium_satisfied)
-            summary["steps"].append(step);summary["status"]=result.status
+            if trace_defects is not None:
+                step["mechanical_trace_defects"]=trace_defects
+            if not accepted and gate_status=="MOVING_MECHANICAL_BC_INCONSISTENT":
+                step["moving_bc_error"]=trace_failure
+            summary["steps"].append(step)
+            summary["status"]=step["status"]
             _write_dynamic_history(out/"REFERENCE_DYNAMIC_HISTORY.csv",summary["steps"])
-            if result.converged:
-                try:
-                    trace_defects=trace_monitor.accept(expected_trace,
-                        result.mechanical,result.velocity,result.acceleration)
-                    step["mechanical_trace_defects"]=trace_defects
-                except ValueError as exc:
-                    result_failed_message=str(exc)
-                    summary["status"]="MOVING_MECHANICAL_BC_INCONSISTENT"
-                    step["status"]=summary["status"]
-                    step["converged"]=False
-                    step["moving_bc_error"]=result_failed_message
-                    summary["failed_step_index"]=index
-                    summary["failed_step_code"]=summary["status"]
-                    _write_json(out/"FINAL_RUN_SUMMARY.json",summary)
-                    break
-            if not result.converged:
-                summary["failed_step_index"]=index;summary["failed_step_code"]=result.status
-                _write_json(out/"FINAL_RUN_SUMMARY.json",summary);break
+            if not accepted:
+                summary["failed_step_index"]=index
+                summary["failed_step_code"]=gate_status
+                _write_json(out/"FINAL_RUN_SUMMARY.json",summary)
+                break
             q,p=result.mechanical,result.electrical
             velocity,acceleration=result.velocity,result.acceleration
             summary["accepted_steps"]+=1
