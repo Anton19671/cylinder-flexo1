@@ -18,6 +18,30 @@ def _vector(value, shape, name):
     return a.copy()
 
 
+
+def require_zero_initial_support_motion(time_law, prescribed, start_time_s):
+    """Preflight one moving essential BC when the CASE starts with qdot=qddot=0.
+
+    For a nonzero prescribed component, the exact continuous velocity and
+    acceleration of its multiplier must both vanish at the initial instant.
+    This rejects a transition already under way, rather than silently
+    replacing the needed nonzero initial velocity/acceleration by zero.
+    Discrete Newmark kinematics are checked independently at each time step.
+    """
+    p = np.asarray(prescribed, dtype=float)
+    if p.ndim != 1 or not np.isfinite(p).all():
+        raise ValueError("prescribed support displacement must be finite 1D")
+    if not callable(getattr(time_law, "essential_kinematics", None)):
+        raise TypeError("essential support time law must provide kinematics")
+    value, velocity, acceleration = time_law.essential_kinematics(start_time_s)
+    if not np.isfinite([value, velocity, acceleration]).all():
+        raise ValueError("nonfinite initial support motion")
+    if np.any(p != 0.) and (velocity != 0. or acceleration != 0.):
+        raise ValueError("ZERO initial conditions incompatible with moving "
+                         "mechanical support velocity/acceleration at start_time_s")
+    return float(value)
+
+
 def mechanical_trace_matrix(rows, count):
     """Return row-normalized C_mech and d, excluding electrical constraints."""
     if isinstance(count, (bool, np.bool_)) or not isinstance(count, (int, np.integer)) or count < 1:
@@ -165,4 +189,4 @@ class MechanicalTraceNewmark:
 
 
 __all__ = ("TraceStep", "MechanicalTraceNewmark", "mechanical_trace_matrix",
-           "effective_step_acceptance")
+           "effective_step_acceptance", "require_zero_initial_support_motion")
