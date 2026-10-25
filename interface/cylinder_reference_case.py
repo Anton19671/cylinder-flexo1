@@ -490,9 +490,17 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
     if prepared.mvi_settings is not None:summary["rank"]=prepared.mvi_settings.rank
     q,p=prepared.mechanical,prepared.electrical
     velocity=np.zeros_like(q);acceleration=np.zeros_like(q)
-    initial_constraints=prepared.problem.assemble(q,p,time_s=newmark.t_start_s,
-        acceleration=np.zeros_like(q),density_kg_m3=dyn.density_kg_m3)
-    trace_c,trace_d=mechanical_trace_matrix(initial_constraints.edge.constraints,q.size)
+    if prepared.fdm_backend=="MATRIX_FREE_GMRES":
+        from cylinder_variational_boundary import compile_boundary_program
+        initial_edge=compile_boundary_program(
+            f,q,p,spec=prepared.problem.spec,calculation_kind="DYNAMIC",
+            time_s=newmark.t_start_s)
+    else:
+        initial_edge=prepared.problem.assemble(
+            q,p,time_s=newmark.t_start_s,
+            acceleration=np.zeros_like(q),
+            density_kg_m3=dyn.density_kg_m3).edge
+    trace_c,trace_d=mechanical_trace_matrix(initial_edge.constraints,q.size)
     trace_monitor=MechanicalTraceNewmark(trace_c,trace_d,q,velocity,acceleration,
         t=newmark.t_start_s,dt=newmark.dt_s,beta=newmark.beta,gamma=newmark.gamma)
     initial=out/"REFERENCE_DYNAMIC_INITIAL.npz"
@@ -505,10 +513,16 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
         for index in range(1,newmark.n_steps+1):
             time_s=newmark.t_start_s+index*newmark.dt_s
             factor=dyn.time_law.value(time_s)
-            trace_at_time=prepared.problem.assemble(q,p,time_s=time_s,
-                acceleration=np.zeros_like(q),density_kg_m3=dyn.density_kg_m3)
+            if prepared.fdm_backend=="MATRIX_FREE_GMRES":
+                trace_edge=compile_boundary_program(
+                    f,q,p,spec=prepared.problem.spec,
+                    calculation_kind="DYNAMIC",time_s=time_s)
+            else:
+                trace_edge=prepared.problem.assemble(
+                    q,p,time_s=time_s,acceleration=np.zeros_like(q),
+                    density_kg_m3=dyn.density_kg_m3).edge
             trace_new_c,trace_new_d=mechanical_trace_matrix(
-                trace_at_time.edge.constraints,q.size)
+                trace_edge.constraints,q.size)
             expected_trace=trace_monitor.preview(trace_new_c,trace_new_d,time_s)
             q_predictor=q+newmark.dt_s*velocity+newmark.dt_s**2*(.5-newmark.beta)*acceleration
             velocity_predictor=velocity+newmark.dt_s*(1-newmark.gamma)*acceleration
