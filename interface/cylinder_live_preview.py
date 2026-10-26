@@ -168,11 +168,9 @@ def render_cylinder_view(gui, canvas):
         raw = value(side)
         if not raw:
             return "Ручные КУ" if value("bc_mode") == "INDIVIDUAL" else "не задано"
-        try:
-            import final_boundary_registry as bcreg
-            return str(bcreg.resolved_preset_code(raw, theory))
-        except Exception:
-            return raw
+        # The reference editor already validates the physical end supports.
+        # Never import a removed classical preset registry for a drawing.
+        return str(raw)
 
     left, right = bc_label("bc_left"), bc_label("bc_right")
     canvas.create_text(x0 + 8, cy + radius + 17, anchor="nw",

@@ -1,5 +1,6 @@
 numpy
+scipy>=1.12
 matplotlib
 XlsxWriter
 imageio-ffmpeg
-scipy>=1.12
+pytest>=8

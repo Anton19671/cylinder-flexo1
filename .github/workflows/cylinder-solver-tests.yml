@@ -1,17 +1,12 @@
-name: Cylinder Flexo Solver Tests
-
-# GitHub Actions quota is exhausted for this repository.
-# Keep manual dispatch available when a runner quota is restored;
-# regular development commits must not enqueue failed jobs.
+name: Cylinder Flexoelectric G3D/Gz
+# Manual until runner quota permits scheduled/push verification.
 on:
   workflow_dispatch:
-
 permissions:
   contents: read
-
 jobs:
   verify:
-    name: Python 3.11 / variational solver tests
+    name: Python 3.11 / elastic shell coupled tests
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
@@ -20,26 +15,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
-      - name: Dependencies
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt pytest
-
-      - name: Syntax of solver modules
+          python -m pip install -r requirements.txt
+      - name: Syntax of retained modules
         run: |
-          python -m compileall -q interface mechanics numerics physics flexoelectric models mvi mkr tests
-
-      - name: Dynamics, damping, boundaries and GUI regression tests
+          python -m compileall -q interface mechanics numerics physics flexoelectric tests
+      - name: Imports and physical modes
         run: |
-          python -c 'from cylinder_paths import activate; activate(); import pytest; raise SystemExit(pytest.main(["-q", "tests/test_variational_dynamic.py", "tests/test_boundary_spatial.py", "tests/test_variational_boundary.py", "tests/test_dynamic_loads.py", "tests/test_reference_gui.py"]))'
-
-      - name: All solver unit tests
-        if: success()
+          python -c 'from cylinder_paths import activate; activate(); import pytest; raise SystemExit(pytest.main(["-q","tests/test_repository_integrity.py","tests/test_elastic_only_entrypoints.py"]))'
+      - name: Coupled G3D/Gz and numerical regression
         run: |
-          python -c 'from cylinder_paths import activate; activate(); import pytest; raise SystemExit(pytest.main(["-q", "tests"]))'
+          python -c 'from cylinder_paths import activate; activate(); import pytest; raise SystemExit(pytest.main(["-q","tests"]))'
