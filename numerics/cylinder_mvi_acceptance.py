@@ -11,6 +11,7 @@ def certify_mvi_solution(*, x_profiles, y_profiles, scales,
                          mechanical, electrical, full_basis, reduced_residual,
                          projected_residual_scaled, full_tolerance_scaled,
                          constraint_defect_scaled, solver_converged,
+                         field_change_relative=0., field_change_tolerance=0.,
                          max_constraint_defect_scaled=1.e-9):
     x=np.asarray(x_profiles,float)
     y=np.asarray(y_profiles,float)
@@ -32,7 +33,9 @@ def certify_mvi_solution(*, x_profiles, y_profiles, scales,
     for name,value in (("full_tolerance_scaled",full_tolerance_scaled),
                        ("constraint_defect_scaled",constraint_defect_scaled),
                        ("projected_residual_scaled",projected_residual_scaled),
-                       ("max_constraint_defect_scaled",max_constraint_defect_scaled)):
+                       ("max_constraint_defect_scaled",max_constraint_defect_scaled),
+                       ("field_change_relative",field_change_relative),
+                       ("field_change_tolerance",field_change_tolerance)):
         if isinstance(value,(bool,np.bool_)) or not np.isfinite(value) or value<0:
             raise ValueError(name+" must be finite nonnegative")
     if not isinstance(solver_converged,(bool,np.bool_)):
@@ -52,13 +55,25 @@ def certify_mvi_solution(*, x_profiles, y_profiles, scales,
     shape_ok=error<=bound
     full_ok=metrics["full"]<=full_tolerance_scaled
     bc_ok=constraint_defect_scaled<=max_constraint_defect_scaled
+    projected_ok=projected_residual_scaled<=full_tolerance_scaled
+    change_ok=field_change_relative<=field_change_tolerance
+    # Fixed-rank MVI solves the two tangent-projected variational equations.
+    # The unprojected residual measures finite-rank truncation, not the
+    # nonlinear iteration error. Never claim full equilibrium from Rproj.
+    accepted=bool(solver_converged and projected_ok and change_ok and bc_ok and shape_ok)
     return {
-        "accepted":bool(solver_converged and full_ok and bc_ok and shape_ok),
+        "accepted":accepted,
+        "solution_status":("CONVERGED_FULL" if accepted and full_ok else
+                           "CONVERGED_PROJECTED" if accepted else "NOT_ACCEPTED"),
+        "finite_order_control_recommended":bool(accepted and not full_ok),
+        "field_change_relative":float(field_change_relative),
+        "field_change_tolerance":float(field_change_tolerance),
+        "field_change_satisfied":bool(change_ok),
         "solver_converged":bool(solver_converged),"fixed_rank":int(x.shape[1]),
         "full_equilibrium_satisfied":bool(full_ok),
         "boundary_constraint_satisfied":bool(bc_ok),
         "profile_reconstruction_satisfied":bool(shape_ok),
-        "projected_equilibrium_satisfied":bool(projected_residual_scaled<=full_tolerance_scaled),
+        "projected_equilibrium_satisfied":bool(projected_ok),
         "full_admissible_residual_scaled":metrics["full"],
         "mechanical_residual_scaled":metrics["mechanical"],
         "electrical_residual_scaled":metrics["electrical"],
