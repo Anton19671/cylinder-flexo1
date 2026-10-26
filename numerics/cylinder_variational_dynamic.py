@@ -220,29 +220,33 @@ def solve_dynamic_mvi(problem, mechanical, electrical=None, *, q_predictor,
             mass_damping_rate_per_s=mass_damping_rate_per_s,
             eta_s=eta_s)
         return (v,)+evaluate(v)
-    def projected_norm(v,r):
+    def projected_components(v,r):
         if np.max(np.abs(full.defect(v)),initial=0)>1.e-9:
             reduced=full.basis.T@(scales*r)/energy_scale
-            return admissible_nodal_inf_norm(full.basis,reduced)
-        values=[]
-        for axis in ("X","Y"):
+            value=admissible_nodal_inf_norm(full.basis,reduced)
+            return {"X":value,"Y":value}
+        values={}
+        for axis in ("Y","X"):
             xx,yy=_normalize_partner(x,y,axis)
             directions=separated_profile_directions(xx,yy,axis)
             space=affine_trace_space(c,target,v,directions=directions)
             reduced=space.basis.T@(scales*r)/energy_scale
-            values.append(admissible_nodal_inf_norm(space.basis,reduced))
-        return max(values)
+            values[axis]=admissible_nodal_inf_norm(space.basis,reduced)
+        return values
 
     history=[];iterations=0;sweeps=0;status="MAX_SWEEPS";converged=False
     v,assembled,r,g,qm,pm,velocity,acceleration=full_data()
     # Effective Newmark residual, NOT the static residual, seeds inactive
     # factors so nonaxisymmetric inertia/load cannot stall the first sweep.
     admissible=(full.basis@g).reshape(shape)
-    x,y=seed_inactive_mvi_partners(x,y,admissible)
+    x,y=seed_inactive_mvi_partners(x,y,admissible,first_axis="Y")
     v,assembled,r,g,qm,pm,velocity,acceleration=full_data()
     initial=admissible_nodal_inf_norm(full.basis,g)
     tolerance=settings.absolute_tolerance_scaled+settings.relative_tolerance*initial
-    projected=projected_norm(v,r)
+    projected_parts=projected_components(v,r)
+    projected=max(projected_parts.values())
+    field_change=0.
+    change_tolerance=max(1.e-8,.5*settings.relative_tolerance)
     def record(sweep,previous_v=None):
         metrics=admissible_nodal_metrics(full.basis,g,q.size)
         row={"event":"sweep","sweep":sweep,"iteration":iterations,
@@ -253,6 +257,10 @@ def solve_dynamic_mvi(problem, mechanical, electrical=None, *, q_predictor,
              "basis_coordinate_residual_scaled":metrics["basis_coordinates"],
              "residual_relative_to_initial":metrics["full"]/initial if initial else 0.,
              "projected_residual_scaled":projected,
+             "projected_x_residual_scaled":projected_parts["X"],
+             "projected_y_residual_scaled":projected_parts["Y"],
+             "sweep_field_change_relative":field_change,
+             "sweep_field_change_tolerance":change_tolerance,
              "projected_diagnostic_applicable":bool(
                  np.max(np.abs(full.defect(v)),initial=0)<=1.e-9),
              "sweep_field_increment_scaled":(
@@ -262,12 +270,12 @@ def solve_dynamic_mvi(problem, mechanical, electrical=None, *, q_predictor,
         if on_iteration is not None:on_iteration(dict(row))
     record(0)
     if initial<=tolerance and np.max(np.abs(full.defect(v)),initial=0)<=1.e-9:
-        converged=True;status="CONVERGED"
+        converged=True;status="CONVERGED_FULL"
     for sweep in range(1,mvi_settings.max_sweeps+1):
         if converged:break
         failed=False
         previous_v=v.copy()
-        for axis in ("X","Y"):
+        for axis in ("Y","X"):
             x,y=_normalize_partner(x,y,axis);v,qm,pm=fields()
             directions=separated_profile_directions(x,y,axis)
             def report(row):
@@ -291,18 +299,22 @@ def solve_dynamic_mvi(problem, mechanical, electrical=None, *, q_predictor,
             if not result.converged:
                 status="HALFSTEP_"+axis+"_"+result.status;failed=True;break
         sweeps=sweep
-        v,assembled,r,g,qm,pm,velocity,acceleration=full_data();projected=projected_norm(v,r);record(sweep,previous_v)
+        v,assembled,r,g,qm,pm,velocity,acceleration=full_data()
+        projected_parts=projected_components(v,r)
+        projected=max(projected_parts.values())
+        field_change=float(np.linalg.norm(v-previous_v)/max(
+            np.linalg.norm(v),np.linalg.norm(previous_v),1.e-30))
+        record(sweep,previous_v)
         if failed:break
-        if (admissible_nodal_inf_norm(full.basis,g)<=tolerance
+        if (projected<=tolerance and field_change<=change_tolerance
                 and np.max(np.abs(full.defect(v)),initial=0)<=1.e-9):
-            converged=True;status="CONVERGED";break
-        # The X/Y projected residual is only a diagnostic. Never accept or
-        # terminate a fixed-rank sweep while the full coupled admissible
-        # mechanical/electric residual still exceeds tolerance.
-        if projected<=tolerance:
-            status="PROJECTED_ONLY_FULL_RESIDUAL_NOT_CONVERGED"
+            converged=True
+            status=("CONVERGED_FULL" if
+                admissible_nodal_inf_norm(full.basis,g)<=tolerance else
+                "CONVERGED_PROJECTED")
+            break
     if not converged and status=="MAX_SWEEPS":
-        status="MAX_SWEEPS_FULL_RESIDUAL_NOT_CONVERGED"
+        status="MAX_SWEEPS_PROJECTED_NOT_CONVERGED"
     defect=float(np.max(abs(full.defect(v)),initial=0))
     if defect>1.e-9:converged=False;status="BOUNDARY_CONSTRAINT_DRIFT"
     certificate=certify_mvi_solution(
@@ -311,14 +323,16 @@ def solve_dynamic_mvi(problem, mechanical, electrical=None, *, q_predictor,
         full_basis=full.basis,reduced_residual=g,
         projected_residual_scaled=projected,
         full_tolerance_scaled=tolerance,constraint_defect_scaled=defect,
-        solver_converged=converged)
+        solver_converged=converged,
+        field_change_relative=field_change,
+        field_change_tolerance=change_tolerance)
     if converged and not certificate["accepted"]:
         converged=False
         status=("MVI_PROFILE_RECONSTRUCTION_DRIFT"
                 if not certificate["profile_reconstruction_satisfied"]
-                else "MVI_FULL_RESIDUAL_NOT_CONVERGED"
-                if not certificate["full_equilibrium_satisfied"]
-                else "BOUNDARY_CONSTRAINT_DRIFT")
+                else "BOUNDARY_CONSTRAINT_DRIFT"
+                if not certificate["boundary_constraint_satisfied"]
+                else "MVI_PROJECTED_OR_FIELD_CHANGE_NOT_CONVERGED")
     scaled_r=scales*r;reaction=(scaled_r-full.basis@(full.basis.T@scaled_r))/scales
     norm=certificate["full_admissible_residual_scaled"]
     return DynamicSpatialResult(converged,status,qm,pm,velocity,acceleration,r.copy(),reaction,
