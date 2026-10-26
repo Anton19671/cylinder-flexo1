@@ -290,7 +290,16 @@ def _fixed_projected_scale(state,ops,maps,projected_fn):
             # The halfstep itself will report an inactive-direction error with
             # its established diagnostic if that direction is actually needed.
             pass
-    return max([supplied,*initial,np.finfo(float).tiny])
+    # A subnormal machine floor is not a physical force scale.  Dividing by
+    # that artificial value can overflow and falsely reject a valid solve.
+    # Use only actual positive evaluated scales; otherwise fail explicitly.
+    candidates=[value for value in (supplied,*initial)
+                if np.isfinite(value) and value>0.0]
+    if not candidates:
+        raise KLMVIError(
+            "ZERO_MVI_PROJECTED_REFERENCE_SCALE: "
+            "no positive supplied or initial projected residual scale")
+    return max(candidates)
 
 
 def directional_tangent_fd(
