@@ -63,7 +63,7 @@ class DynamicSpatialTest(unittest.TestCase):
         np.testing.assert_allclose(mvi.acceleration,4/(.1**2)*mvi.mechanical,atol=2e-12)
         self.assertEqual(mvi.sweeps,1)
         self.assertLess(mvi.admissible_residual_scaled,1e-10)
-        represented=mvi.scales*(mvi.lift_scaled+reconstruct_profiles(mvi.x_profiles,mvi.y_profiles))
+        represented=mvi.scales*(reconstruct_profiles(mvi.x_profiles,mvi.y_profiles))
         np.testing.assert_allclose(represented,np.concatenate((mvi.mechanical,mvi.electrical)),atol=1e-13)
 
     def test_electric_unknown_has_no_velocity_or_inertia(self):
@@ -167,7 +167,7 @@ class DynamicCaseTest(unittest.TestCase):
                     self.assertEqual(state['velocity'].shape,state['mechanical'].shape)
                     self.assertEqual(state['acceleration'].shape,state['mechanical'].shape)
                     self.assertGreater(np.max(abs(state['electrical'])),0.)
-                    represented=state['state_scales']*(state['lift_scaled']+
+                    represented=state['state_scales']*(
                         reconstruct_profiles(state['x_profiles'],state['y_profiles']))
                     np.testing.assert_allclose(represented,
                         np.concatenate((state['mechanical'],state['electrical'])),atol=1e-15)

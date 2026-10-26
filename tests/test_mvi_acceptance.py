@@ -9,7 +9,7 @@ def fixture(rank=1,nm=1,ne=1):
     x=np.zeros((n,rank,8));y=np.zeros((n,rank,9))
     x[:,0]=1.;y[:,0]=2.
     q=np.einsum("crx,crs->cxs",x,y)
-    return dict(x_profiles=x,y_profiles=y,lift_scaled=np.zeros_like(q),
+    return dict(x_profiles=x,y_profiles=y,
         scales=np.ones_like(q),mechanical=q[:nm].copy(),
         electrical=q[nm:].copy() if ne else None,
         full_basis=np.eye(q.size),reduced_residual=np.zeros(q.size),

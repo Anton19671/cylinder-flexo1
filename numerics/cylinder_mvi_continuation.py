@@ -1,68 +1,32 @@
-"""Rank-fixed continuation of accepted MVI X/Y profiles across load and Newmark steps.
-
-Only the prescribed affine trace lift may change. The free separated field
-is carried without QR recompression, SVD, nodal correction or rank growth.
-"""
-from __future__ import annotations
+"""Carry classical fixed-rank X/Y products without an additive field."""
 import numpy as np
-
-
-def continue_accepted_mvi_profiles(previous, mechanical, electrical, *,
-                                   new_lift_scaled, new_scales, full_space, rank):
-    if previous is None or not bool(getattr(previous,"converged",False)):
+def continue_accepted_mvi_profiles(previous,mechanical,electrical,*,new_scales,full_space,rank):
+    if previous is None or not previous.converged:
         raise ValueError("MVI_CONTINUATION_REQUIRES_CONVERGED_PREVIOUS_STEP")
-    certificate=getattr(previous,"mvi_certificate",None)
-    if not isinstance(certificate,dict) or certificate.get("accepted") is not True:
+    cert=previous.mvi_certificate
+    if not isinstance(cert,dict) or not cert.get("accepted",False):
         raise ValueError("MVI_CONTINUATION_REQUIRES_ACCEPTED_CERTIFICATE")
     q=np.asarray(mechanical,float)
     p=None if electrical is None else np.asarray(electrical,float)
-    if q.ndim!=3 or not np.isfinite(q).all() or (
-            p is not None and (p.ndim!=3 or p.shape[1:]!=q.shape[1:]
-                               or not np.isfinite(p).all())):
-        raise ValueError("MVI_CONTINUATION_INVALID_PHYSICAL_INPUT")
-    shape=(q.shape[0]+(0 if p is None else p.shape[0]),*q.shape[1:])
-    original=q if p is None else np.concatenate((q,p))
-    x=np.asarray(previous.x_profiles,float)
-    y=np.asarray(previous.y_profiles,float)
-    old_lift=np.asarray(previous.lift_scaled,float)
-    old_scale=np.asarray(previous.scales,float)
-    new_scale=np.asarray(new_scales,float).reshape(shape)
-    new_lift=np.asarray(new_lift_scaled,float).reshape(shape)
-    if (isinstance(rank,(bool,np.bool_)) or not isinstance(rank,(int,np.integer))
-            or not 1<=rank<=8 or x.shape!=(shape[0],rank,shape[1])
-            or y.shape!=(shape[0],rank,shape[2])
-            or old_lift.shape!=shape or old_scale.shape!=shape
-            or not all(np.isfinite(a).all()
-                       for a in (original,x,y,old_lift,old_scale,new_scale,new_lift))
-            or np.any(old_scale<=0) or np.any(new_scale<=0)):
+    actual=q if p is None else np.concatenate((q,p))
+    x=np.asarray(previous.x_profiles,float);y=np.asarray(previous.y_profiles,float)
+    old=np.asarray(previous.scales,float)
+    if (not 1<=rank<=8 or x.shape!=(actual.shape[0],rank,actual.shape[1])
+        or y.shape!=(actual.shape[0],rank,actual.shape[2]) or old.shape!=actual.shape):
         raise ValueError("MVI_CONTINUATION_INCOMPATIBLE_FIXED_RANK_OR_SCALE")
-    old_field=old_scale*(old_lift+np.einsum("crx,crs->cxs",x,y))
-    error=float(np.max(np.abs(old_field-original),initial=0))
-    scale=max(1.,float(np.max(np.abs(original),initial=0)),
-              float(np.max(np.abs(old_field),initial=0)))
-    if error>1.e-10*scale:
+    new=np.asarray(new_scales,float).reshape(actual.shape)
+    if np.any(new<=0) or not all(np.isfinite(v).all() for v in (x,y,old,new,actual)):
+        raise ValueError("MVI_CONTINUATION_INVALID_SCALES")
+    prior=old*np.einsum("crx,crs->cxs",x,y)
+    mismatch=float(np.max(np.abs(prior-actual),initial=0))
+    if mismatch>1e-10*max(1.,float(np.max(np.abs(actual),initial=0))):
         raise ValueError("MVI_CONTINUATION_PREVIOUS_FIELD_MISMATCH")
-    ratio=old_scale/new_scale
-    component_ratio=ratio[:,0,0]
-    if np.max(np.abs(ratio-component_ratio[:,None,None]),initial=0)>(
-            1.e-12*max(1.,float(np.max(np.abs(ratio),initial=0)))):
+    ratio=old/new
+    if not np.allclose(ratio,ratio[:,0:1,0:1],rtol=1e-12,atol=1e-12):
         raise ValueError("MVI_CONTINUATION_NONSEPARABLE_SCALE_CHANGE")
-    new_x=x*component_ratio[:,None,None]
-    new_y=y.copy()
-    transported=(new_lift+np.einsum("crx,crs->cxs",new_x,new_y)).ravel()
-    if not np.isfinite(transported).all():
-        raise ValueError("MVI_CONTINUATION_NONFINITE_TRANSPORTED_FIELD")
-    defect=np.asarray(full_space.defect(transported),float)
-    if not np.isfinite(defect).all() or np.max(np.abs(defect),initial=0)>1.e-9:
-        raise ValueError("MVI_CONTINUATION_VARIATION_VIOLATES_NEW_TRACE")
-    return new_x.copy(),new_y,{
-        "initialization":"CONTINUATION",
-        "rank":int(rank),
-        "changed_boundary_lift_scaled":float(np.max(
-            np.abs(new_lift-ratio*old_lift),initial=0)),
-        "old_state_match_error_physical":error,
-        "new_trace_defect_scaled":float(np.max(np.abs(defect),initial=0)),
-    }
-
-
-__all__=("continue_accepted_mvi_profiles",)
+    xx=x*ratio[:,0,0,None,None]
+    yy=y.copy()
+    defect=np.asarray(full_space.defect(np.einsum("crx,crs->cxs",xx,yy).ravel()))
+    return xx,yy,{"initialization":"CONTINUATION","rank":rank,
+       "old_state_match_error_physical":mismatch,
+       "new_trace_defect_before_halfstep_scaled":float(np.max(np.abs(defect),initial=0))}

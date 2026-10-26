@@ -64,7 +64,7 @@ class MVIResidualSeedingTests(unittest.TestCase):
         self.assertTrue(fdm.converged,fdm.status)
         np.testing.assert_allclose(result.mechanical,fdm.mechanical,
                                    rtol=1.e-6,atol=1.e-9)
-        fields=result.scales*(result.lift_scaled+
+        fields=result.scales*(
                               reconstruct_profiles(result.x_profiles,result.y_profiles))
         np.testing.assert_allclose(fields,np.concatenate((result.mechanical,
                                                            result.electrical)),atol=1.e-12)
@@ -79,7 +79,7 @@ class MVIResidualSeedingTests(unittest.TestCase):
         self.assertTrue(result.converged,result.status)
         self.assertLess(result.admissible_residual_scaled,1.e-8)
         self.assertLess(result.constraint_defect_scaled,1.e-10)
-        represented=result.scales*(result.lift_scaled+
+        represented=result.scales*(
                      reconstruct_profiles(result.x_profiles,result.y_profiles))
         np.testing.assert_allclose(represented,
             np.concatenate((result.mechanical,result.electrical)),atol=1.e-12)

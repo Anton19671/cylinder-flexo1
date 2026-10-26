@@ -472,7 +472,7 @@ def run_reference_case(case,case_path):
             if result.electrical is not None:arrays["electrical"]=result.electrical
             if prepared.method=="MVI":
                 arrays.update(x_profiles=result.x_profiles,y_profiles=result.y_profiles,
-                              lift_scaled=result.lift_scaled,state_scales=result.scales)
+                              state_scales=result.scales)
             # Recover physical 3D fields for accepted or failed iterate,
             # preserving the same actual nonlinear state of MVI/FDM.
             arrays.update(recover_thickness_fields(
@@ -675,7 +675,7 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
                 arrays["damping_force"]+=visc.mechanical_force
             if result.electrical is not None:arrays["electrical"]=result.electrical
             if prepared.method=="MVI":arrays.update(x_profiles=result.x_profiles,
-                y_profiles=result.y_profiles,lift_scaled=result.lift_scaled,
+                y_profiles=result.y_profiles,
                 state_scales=result.scales)
             # Recover physical 3D fields for accepted or failed iterate,
             # preserving the same actual nonlinear state of MVI/FDM.

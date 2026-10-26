@@ -2,7 +2,7 @@
 """Small-grid alternating variational solve of the coupled shell enthalpy.
 
 All fields, including potential coefficients, have a separated representation
-u/scales = lift + sum_r X[c,r,x] Y[c,r,s]. Each Newton solve changes ONLY the
+u/scales = sum_r X[c,r,x] Y[c,r,s]. Each Newton solve changes ONLY the
 active family, with the partner frozen and essential traces eliminated. QR
 changes profile coordinates without changing the represented field. There is
 no full-grid equilibrium correction, rank growth or regularization.
@@ -39,7 +39,6 @@ class StaticMVISettings:
 class StaticMVIResult(StaticFDMResult):
     x_profiles: np.ndarray
     y_profiles: np.ndarray
-    lift_scaled: np.ndarray
     scales: np.ndarray
     sweeps: int
     projected_residual_scaled: float
@@ -114,37 +113,26 @@ def solve_static_mvi(problem, mechanical, electrical=None, *, dead_load=None,
     energy_scale=float(f.material.young_pa*f.h*np.sum(f.W))
     c=first.space.matrix*scales[None,:]
     target=first.space.target
-    # Minimal boundary lift is independent of the equilibrium solution and
-    # is the ONLY full-grid affine operation. It applies prescribed traces.
+    # Constraints define admissible tests, NOT a physical additive field.
     full=affine_trace_space(c,target,np.zeros_like(scales))
     if full.basis.shape[1]>settings.max_free_dofs:
         raise ValueError("reference free-DOF limit exceeded")
-    lift=full.origin.copy()
     state=first.state/scales
-    roundoff=100*np.finfo(float).eps*max(c.shape)*max(
-        np.max(abs(state),initial=0),np.max(abs(full.target),initial=0))
-    if np.max(abs(full.defect(state)),initial=0)<=roundoff:
-        # Preserve an accepted separated warm start. A second dense projector
-        # needlessly mixes roundoff from large components into inactive ones.
-        variation=state-lift
-    else:
-        variation=full.basis@(full.basis.T@(state-lift))
     nc=q.shape[0]+(0 if p is None else p.shape[0])
     shape=(nc,*q.shape[1:])
-    initial_scaled=(first.state/scales).reshape(shape)
-    roundoff_scale=np.maximum(np.linalg.norm(initial_scaled,axis=(1,2)),
-                              np.linalg.norm(lift.reshape(shape),axis=(1,2)))
+    initial_scaled=state.reshape(shape)
+    roundoff_scale=np.linalg.norm(initial_scaled,axis=(1,2))
     if previous_mvi_result is None:
-        x,y=_initial_profiles(variation.reshape(shape),mvi_settings.rank,roundoff_scale)
+        x,y=_initial_profiles(initial_scaled,mvi_settings.rank,roundoff_scale)
         initialization="COLD_START"
     else:
         x,y,_=continue_accepted_mvi_profiles(
-            previous_mvi_result,q,p,new_lift_scaled=lift.reshape(shape),
-            new_scales=scales,full_space=full,rank=mvi_settings.rank)
+            previous_mvi_result,q,p,new_scales=scales,
+            full_space=full,rank=mvi_settings.rank)
         initialization="CONTINUATION"
 
     def fields():
-        v=lift+reconstruct_profiles(x,y).ravel()
+        v=reconstruct_profiles(x,y).ravel()
         u=scales*v
         return v,u[:q.size].reshape(q.shape),None if p is None else u[q.size:].reshape(p.shape)
 
@@ -159,6 +147,11 @@ def solve_static_mvi(problem, mechanical, electrical=None, *, dead_load=None,
         return v,qm,pm,float(energy),r,g
 
     def projected_norm(v,r):
+        # No extra nodal field may be inserted to force inhomogeneous traces.
+        # Until X/Y impose them, use full residual as a conservative diagnostic.
+        if np.max(np.abs(full.defect(v)),initial=0)>1.e-9:
+            reduced=full.basis.T@(scales*r)/energy_scale
+            return admissible_nodal_inf_norm(full.basis,reduced)
         norms=[]
         for axis in ("X","Y"):
             xx,yy=_normalize_partner(x,y,axis)
@@ -189,7 +182,10 @@ def solve_static_mvi(problem, mechanical, electrical=None, *, dead_load=None,
              "electrical_residual_scaled":metrics["electrical"],
              "basis_coordinate_residual_scaled":metrics["basis_coordinates"],
              "residual_relative_to_initial":metrics["full"]/initial if initial else 0.,
-             "projected_residual_scaled":projected,"potential_j":energy,
+             "projected_residual_scaled":projected,
+             "projected_diagnostic_applicable":bool(
+                 np.max(np.abs(full.defect(v)),initial=0)<=1.e-9),
+             "potential_j":energy,
              "sweep_field_increment_scaled":(
                  0. if previous_v is None else float(np.max(abs(v-previous_v),initial=0))),
              "constraint_defect_scaled":float(np.max(abs(full.defect(v)),initial=0))}
@@ -197,7 +193,8 @@ def solve_static_mvi(problem, mechanical, electrical=None, *, dead_load=None,
         if on_iteration is not None:on_iteration(dict(row))
 
     record_sweep(0)
-    if initial<=tolerance:converged=True;status="CONVERGED"
+    if initial<=tolerance and np.max(np.abs(full.defect(v)),initial=0)<=1.e-9:
+        converged=True;status="CONVERGED"
     for sweep in range(1,mvi_settings.max_sweeps+1):
         if converged:break
         failed=False
@@ -232,7 +229,8 @@ def solve_static_mvi(problem, mechanical, electrical=None, *, dead_load=None,
         projected=projected_norm(v,r)
         record_sweep(sweep,previous_v)
         if failed:break
-        if admissible_nodal_inf_norm(full.basis,g)<=tolerance:
+        if (admissible_nodal_inf_norm(full.basis,g)<=tolerance
+                and np.max(np.abs(full.defect(v)),initial=0)<=1.e-9):
             converged=True;status="CONVERGED";break
         # The X/Y projected residual is only a diagnostic. Never accept or
         # terminate a fixed-rank sweep while the full coupled admissible
@@ -244,8 +242,8 @@ def solve_static_mvi(problem, mechanical, electrical=None, *, dead_load=None,
     defect=float(np.max(abs(full.defect(v)),initial=0))
     if defect>1.e-9:converged=False;status="BOUNDARY_CONSTRAINT_DRIFT"
     certificate=certify_mvi_solution(
-        x_profiles=x,y_profiles=y,lift_scaled=lift.reshape(shape),
-        scales=scales.reshape(shape),mechanical=qm,electrical=pm,
+        x_profiles=x,y_profiles=y,scales=scales.reshape(shape),
+        mechanical=qm,electrical=pm,
         full_basis=full.basis,reduced_residual=g,
         projected_residual_scaled=projected,
         full_tolerance_scaled=tolerance,constraint_defect_scaled=defect,
@@ -262,7 +260,7 @@ def solve_static_mvi(problem, mechanical, electrical=None, *, dead_load=None,
     norm=certificate["full_admissible_residual_scaled"]
     return StaticMVIResult(converged,status,qm,pm,energy,r.copy(),reaction,norm,
         norm/initial if initial else 0.,defect,tuple(history),iterations,
-        x.copy(),y.copy(),lift.reshape(shape),scales.reshape(shape),sweeps,
+        x.copy(),y.copy(),scales.reshape(shape),sweeps,
         projected,projected<=tolerance,certificate)
 
 

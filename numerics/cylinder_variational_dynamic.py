@@ -36,7 +36,6 @@ class DynamicSpatialResult:
     projected_equilibrium_satisfied: bool | None = None
     x_profiles: np.ndarray | None = None
     y_profiles: np.ndarray | None = None
-    lift_scaled: np.ndarray | None = None
     scales: np.ndarray | None = None
     mvi_certificate: dict | None = None
 
@@ -194,24 +193,22 @@ def solve_dynamic_mvi(problem, mechanical, electrical=None, *, q_predictor,
     c=first.space.matrix*scales[None,:];target=first.space.target
     full=affine_trace_space(c,target,np.zeros_like(scales))
     if full.basis.shape[1]>settings.max_free_dofs:raise ValueError("reference free-DOF limit exceeded")
-    lift=full.origin.copy();state=first.state/scales
-    variation=(state-lift if np.max(abs(full.defect(state)),initial=0)<=1.e-12
-               else full.basis@(full.basis.T@(state-lift)))
+    # No additional 2D boundary field enters the classical X/Y ansatz.
+    state=first.state/scales
     nc=q.shape[0]+(0 if p is None else p.shape[0]);shape=(nc,*q.shape[1:])
-    component_scale=np.maximum(np.linalg.norm(state.reshape(shape),axis=(1,2)),
-                               np.linalg.norm(lift.reshape(shape),axis=(1,2)))
+    component_scale=np.linalg.norm(state.reshape(shape),axis=(1,2))
     if previous_mvi_result is None:
-        x,y=_initial_profiles(variation.reshape(shape),mvi_settings.rank,component_scale)
+        x,y=_initial_profiles(state.reshape(shape),mvi_settings.rank,component_scale)
         initialization="COLD_START"
     else:
         x,y,_=continue_accepted_mvi_profiles(
-            previous_mvi_result,q,p,new_lift_scaled=lift.reshape(shape),
-            new_scales=scales,full_space=full,rank=mvi_settings.rank)
+            previous_mvi_result,q,p,new_scales=scales,
+            full_space=full,rank=mvi_settings.rank)
         initialization="CONTINUATION"
     energy_scale=float(f.material.young_pa*f.h*np.sum(f.W))
 
     def fields():
-        v=lift+reconstruct_profiles(x,y).ravel();u=scales*v
+        v=reconstruct_profiles(x,y).ravel();u=scales*v
         return v,u[:q.size].reshape(q.shape),None if p is None else u[q.size:].reshape(p.shape)
     def full_data():
         v,qm,pm=fields()
@@ -224,6 +221,9 @@ def solve_dynamic_mvi(problem, mechanical, electrical=None, *, q_predictor,
             eta_s=eta_s)
         return (v,)+evaluate(v)
     def projected_norm(v,r):
+        if np.max(np.abs(full.defect(v)),initial=0)>1.e-9:
+            reduced=full.basis.T@(scales*r)/energy_scale
+            return admissible_nodal_inf_norm(full.basis,reduced)
         values=[]
         for axis in ("X","Y"):
             xx,yy=_normalize_partner(x,y,axis)
@@ -253,13 +253,16 @@ def solve_dynamic_mvi(problem, mechanical, electrical=None, *, q_predictor,
              "basis_coordinate_residual_scaled":metrics["basis_coordinates"],
              "residual_relative_to_initial":metrics["full"]/initial if initial else 0.,
              "projected_residual_scaled":projected,
+             "projected_diagnostic_applicable":bool(
+                 np.max(np.abs(full.defect(v)),initial=0)<=1.e-9),
              "sweep_field_increment_scaled":(
                  0. if previous_v is None else float(np.max(abs(v-previous_v),initial=0))),
              "constraint_defect_scaled":float(np.max(abs(full.defect(v)),initial=0))}
         history.append(row)
         if on_iteration is not None:on_iteration(dict(row))
     record(0)
-    if initial<=tolerance:converged=True;status="CONVERGED"
+    if initial<=tolerance and np.max(np.abs(full.defect(v)),initial=0)<=1.e-9:
+        converged=True;status="CONVERGED"
     for sweep in range(1,mvi_settings.max_sweeps+1):
         if converged:break
         failed=False
@@ -290,7 +293,8 @@ def solve_dynamic_mvi(problem, mechanical, electrical=None, *, q_predictor,
         sweeps=sweep
         v,assembled,r,g,qm,pm,velocity,acceleration=full_data();projected=projected_norm(v,r);record(sweep,previous_v)
         if failed:break
-        if admissible_nodal_inf_norm(full.basis,g)<=tolerance:
+        if (admissible_nodal_inf_norm(full.basis,g)<=tolerance
+                and np.max(np.abs(full.defect(v)),initial=0)<=1.e-9):
             converged=True;status="CONVERGED";break
         # The X/Y projected residual is only a diagnostic. Never accept or
         # terminate a fixed-rank sweep while the full coupled admissible
@@ -302,8 +306,8 @@ def solve_dynamic_mvi(problem, mechanical, electrical=None, *, q_predictor,
     defect=float(np.max(abs(full.defect(v)),initial=0))
     if defect>1.e-9:converged=False;status="BOUNDARY_CONSTRAINT_DRIFT"
     certificate=certify_mvi_solution(
-        x_profiles=x,y_profiles=y,lift_scaled=lift.reshape(shape),
-        scales=scales.reshape(shape),mechanical=qm,electrical=pm,
+        x_profiles=x,y_profiles=y,scales=scales.reshape(shape),
+        mechanical=qm,electrical=pm,
         full_basis=full.basis,reduced_residual=g,
         projected_residual_scaled=projected,
         full_tolerance_scaled=tolerance,constraint_defect_scaled=defect,
@@ -319,7 +323,7 @@ def solve_dynamic_mvi(problem, mechanical, electrical=None, *, q_predictor,
     norm=certificate["full_admissible_residual_scaled"]
     return DynamicSpatialResult(converged,status,qm,pm,velocity,acceleration,r.copy(),reaction,
         norm,norm/initial if initial else 0.,defect,tuple(history),iterations,sweeps,
-        projected,projected<=tolerance,x.copy(),y.copy(),lift.reshape(shape),
+        projected,projected<=tolerance,x.copy(),y.copy(),
         scales.reshape(shape),certificate)
 
 

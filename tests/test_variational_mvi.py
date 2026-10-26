@@ -35,7 +35,7 @@ class VariationalMVITest(unittest.TestCase):
         return BoundarySpatialProblem(f,bc_spec=spec),np.zeros((3,nx,ns)),np.zeros((2,nx,ns))
 
     def assert_representation(self,r):
-        u=r.scales*(r.lift_scaled+reconstruct_profiles(r.x_profiles,r.y_profiles))
+        u=r.scales*(reconstruct_profiles(r.x_profiles,r.y_profiles))
         actual=r.mechanical if r.electrical is None else np.concatenate((r.mechanical,r.electrical))
         np.testing.assert_allclose(u,actual,atol=1e-13)
 
@@ -216,7 +216,7 @@ class VariationalMVICaseTest(unittest.TestCase):
             with np.load(root/'mvi'/summary['steps'][0]['state_file']) as a, np.load(root/'fdm'/baseline['steps'][0]['state_file']) as b:
                 np.testing.assert_allclose(a['mechanical'],b['mechanical'],rtol=1e-6,atol=1e-11)
                 np.testing.assert_allclose(a['electrical'],b['electrical'],rtol=1e-5,atol=1e-13)
-                fields=a['state_scales']*(a['lift_scaled']+reconstruct_profiles(a['x_profiles'],a['y_profiles']))
+                fields=a['state_scales']*(reconstruct_profiles(a['x_profiles'],a['y_profiles']))
                 np.testing.assert_allclose(fields,np.concatenate((a['mechanical'],a['electrical'])),atol=1e-15)
                 np.testing.assert_allclose(a['full_residual'],a['constraint_reaction'],atol=1e-8)
 
