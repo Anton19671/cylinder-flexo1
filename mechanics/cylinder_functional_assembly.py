@@ -30,6 +30,7 @@ from flexo_gradient_g3d import G3DMaterial, enthalpy_parts
 from cylinder_kl_exact_inertia import kl_inertial_weak_action, kl_inertial_jet_coefficients
 from cylinder_kelvin_voigt import kelvin_voigt_thickness_weak, KelvinVoigtGlobal
 from cylinder_g3d_natural_edges import axial_natural_end_tractions
+from cylinder_formal_strong_balance import formal_coupled_balance
 from cylinder_sbp_green_reduction import split_coupled_sbp_residual
 from cylinder_sbp_derivatives import (
     SBP_OPERATOR_SCHEME, axial_sbp21_gradient, periodic_sbp_odd_gradient,
@@ -578,6 +579,26 @@ class CylinderFunctional:
         return axial_natural_end_tractions(
             mc,MECHANICAL_DERIVATIVES[:self.n_derivatives],
             self.ops.Dx,self.ops.Ds,electrical_coefficients=ec)
+
+    def formal_strong_balance(self,mechanical,electrical=None,*,derivative,
+                              mechanical_load=None,electrical_charge=None,
+                              velocity=None,acceleration=None,
+                              density_kg_m3=None,eta_s=0.0,
+                              mass_damping_rate_per_s=0.0):
+        """Form the continuum Euler expressions from the full coupled jets.
+
+        The derivative callback differentiates smooth coefficient fields.
+        A strong FDM must supply independently verified compatible face
+        operators and §41 boundary closure before this can become a solve.
+        """
+        mc,ec=self._dynamic_g3d_weak_jet_coefficients(
+            mechanical,electrical,velocity=velocity,
+            acceleration=acceleration,density_kg_m3=density_kg_m3,
+            eta_s=eta_s,
+            mass_damping_rate_per_s=mass_damping_rate_per_s)
+        return formal_coupled_balance(
+            mc,MECHANICAL_DERIVATIVES[:self.n_derivatives],derivative,ec,
+            mechanical_load=mechanical_load,electrical_charge=electrical_charge)
 
     def kelvin_voigt_action(self,mechanical,velocity,*,eta_s):
         """Assemble the nonlinear material dissipative weak force for any theory.
