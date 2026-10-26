@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from cylinder_boundary_spatial import affine_trace_space, separated_profile_directions
+from cylinder_residual_norms import admissible_nodal_inf_norm, admissible_nodal_metrics
 from cylinder_variational_fdm import StaticFDMSettings, state_scales, solve_checked_reduced_tangent
 from cylinder_variational_mvi import (
     StaticMVISettings, reconstruct_profiles, _initial_profiles, _normalize_partner,
@@ -102,13 +103,14 @@ def solve_dynamic_subspace(problem, mechanical, electrical, *, q_predictor,
             eta_s=eta_s)
     v=space.origin.copy()
     assembled,r,g,q,p,velocity,acceleration=evaluate(v)
-    initial=float(np.max(abs(g),initial=0))
+    initial=admissible_nodal_inf_norm(b,g)
     tolerance=settings.absolute_tolerance_scaled+settings.relative_tolerance*initial
     history=[];iterations=0;status="MAX_ITERATIONS";converged=False
     for iteration in range(settings.max_iterations+1):
-        norm=float(np.max(abs(g),initial=0))
+        norm=admissible_nodal_inf_norm(b,g)
         record={"iteration":iteration,"residual_scaled":norm,
-                "residual_relative_to_initial":norm/initial if initial else 0.}
+                "residual_relative_to_initial":norm/initial if initial else 0.,
+                "basis_coordinate_residual_scaled":float(np.max(abs(g),initial=0))}
         history.append(record)
         if on_iteration is not None:on_iteration(dict(record))
         if norm<=tolerance:converged=True;status="CONVERGED";break
@@ -137,7 +139,7 @@ def solve_dynamic_subspace(problem, mechanical, electrical, *, q_predictor,
         except np.linalg.LinAlgError:
             record["tangent_condition"]=float("inf")
             status="SINGULAR_TANGENT_CHECK_SUPPORTS_AND_GAUGE";break
-        merit=float(np.max(abs(g),initial=0))
+        merit=admissible_nodal_inf_norm(b,g)
         for halving in range(settings.max_halvings+1):
             alpha=2.**(-halving);trial=v+b@(alpha*correction)
             try:data=evaluate(trial)
@@ -145,8 +147,9 @@ def solve_dynamic_subspace(problem, mechanical, electrical, *, q_predictor,
                 if "INVALID_" not in str(exc):raise
                 continue
             trial_g=data[2]
-            if (np.max(abs(trial_g),initial=0)<=(1.-1.e-4*alpha)*merit or
-                    np.max(abs(trial_g),initial=0)<=tolerance):
+            trial_norm=admissible_nodal_inf_norm(b,trial_g)
+            if (trial_norm<=(1.-1.e-4*alpha)*merit or
+                    trial_norm<=tolerance):
                 record["step_factor"]=alpha
                 record["increment_scaled"]=float(np.max(abs(alpha*correction),initial=0))
                 v=trial;assembled,r,g,q,p,velocity,acceleration=data
@@ -157,7 +160,7 @@ def solve_dynamic_subspace(problem, mechanical, electrical, *, q_predictor,
     reaction=(scaled_r-admissible)/scales
     defect=float(np.max(abs(space.defect(v)),initial=0))
     if defect>1.e-9:converged=False;status="BOUNDARY_CONSTRAINT_DRIFT"
-    norm=float(np.max(abs(g),initial=0))
+    norm=admissible_nodal_inf_norm(b,g)
     return DynamicSpatialResult(converged,status,q,p,velocity,acceleration,r.copy(),reaction,
         norm,norm/initial if initial else 0.,defect,tuple(history),iterations)
 
@@ -214,7 +217,8 @@ def solve_dynamic_mvi(problem, mechanical, electrical=None, *, q_predictor,
             xx,yy=_normalize_partner(x,y,axis)
             directions=separated_profile_directions(xx,yy,axis)
             space=affine_trace_space(c,target,v,directions=directions)
-            values.append(float(np.max(abs(space.basis.T@(scales*r)/energy_scale),initial=0)))
+            reduced=space.basis.T@(scales*r)/energy_scale
+            values.append(admissible_nodal_inf_norm(space.basis,reduced))
         return max(values)
 
     history=[];iterations=0;sweeps=0;status="MAX_SWEEPS";converged=False
@@ -224,13 +228,20 @@ def solve_dynamic_mvi(problem, mechanical, electrical=None, *, q_predictor,
     admissible=(full.basis@g).reshape(shape)
     x,y=seed_inactive_mvi_partners(x,y,admissible)
     v,assembled,r,g,qm,pm,velocity,acceleration=full_data()
-    initial=float(np.max(abs(g),initial=0));tolerance=settings.absolute_tolerance_scaled+settings.relative_tolerance*initial
+    initial=admissible_nodal_inf_norm(full.basis,g)
+    tolerance=settings.absolute_tolerance_scaled+settings.relative_tolerance*initial
     projected=projected_norm(v,r)
-    def record(sweep):
+    def record(sweep,previous_v=None):
+        metrics=admissible_nodal_metrics(full.basis,g,q.size)
         row={"event":"sweep","sweep":sweep,"iteration":iterations,
-             "residual_scaled":float(np.max(abs(g),initial=0)),
-             "residual_relative_to_initial":float(np.max(abs(g),initial=0))/initial if initial else 0.,
+             "residual_scaled":metrics["full"],
+             "mechanical_residual_scaled":metrics["mechanical"],
+             "electrical_residual_scaled":metrics["electrical"],
+             "basis_coordinate_residual_scaled":metrics["basis_coordinates"],
+             "residual_relative_to_initial":metrics["full"]/initial if initial else 0.,
              "projected_residual_scaled":projected,
+             "sweep_field_increment_scaled":(
+                 0. if previous_v is None else float(np.max(abs(v-previous_v),initial=0))),
              "constraint_defect_scaled":float(np.max(abs(full.defect(v)),initial=0))}
         history.append(row)
         if on_iteration is not None:on_iteration(dict(row))
@@ -239,6 +250,7 @@ def solve_dynamic_mvi(problem, mechanical, electrical=None, *, q_predictor,
     for sweep in range(1,mvi_settings.max_sweeps+1):
         if converged:break
         failed=False
+        previous_v=v.copy()
         for axis in ("X","Y"):
             x,y=_normalize_partner(x,y,axis);v,qm,pm=fields()
             directions=separated_profile_directions(x,y,axis)
@@ -263,14 +275,15 @@ def solve_dynamic_mvi(problem, mechanical, electrical=None, *, q_predictor,
             if not result.converged:
                 status="HALFSTEP_"+axis+"_"+result.status;failed=True;break
         sweeps=sweep
-        v,assembled,r,g,qm,pm,velocity,acceleration=full_data();projected=projected_norm(v,r);record(sweep)
+        v,assembled,r,g,qm,pm,velocity,acceleration=full_data();projected=projected_norm(v,r);record(sweep,previous_v)
         if failed:break
-        if np.max(abs(g),initial=0)<=tolerance:converged=True;status="CONVERGED";break
+        if admissible_nodal_inf_norm(full.basis,g)<=tolerance:
+            converged=True;status="CONVERGED";break
         if projected<=tolerance:status="PROJECTED_ONLY_FULL_RESIDUAL_NOT_CONVERGED";break
     defect=float(np.max(abs(full.defect(v)),initial=0))
     if defect>1.e-9:converged=False;status="BOUNDARY_CONSTRAINT_DRIFT"
     scaled_r=scales*r;reaction=(scaled_r-full.basis@(full.basis.T@scaled_r))/scales
-    norm=float(np.max(abs(g),initial=0))
+    norm=admissible_nodal_inf_norm(full.basis,g)
     return DynamicSpatialResult(converged,status,qm,pm,velocity,acceleration,r.copy(),reaction,
         norm,norm/initial if initial else 0.,defect,tuple(history),iterations,sweeps,
         projected,projected<=tolerance,x.copy(),y.copy(),lift.reshape(shape),scales.reshape(shape))

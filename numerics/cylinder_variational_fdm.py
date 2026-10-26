@@ -13,6 +13,7 @@ from scipy.linalg import LinAlgWarning, lu_factor, lu_solve, get_lapack_funcs
 
 from cylinder_boundary_spatial import affine_trace_space
 from cylinder_variational_boundary import combine_functional_and_boundary
+from cylinder_residual_norms import admissible_nodal_inf_norm
 
 
 @dataclass(frozen=True)
@@ -153,16 +154,17 @@ def solve_static_subspace(problem, mechanical, electrical=None, *, dead_load=Non
 
     v=space.origin.copy()
     energy,r,g=evaluate(v)
-    initial_norm=float(np.max(abs(g),initial=0))
+    initial_norm=admissible_nodal_inf_norm(b,g)
     tolerance=settings.absolute_tolerance_scaled+settings.relative_tolerance*initial_norm
     history=[]
     status="MAX_ITERATIONS"
     converged=False
     iterations=0
     for iteration in range(settings.max_iterations+1):
-        norm=float(np.max(abs(g),initial=0))
+        norm=admissible_nodal_inf_norm(b,g)
         record={"iteration":iteration,"residual_scaled":norm,
                 "residual_relative_to_initial":norm/initial_norm if initial_norm else 0.,
+                "basis_coordinate_residual_scaled":float(np.max(abs(g),initial=0)),
                 "potential_j":float(energy)}
         history.append(record)
         if on_iteration is not None:on_iteration(dict(record))
@@ -193,7 +195,7 @@ def solve_static_subspace(problem, mechanical, electrical=None, *, dead_load=Non
         except np.linalg.LinAlgError:
             record["tangent_condition"]=float("inf")
             status="SINGULAR_TANGENT_CHECK_SUPPORTS_AND_GAUGE";break
-        merit=float(np.max(abs(g),initial=0))
+        merit=admissible_nodal_inf_norm(b,g)
         for halving in range(settings.max_halvings+1):
             alpha=2.**(-halving)
             trial=v+b@(alpha*correction)
@@ -201,8 +203,9 @@ def solve_static_subspace(problem, mechanical, electrical=None, *, dead_load=Non
             except ValueError as exc:
                 if "INVALID_" not in str(exc):raise
                 continue
-            if (np.max(abs(trial_g),initial=0)<=(1.-1.e-4*alpha)*merit or
-                    np.max(abs(trial_g),initial=0)<=tolerance):
+            trial_norm=admissible_nodal_inf_norm(b,trial_g)
+            if (trial_norm<=(1.-1.e-4*alpha)*merit or
+                    trial_norm<=tolerance):
                 record["step_factor"]=alpha
                 record["increment_scaled"]=float(np.max(abs(alpha*correction),initial=0))
                 v,energy,r,g=trial,trial_energy,trial_r,trial_g
@@ -221,8 +224,8 @@ def solve_static_subspace(problem, mechanical, electrical=None, *, dead_load=Non
     u=scales*v
     return StaticFDMResult(converged,status,u[:q.size].reshape(q.shape),
         None if p is None else u[q.size:].reshape(p.shape),float(energy),r.copy(),reaction,
-        float(np.max(abs(g),initial=0)),
-        float(np.max(abs(g),initial=0))/initial_norm if initial_norm else 0.,
+        admissible_nodal_inf_norm(b,g),
+        admissible_nodal_inf_norm(b,g)/initial_norm if initial_norm else 0.,
         defect,tuple(history),iterations)
 
 

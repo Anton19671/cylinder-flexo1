@@ -16,6 +16,7 @@ from cylinder_variational_fdm import (
     StaticFDMSettings, StaticFDMResult, solve_static_subspace, state_scales,
 )
 from cylinder_variational_boundary import combine_functional_and_boundary
+from cylinder_residual_norms import admissible_nodal_inf_norm, admissible_nodal_metrics
 from cylinder_mvi_cold_start import seed_inactive_mvi_partners
 
 
@@ -153,7 +154,8 @@ def solve_static_mvi(problem, mechanical, electrical=None, *, dead_load=None,
             xx,yy=_normalize_partner(x,y,axis)
             directions=separated_profile_directions(xx,yy,axis)
             space=affine_trace_space(c,target,v,directions=directions)
-            norms.append(float(np.max(abs(space.basis.T@(scales*r)/energy_scale),initial=0)))
+            reduced=space.basis.T@(scales*r)/energy_scale
+            norms.append(admissible_nodal_inf_norm(space.basis,reduced))
         return max(norms)
 
     history=[];iterations=0;sweeps=0;status="MAX_SWEEPS";converged=False
@@ -164,15 +166,21 @@ def solve_static_mvi(problem, mechanical, electrical=None, *, dead_load=None,
     admissible=(full.basis@g).reshape(shape)
     x,y=seed_inactive_mvi_partners(x,y,admissible)
     v,qm,pm,energy,r,g=evaluate()
-    initial=float(np.max(abs(g),initial=0))
+    initial=admissible_nodal_inf_norm(full.basis,g)
     tolerance=settings.absolute_tolerance_scaled+settings.relative_tolerance*initial
     projected=projected_norm(v,r)
 
-    def record_sweep(sweep):
+    def record_sweep(sweep,previous_v=None):
+        metrics=admissible_nodal_metrics(full.basis,g,q.size)
         row={"event":"sweep","sweep":sweep,"iteration":iterations,
-             "residual_scaled":float(np.max(abs(g),initial=0)),
-             "residual_relative_to_initial":float(np.max(abs(g),initial=0))/initial if initial else 0.,
+             "residual_scaled":metrics["full"],
+             "mechanical_residual_scaled":metrics["mechanical"],
+             "electrical_residual_scaled":metrics["electrical"],
+             "basis_coordinate_residual_scaled":metrics["basis_coordinates"],
+             "residual_relative_to_initial":metrics["full"]/initial if initial else 0.,
              "projected_residual_scaled":projected,"potential_j":energy,
+             "sweep_field_increment_scaled":(
+                 0. if previous_v is None else float(np.max(abs(v-previous_v),initial=0))),
              "constraint_defect_scaled":float(np.max(abs(full.defect(v)),initial=0))}
         history.append(row)
         if on_iteration is not None:on_iteration(dict(row))
@@ -182,6 +190,7 @@ def solve_static_mvi(problem, mechanical, electrical=None, *, dead_load=None,
     for sweep in range(1,mvi_settings.max_sweeps+1):
         if converged:break
         failed=False
+        previous_v=v.copy()
         for axis in ("X","Y"):
             x,y=_normalize_partner(x,y,axis)
             v,qm,pm=fields()
@@ -210,9 +219,9 @@ def solve_static_mvi(problem, mechanical, electrical=None, *, dead_load=None,
         sweeps=sweep
         v,qm,pm,energy,r,g=evaluate()
         projected=projected_norm(v,r)
-        record_sweep(sweep)
+        record_sweep(sweep,previous_v)
         if failed:break
-        if np.max(abs(g),initial=0)<=tolerance:
+        if admissible_nodal_inf_norm(full.basis,g)<=tolerance:
             converged=True;status="CONVERGED";break
         if projected<=tolerance:
             status="PROJECTED_ONLY_FULL_RESIDUAL_NOT_CONVERGED";break
@@ -220,7 +229,7 @@ def solve_static_mvi(problem, mechanical, electrical=None, *, dead_load=None,
     if defect>1.e-9:converged=False;status="BOUNDARY_CONSTRAINT_DRIFT"
     scaled_r=scales*r
     reaction=(scaled_r-full.basis@(full.basis.T@scaled_r))/scales
-    norm=float(np.max(abs(g),initial=0))
+    norm=admissible_nodal_inf_norm(full.basis,g)
     return StaticMVIResult(converged,status,qm,pm,energy,r.copy(),reaction,norm,
         norm/initial if initial else 0.,defect,tuple(history),iterations,
         x.copy(),y.copy(),lift.reshape(shape),scales.reshape(shape),sweeps,
