@@ -104,7 +104,7 @@ def assess_rank_series(fdm_folder, mvi_runs, *, field_tolerances,
     for rank in range(1,9):
         if rank not in passed:continue
         if any(smaller not in attempted for smaller in range(1,rank)):continue
-        if require_adjacent_rank and rank+1 not in passed:continue
+        if require_adjacent_rank and (rank+1 if rank<8 else 7) not in passed:continue
         candidate=rank
         break
     return {"comparison":"MVI ranks versus independently computed FDM",
