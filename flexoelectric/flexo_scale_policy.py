@@ -5,8 +5,9 @@
 MACRO: existing classical elastic cylinder, no strain-gradient/flexo terms.
 MICRO: selectable full G3D or thickness-only Gz gradient elasticity,
 with optional bidirectional flexoelectric coupling.
-The MICRO numerical solver is not connected at this stage; inputs can be
-validated and saved, but never dispatched as an existing macro solution.
+MICRO calculations require the explicit VARIATIONAL_REFERENCE backend. This
+module reports the selected route; full CASE validation belongs to
+prepare_reference_case and is not implied by the status string.
 """
 from __future__ import annotations
 
@@ -96,11 +97,13 @@ def numerical_status(case):
     scale = scale_from_case(case)
     if scale == "MACRO":
         return "EXISTING_CLASSICAL_ELASTIC"
-    micro_material_from_case(case)
     model=micro_material_from_case(case).gradient_model
-    return ("NOT_IMPLEMENTED_COUPLED_"+model if flexoelectric_enabled(case)
-            else "NOT_IMPLEMENTED_GRADIENT_"+model)
+    if str(case.get("solver_backend","")).upper()!="VARIATIONAL_REFERENCE":
+        return "EXPLICIT_VARIATIONAL_BACKEND_REQUIRED"
+    return ("REFERENCE_COUPLED_"+model if flexoelectric_enabled(case)
+            else "REFERENCE_GRADIENT_"+model)
 
 
 __all__ = ("SCALES", "MICRO_GRADIENT_MODEL", "MICRO_GRADIENT_MODELS", "scale_from_case",
            "micro_material_from_case", "flexoelectric_enabled", "numerical_status")
+
