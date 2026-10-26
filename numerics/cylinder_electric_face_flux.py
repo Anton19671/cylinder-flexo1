@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 import numpy as np
+from cylinder_staggered_surface import StaggeredCylinderSurface
 
 
 @dataclass(frozen=True)
@@ -43,21 +44,15 @@ def dielectric_face_flux_fdm(potential_v, *, length_m, radius_m, thickness_m,
     if (not all(map(math.isfinite,(L,R,h,kappa))) or
             L<=0 or h<=0 or R<=h/2 or kappa<=0):
         raise ValueError("require L>0, R>h/2>0, kappa>0")
-    dx=L/(nx-1)
-    ds=2*math.pi*R/ns
-    wx=np.full(nx,dx,float)
-    wx[[0,-1]]*=.5
+    surface=StaggeredCylinderSurface(nx,ns,L,R)
+    dx,ds,wx=surface.dx,surface.ds,surface.wx
     # Stable integration: int[-h/2,h/2] dz/(1+z/R).
     is_thickness=R*math.log1p(h/(R-h/2))
-    gx=(phi[1:]-phi[:-1])/dx
-    gs=(np.roll(phi,-1,axis=1)-phi)/ds
+    gx,gs=surface.gradients(phi)
     # D = kappa*E, E=-grad(phi). These are thickness integrated C/m.
     fx=-kappa*h*gx
     fs=-kappa*is_thickness*gs
-    residual=np.zeros_like(phi)
-    residual[:-1]-=ds*fx
-    residual[1:]+=ds*fx
-    residual+=wx[:,None]*(np.roll(fs,1,axis=1)-fs)
+    residual=surface.weak_face_action(fx,fs)
     energy=-.5*kappa*(h*dx*ds*float(np.sum(gx*gx))+
                        is_thickness*ds*float(np.sum(wx[:,None]*gs*gs)))
     if free_charge_c_per_m2 is not None:
