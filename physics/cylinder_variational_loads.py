@@ -133,7 +133,10 @@ def _component_projection(functional, z, H, face, pressure):
     out=np.zeros((n,nx,ns),float)
     theory=str(functional.theory).upper()
     if theory.startswith("CUF_TE"):
-        order=int(theory[-1]);m=order+1
+        suffix=theory[len("CUF_TE"):]
+        if not suffix.isdecimal():
+            raise ValueError("CUF theory must have a numeric TE order")
+        order=int(suffix);m=order+1
         if n!=3*m:raise ValueError("CUF field order differs from TE ansatz")
         xi=2*z/functional.h
         for k in range(m):
@@ -226,21 +229,30 @@ def project_radial_load(functional, definition):
         front_x=_number(definition.get("edge_width_x",min(2*step_x,x2-x1)),
                         "edge_width_x",positive=True)
         x_window=_axial_window(x,x1,x2,L,front_x)
-        full=_flag(definition.get("full_circumference",typ in (
-            "UNIFORM_RADIAL_FACE","HARMONIC_RADIAL_FACE")),
-                   "full_circumference")
-        if full:
-            if "c1" in definition or "c2" in definition:
-                raise ValueError("full_circumference cannot also set c1/c2")
-            c_window=np.ones(ns,float)
+        if typ=="LINE_RADIAL_GENERATOR":
+            # The line band is set by c0/band_width, never by patch c1/c2.
+            unused={"c1","c2","edge_width_c","full_circumference"} & set(definition)
+            if unused:
+                raise ValueError(
+                    f"LINE generator does not use patch-window fields: {sorted(unused)}")
+            full=False
+            c_window=np.ones(ns,float)  # overwritten by the physical C1 band below
         else:
-            c1=_number(definition.get("c1"),"c1")
-            c2=_number(definition.get("c2"),"c2")
-            edge_c=_number(definition.get("edge_width_c",min(
-                2*step_s/R if coord_mode=="THETA" else 2*step_s,
-                (c2-c1)%(2*np.pi if coord_mode=="THETA" else period))),
-                "edge_width_c",positive=True)
-            c_window=_circumferential_window(s,c1,c2,R,coord_mode,edge_c)
+            full=_flag(definition.get("full_circumference",typ in (
+                "UNIFORM_RADIAL_FACE","HARMONIC_RADIAL_FACE")),
+                       "full_circumference")
+            if full:
+                if "c1" in definition or "c2" in definition:
+                    raise ValueError("full_circumference cannot also set c1/c2")
+                c_window=np.ones(ns,float)
+            else:
+                c1=_number(definition.get("c1"),"c1")
+                c2=_number(definition.get("c2"),"c2")
+                edge_c=_number(definition.get("edge_width_c",min(
+                    2*step_s/R if coord_mode=="THETA" else 2*step_s,
+                    (c2-c1)%(2*np.pi if coord_mode=="THETA" else period))),
+                    "edge_width_c",positive=True)
+                c_window=_circumferential_window(s,c1,c2,R,coord_mode,edge_c)
         indicator=np.outer(x_window,c_window)
         expected=None;normalized=False;intensity="Pa"
         if typ in ("UNIFORM_RADIAL_FACE","PATCH_RADIAL_FACE"):
