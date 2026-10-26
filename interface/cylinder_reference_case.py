@@ -14,6 +14,7 @@ from cylinder_boundary_spatial import BoundarySpatialProblem
 from cylinder_variational_fdm import StaticFDMSettings, solve_static_fdm, state_scales
 from cylinder_variational_mvi import StaticMVISettings, solve_static_mvi
 from cylinder_physical_fields import recover_thickness_fields
+from cylinder_face_conditions import face_conditions_from_recovery
 from cylinder_variational_dynamic import solve_dynamic_fdm, solve_dynamic_mvi
 from cylinder_newmark_mvi import NewmarkSettings, validate_dynamic_case
 from cylinder_dynamic_loads import normalize_time_law
@@ -88,6 +89,7 @@ class ReferenceDynamics:
 def prepare_reference_case(case, *, base_dir=None):
     """Validate without creating directories or substituting another backend."""
     if selected_backend(case)!=BACKEND:raise ValueError("explicit reference backend required")
+    _postprocess_options(case)
     kind=str(case.get("calculation_kind","")).upper()
     if kind not in ("STATIC","DYNAMIC"):
         raise ValueError("reference backend requires STATIC or DYNAMIC")
@@ -394,6 +396,22 @@ def _write_dynamic_history(path,steps):
     os.replace(temp,path)
 
 
+def _postprocess_options(case):
+    data=case.get("postprocess",{})
+    if not isinstance(data,dict) or set(data)-{
+            "thickness_stations","electric_induction_scale_c_per_m2"}:
+        raise ValueError(
+            "postprocess permits thickness_stations and electric_induction_scale_c_per_m2")
+    n=_integer(data.get("thickness_stations",11),
+               "postprocess.thickness_stations",3)
+    if n>201:
+        raise ValueError("postprocess.thickness_stations must be <=201")
+    scale=data.get("electric_induction_scale_c_per_m2")
+    if scale is not None:
+        scale=_real(scale,"postprocess.electric_induction_scale_c_per_m2",True)
+    return {"thickness_stations":n,"electric_induction_scale_c_per_m2":scale}
+
+
 def run_reference_case(case,case_path):
     prepared=prepare_reference_case(case,base_dir=Path(case_path).parent)
     if prepared.calculation_kind=="DYNAMIC":
@@ -412,6 +430,7 @@ def run_reference_case(case,case_path):
              "status":"NOT_STARTED","converged":False,"accepted_steps":0,
              "steps":[],"mesh_convergence_verified":False}
     functional=prepared.problem.functional
+    postprocess=_postprocess_options(case)
     summary.update(scale_model=case["scale_model"],
         gradient_enabled=functional.material.ell_m>0,
         gradient_model=functional.material.gradient_model_label,
@@ -455,7 +474,13 @@ def run_reference_case(case,case_path):
             # preserving the same actual nonlinear state of MVI/FDM.
             arrays.update(recover_thickness_fields(
                 functional,result.mechanical,result.electrical,
-                n_thickness=11))
+                n_thickness=postprocess["thickness_stations"]))
+            face_arrays,face_summary=face_conditions_from_recovery(
+                functional,arrays,prepared.problem.spec,
+                calculation_kind="STATIC",
+                electric_induction_scale_c_per_m2=postprocess[
+                    "electric_induction_scale_c_per_m2"])
+            arrays.update(face_arrays)
             with temp.open("wb") as stream:np.savez_compressed(stream,**arrays)
             os.replace(temp,out/state_name)
             history_name=f"REFERENCE_{'MVI' if prepared.method=='MVI' else 'NEWTON'}_{index:04d}.json"
@@ -472,7 +497,12 @@ def run_reference_case(case,case_path):
                   "constraint_defect_scaled":result.constraint_defect_scaled,
                   "max_mechanical_coefficient_abs":float(np.max(abs(result.mechanical))),
                   "max_potential_coefficient_abs":None if result.electrical is None else float(np.max(abs(result.electrical))),
-                  "state_file":state_name,"history_file":history_name}
+                  "state_file":state_name,"history_file":history_name,
+                  "face_conditions":face_summary,
+                  "radial_face_displacement_inner_abs_max_m":float(
+                      np.max(np.abs(arrays["face_inner_radial_displacement_m"]))),
+                  "radial_face_displacement_outer_abs_max_m":float(
+                      np.max(np.abs(arrays["face_outer_radial_displacement_m"])))}
             if prepared.method=="MVI":
                 step.update(sweeps=result.sweeps,projected_residual_scaled=result.projected_residual_scaled,
                             projected_equilibrium_satisfied=result.projected_equilibrium_satisfied,
@@ -507,6 +537,7 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
     out.mkdir(parents=True,exist_ok=True)
     _write_json(out/"REFERENCE_CASE.json",case)
     dyn=prepared.dynamics;newmark=dyn.settings;f=prepared.problem.functional
+    postprocess=_postprocess_options(case)
     summary={"solver_backend":BACKEND,"experimental":True,"calculation_kind":"DYNAMIC",
         "method":prepared.method,"theory":f.theory,"geometry_model":"GREEN_LAGRANGE",
         "material_model":"HOOKE","field_order":"component,x,s",
@@ -640,7 +671,13 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
             # preserving the same actual nonlinear state of MVI/FDM.
             arrays.update(recover_thickness_fields(
                 f,result.mechanical,result.electrical,
-                n_thickness=11))
+                n_thickness=postprocess["thickness_stations"]))
+            face_arrays,face_summary=face_conditions_from_recovery(
+                f,arrays,prepared.problem.spec,
+                calculation_kind="DYNAMIC",time_s=time_s,
+                electric_induction_scale_c_per_m2=postprocess[
+                    "electric_induction_scale_c_per_m2"])
+            arrays.update(face_arrays)
             with temp.open("wb") as stream:np.savez_compressed(stream,**arrays)
             os.replace(temp,out/state_name)
             history_name=f"REFERENCE_DYNAMIC_{prepared.method}_{index:04d}.json"
@@ -661,7 +698,12 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
                 "max_potential_coefficient_abs":None if result.electrical is None else float(np.max(abs(result.electrical))),
                 "state_file":state_name,"history_file":history_name,
                 "full_equilibrium_satisfied":accepted,
-                "full_newmark_residual_tolerance":newmark.residual_tolerance_relative}
+                "full_newmark_residual_tolerance":newmark.residual_tolerance_relative,
+                "face_conditions":face_summary,
+                "radial_face_displacement_inner_abs_max_m":float(
+                    np.max(np.abs(arrays["face_inner_radial_displacement_m"]))),
+                "radial_face_displacement_outer_abs_max_m":float(
+                    np.max(np.abs(arrays["face_outer_radial_displacement_m"])))}
             if prepared.method=="MVI":step.update(
                 projected_residual_scaled=result.projected_residual_scaled,
                 projected_equilibrium_satisfied=result.projected_equilibrium_satisfied,
