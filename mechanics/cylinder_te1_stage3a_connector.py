@@ -33,6 +33,15 @@ def derivative_matrix_periodic_uniform(length,n,order=1,stencil=7):
     length=float(length); n=int(n); stencil=int(stencil)
     if length<=0 or n<stencil or stencil<3 or stencil%2!=1 or order>=stencil:
         raise ValueError("invalid periodic derivative parameters")
+    # A centered odd-order periodic derivative on an even grid annihilates
+    # the non-constant Nyquist mode (-1)^j.  That artificial zero mode makes
+    # the subsequent MVI and strong-FDM discretizations non-injective.
+    # The grid geometry itself can be even: fail at the incompatible operator,
+    # including direct calls that bypass the CASE launchers.
+    if order%2 and n%2==0:
+        raise ValueError(
+            "CENTRAL_PERIODIC_DERIVATIVE_REQUIRES_ODD_NS: "
+            "even ns creates a checkerboard null mode (-1)^j")
     h=length/n; half=stencil//2
     offsets=np.arange(-half,half+1,dtype=int)
     weights=_fd_weights(0.0,offsets.astype(float)*h,order)
