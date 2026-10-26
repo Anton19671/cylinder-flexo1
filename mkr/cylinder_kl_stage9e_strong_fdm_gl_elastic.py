@@ -350,11 +350,6 @@ def analytic_tangent_action(
     """Unsupported: legacy hybrid tangent differs from current GL residual."""
     raise NotImplementedError(
         "GL_ANALYTIC_TANGENT_NOT_CONSISTENT_WITH_CURRENT_RESIDUAL")
-    action=_prepare_exact_elastic_tangent_action(
-        U,ops,bc,E=E,nu=nu,h=h,resultants_method=resultants_method,
-        quadrature=quadrature,
-    )
-    return action(dU)
 
 
 def analytic_jacobian(
@@ -364,23 +359,6 @@ def analytic_jacobian(
     """Unsupported: do not expose a Jacobian of obsolete GL equations."""
     raise NotImplementedError(
         "GL_ANALYTIC_JACOBIAN_NOT_CONSISTENT_WITH_CURRENT_RESIDUAL")
-    U=fl._validate_U(U,ops)
-    action=_prepare_exact_elastic_tangent_action(
-        U,ops,bc,E=E,nu=nu,h=h,resultants_method=resultants_method,
-        quadrature=quadrature,
-    )
-    J,stats=v3an.assemble_dense_exact_tangent(U,action)
-    analytic_jacobian.last_stats=stats.to_dict()
-    if base_residual is None:
-        r0,*_=strong_collocation_residual_gl(
-            U,ops,bc,E=E,nu=nu,h=h,generalized_load=generalized_load,
-            resultants_method=resultants_method,quadrature=quadrature,
-        )
-    else:
-        r0=np.asarray(base_residual,float).reshape(-1)
-        if r0.shape!=(U.size,):
-            raise ValueError("base_residual size mismatch")
-    return J,r0
 
 
 analytic_jacobian.last_stats=None
