@@ -194,6 +194,31 @@ def solve_j2_mvi_load_step(
     )
 
 
+
+def _retryable_j2_step_failure(failure):
+    """Only a documented numerical failure can trigger bounded bisection.
+
+    Input, grid, seed and shape errors cannot be cured by load increments.
+    This is the same whitelist/blacklist contract as CUF J2-MVI.
+    """
+    message=str(failure).upper()
+    nonretry=(
+        "MISSING_REQUIRED_INPUT", "UNSPECIFIED_REQUIRED_INPUT",
+        "SHAPE MISMATCH", "MUST HAVE SHAPE", "NON-FINITE",
+        "NONFINITE", "VALUEERROR:", "GENERALCASEINPUTERROR",
+        "INITIAL_PROFILE_SEED_REQUIRED",
+    )
+    retryable=(
+        "DET(F)>0", "DET_F", "INVALID_DEFORMATION_MAPPING",
+        "NOT_CONVERGED", "NOT CONVERGE", "MAX_HALFSTEP",
+        "HALFSTEPDIDNOTCONVERGE", "MAX_XY",
+        "GUARDED_CORRECTION_FAILED", "LOCAL RETURN MAPPING",
+        "LOCAL J2", "DIVERG",
+    )
+    return (not any(tag in message for tag in nonretry)
+            and any(tag in message for tag in retryable))
+
+
 def solve_j2_explicit_load_series(
     initial_state, ops, *, geometry, initial_history, parameters: J2Parameters,
     quadrature, load_steps, load_factors, bc, settings,
@@ -258,17 +283,41 @@ def solve_j2_explicit_load_series(
             failure = None if result.converged else str(result.status)
 
         if failure is not None:
-            if automatic_step_subdivision and int(job["depth"]) < int(max_subdivision_depth):
-                midpoint = {
-                    "load": 0.5 * (current_load + job["load"]),
-                    "factor": 0.5 * (current_factor + float(job["factor"])),
-                    "requested_index": int(job["requested_index"]),
-                    "depth": int(job["depth"]) + 1,
-                    "is_substep": True,
-                }
-                queue[pos:pos + 1] = [midpoint, job]
-                subdivisions += 1
-                continue
+            can_split=(
+                bool(automatic_step_subdivision)
+                and _retryable_j2_step_failure(failure)
+                and int(job["depth"]) < int(max_subdivision_depth)
+            )
+            if can_split:
+                next_depth=int(job["depth"])+1
+                mid_factor=0.5*(current_factor+float(job["factor"]))
+                mid_load=0.5*(current_load+job["load"])
+                # Require actual progress in BOTH the user factor and load.
+                # This also stops floating-point midpoint stagnation.
+                if (mid_factor!=current_factor
+                    and mid_factor!=float(job["factor"])
+                    and not np.array_equal(mid_load,current_load)
+                    and not np.array_equal(mid_load,job["load"])):
+                    job["depth"]=next_depth
+                    midpoint={
+                        "load": mid_load,
+                        "factor": mid_factor,
+                        "requested_index": int(job["requested_index"]),
+                        "depth": next_depth,
+                        "is_substep": True,
+                    }
+                    queue[pos:pos+1]=[midpoint,job]
+                    subdivisions+=1
+                    fprog.emit(
+                        "load_step_subdivided",
+                        stage="LOAD_STEP_SUBDIVISION",
+                        requested_step_index=int(job["requested_index"]),
+                        subdivision_depth=next_depth,
+                        midpoint_factor=float(mid_factor),
+                        failed_target_factor=float(job["factor"]),
+                        failure_status=str(failure),
+                    )
+                    continue
             return KLJ2MVILoadSeriesResult(
                 False, "LOAD_SERIES_STOPPED", len(loads), accepted,
                 int(job["requested_index"]), failure, subdivisions,
