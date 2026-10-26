@@ -9,6 +9,7 @@ no full-grid equilibrium correction, rank growth or regularization.
 """
 from dataclasses import dataclass
 import numpy as np
+from scipy.linalg import qr as pivoted_qr
 
 from cylinder_boundary_spatial import affine_trace_space, separated_profile_directions
 from cylinder_variational_fdm import (
@@ -78,8 +79,12 @@ def _initial_profiles(field,rank,roundoff_scale):
         if np.linalg.norm(field[c])<=noise:
             y[c]=bank
         else:
-            u,s,v=np.linalg.svd(field[c],full_matrices=False)
-            x[c]=(u[:,:rank]*s[:rank]).T;y[c]=v[:rank]
+            # Pivoted QR selects an independent row space without SVD.
+            # The represented field must already fit the requested fixed rank.
+            q,_,_=pivoted_qr(field[c].T,mode="economic",pivoting=True,
+                             check_finite=False)
+            y[c]=q[:,:rank].T
+            x[c]=field[c]@q[:,:rank]
             error=np.linalg.norm(x[c].T@y[c]-field[c])
             # Ignore only backward error of the affine projection/previous
             # profile reconstruction, scaled to this component's own units.
