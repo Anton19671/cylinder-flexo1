@@ -10,6 +10,7 @@ from cylinder_functional_assembly import MECHANICAL_DERIVATIVES,ELECTRICAL_DERIV
 from flexo_gradient_g3d import enthalpy_derivatives,enthalpy_parts
 from cylinder_director_g3d import _displacement as _director_displacement
 from cylinder_kl_g3d_weak import _data as _kl_data, _normal_jets as _kl_normal_jets
+from cylinder_normal_double_traction import recover_normal_double_traction
 
 
 def recover_thickness_fields(functional,mechanical,electrical=None,*,n_thickness=11):
@@ -34,6 +35,8 @@ def recover_thickness_fields(functional,mechanical,electrical=None,*,n_thickness
     gradient=np.empty((n,nx,ns,6,3))
     stress=np.empty_like(strain)
     hyper=np.empty_like(gradient)
+    classical_nominal=np.empty((n,nx,ns,3,3))
+    double_traction=np.empty((n,nx,ns,3))
     electric=np.empty((n,nx,ns,3))
     induction=np.empty_like(electric)
     deformation_determinant=np.empty((n,nx,ns))
@@ -63,13 +66,21 @@ def recover_thickness_fields(functional,mechanical,electrical=None,*,n_thickness
                 gradient[k,i,j]=point.gradient6x3
                 stress[k,i,j]=s
                 hyper[k,i,j]=m
+                nominal,double=recover_normal_double_traction(
+                    point.deformation_gradient,s,m)
+                classical_nominal[k,i,j]=nominal
+                double_traction[k,i,j]=double
                 electric[k,i,j]=point.electric3
                 induction[k,i,j]=d
-                deformation_determinant[k,i,j]=point.determinant
+                deformation_determinant[k,i,j]=(
+                    point.det_f if hasattr(point,"det_f") else point.determinant)
                 energy[k,i,j]=enthalpy_parts(point.strain6,point.gradient6x3,
                                      point.electric3,functional.material)["total"]
     arrays=dict(z_m=z,displacement3_m=displacement,strain6=strain,gradient6x3=gradient,stress6_pa=stress,
-        hyperstress6x3_pa_m=hyper,electric3_v_per_m=electric,
+        hyperstress6x3_pa_m=hyper,
+        classical_first_piola3x3_pa=classical_nominal,
+        normal_double_traction3_n_per_m=double_traction,
+        electric3_v_per_m=electric,
         induction3_c_per_m2=induction,det_F=deformation_determinant,
         enthalpy_j_per_m3=energy)
     if any(not np.isfinite(value).all() for value in arrays.values()):
@@ -78,6 +89,10 @@ def recover_thickness_fields(functional,mechanical,electrical=None,*,n_thickness
     arrays["face_outer_displacement3_m"]=displacement[-1].copy()
     arrays["face_inner_radial_displacement_m"]=displacement[0,:,:,2].copy()
     arrays["face_outer_radial_displacement_m"]=displacement[-1,:,:,2].copy()
+    for side,k,normal in (("inner",0,-1.),("outer",-1,1.)):
+        arrays[f"face_{side}_normal_double_traction3_n_per_m"]=double_traction[k].copy()
+        arrays[f"face_{side}_classical_piola_outward_normal3_pa"]=(
+            normal*classical_nominal[k,:,:, :,2]).copy()
     arrays["face_inner_stress6_pa"]=stress[0].copy()
     arrays["face_outer_stress6_pa"]=stress[-1].copy()
     arrays["face_inner_induction3_c_per_m2"]=induction[0].copy()

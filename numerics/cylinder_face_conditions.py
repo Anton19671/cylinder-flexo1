@@ -43,6 +43,21 @@ def face_conditions_from_recovery(functional, recovered, boundary_spec, *,
             "message":"Classical stress alone omits higher tractions, curvature and edge terms"
         }
     }
+    # Only the normal-normal double traction is locally available.
+    # The COMPLETE generalized mechanical traction still requires the
+    # surface divergence of higher-order stress and curvature/edge terms.
+    # Do not classify this partial diagnostic as a strong-form PASS.
+    for side in ("inner","outer"):
+        name=f"face_{side}_normal_double_traction3_n_per_m"
+        if name not in recovered:
+            raise ValueError(f"missing mechanical double-traction recovery: {name}")
+        g=np.asarray(recovered[name],float)
+        if g.shape!=(*functional.ops.shape,3) or not np.isfinite(g).all():
+            raise ValueError("invalid mechanical face double-traction shape")
+        report["mechanical_face_strong_check"][f"{side}_double_traction_abs_max_n_per_m"]=(
+            float(np.max(np.abs(g),initial=0.)))
+    report["mechanical_face_strong_check"]["available_component"]=(
+        "NORMAL_NORMAL_DOUBLE_TRACTION_ONLY")
     output={}
     if not functional.electrical_on:
         report["electric_status"]="DISABLED"
