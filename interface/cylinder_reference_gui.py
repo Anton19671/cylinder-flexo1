@@ -13,7 +13,7 @@ TEMPLATE=Path(__file__).resolve().parent.parent/'config/CASE_REFERENCE_CUF_G3D_S
 DYNAMIC_TEMPLATE=Path(__file__).resolve().parent.parent/'config/CASE_REFERENCE_CUF_G3D_MVI_DYNAMIC.json'
 
 
-def edit_reference_case(original, fields, boundary, load, newton, dynamics=None):
+def edit_reference_case(original, fields, boundary, load, newton, dynamics=None, *, base_dir=None):
     """Make one lossless CASE update; fail rather than discard unknown settings."""
     case=copy.deepcopy(original)
     if case.get('solver_backend')!=BACKEND:raise ValueError('Откройте вариационный CASE')
@@ -38,15 +38,32 @@ def edit_reference_case(original, fields, boundary, load, newton, dynamics=None)
     else:case.pop('cuf_model',None)
     method=str(fields['method']).upper()
     if method not in ('MVI','FDM'):raise ValueError('Метод: MVI / FDM')
+    old_method=str(original.get('method','')).upper()
+    old_grid=original.get('mvi_grid' if old_method=='MVI' else 'fdm_grid',
+                          original.get('grid',{}))
+    if not isinstance(old_grid,dict):raise ValueError('Сетка должна быть JSON-объектом')
+    grid=copy.deepcopy(old_grid)
+    if method!=old_method and (str(original.get('fdm_backend','DENSE_REFERENCE')).upper()
+                               =='MATRIX_FREE_GMRES' or
+                               str(grid.get('operator_scheme','')).upper()=='SBP21_PERIODIC_ODD_CSR'):
+        raise ValueError('Для смены метода в matrix-free CASE сначала создайте отдельный CASE')
+    scheme=str(fields.get('operator_scheme',grid.get('operator_scheme','LEGACY_REFERENCE'))).upper()
+    if scheme not in ('LEGACY_REFERENCE','SBP21_PERIODIC_ODD','SBP21_PERIODIC_ODD_CSR'):
+        raise ValueError('Неизвестная схема пространственных операторов')
+    fdm_backend=str(fields.get('fdm_backend',case.get('fdm_backend','DENSE_REFERENCE'))).upper()
+    if fdm_backend not in ('DENSE_REFERENCE','MATRIX_FREE_GMRES'):
+        raise ValueError('Неизвестный вариант МКР')
+    case['fdm_backend']=fdm_backend
     case['method']=method
     kind=str(fields.get('calculation_kind',case.get('calculation_kind','STATIC'))).upper()
     if kind not in ('STATIC','DYNAMIC'):raise ValueError('Тип задачи: STATIC / DYNAMIC')
     case['calculation_kind']=kind
     case.pop('fdm_grid',None);case.pop('mvi_grid',None);case.pop('grid',None)
-    case['mvi_grid' if method=='MVI' else 'fdm_grid']={'nx':integer('nx'),'ns':integer('ns')}
+    grid.update(nx=integer('nx'),ns=integer('ns'),operator_scheme=scheme)
+    case['mvi_grid' if method=='MVI' else 'fdm_grid']=grid
     if method=='MVI':
         case['rank']=integer('rank')
-        case['reference_mvi']={'max_sweeps':integer('max_sweeps')}
+        case.setdefault('reference_mvi',{})['max_sweeps']=integer('max_sweeps')
     else:
         case.pop('rank',None);case.pop('reference_mvi',None)
     case['scale_model']=str(fields['scale_model']).upper()
@@ -98,7 +115,7 @@ def edit_reference_case(original, fields, boundary, load, newton, dynamics=None)
     if 'reference_loads' in case:case['reference_loads']=load_data
     else:case['load_definition']=load_data
     case['reference_newton']=document(newton,'Настройки Ньютона')
-    prepare_reference_case(case)
+    prepare_reference_case(case,base_dir=base_dir)
     return case
 
 
@@ -148,6 +165,10 @@ class ReferenceCaseEditor(tk.Toplevel):
             ('Теория','theory',c.get('theory','CUF'),('KL','FSDT','REDDY','CUF')),
             ('Порядок CUF','cuf_model',c.get('cuf_model','TE1'),('TE1','TE2','TE3','TE4')),
             ('Пространственный метод','method',method,('FDM','MVI')),
+            ('Схема операторов','operator_scheme',grid.get('operator_scheme','LEGACY_REFERENCE'),
+             ('LEGACY_REFERENCE','SBP21_PERIODIC_ODD','SBP21_PERIODIC_ODD_CSR')),
+            ('Вариант МКР','fdm_backend',c.get('fdm_backend','DENSE_REFERENCE'),
+             ('DENSE_REFERENCE','MATRIX_FREE_GMRES')),
             ('Ранг МВИ (1–8)','rank',c.get('rank',1),None),
             ('Узлы nx','nx',grid.get('nx',4),None),('Узлы ns','ns',grid.get('ns',4),None),
             ('Циклы МВИ','max_sweeps',c.get('reference_mvi',{}).get('max_sweeps',30),None),
@@ -201,12 +222,13 @@ class ReferenceCaseEditor(tk.Toplevel):
         ttk.Button(buttons,text='МВИ 1–8',command=lambda:self.run(series=True)).pack(side='left',padx=4)
         ttk.Button(buttons,text='Закрыть',command=self.destroy).pack(side='right',padx=4)
 
-    def collect(self):
+    def collect(self, *, base_dir=None):
         fields={key:value.get() for key,value in self.fields.items()}
         fields['flexo']=self.flexo.get()
         return edit_reference_case(self.case,fields,
             self.bc_text.get('1.0','end-1c'),self.load_text.get('1.0','end-1c'),
-            self.newton_text.get('1.0','end-1c'),self.dynamics_text.get('1.0','end-1c'))
+            self.newton_text.get('1.0','end-1c'),self.dynamics_text.get('1.0','end-1c'),
+            base_dir=self.path.parent if base_dir is None and self.path else base_dir)
 
     def validate(self):
         try:
@@ -215,22 +237,20 @@ class ReferenceCaseEditor(tk.Toplevel):
         except Exception as exc:messagebox.showerror('Ошибка CASE',str(exc),parent=self)
 
     def save(self):
-        try:case=self.collect()
-        except Exception as exc:
-            messagebox.showerror('Ошибка CASE',str(exc),parent=self);return None
         path=filedialog.asksaveasfilename(parent=self,title='Сохранить вариационный CASE',
             initialfile=self.path.name if self.path else 'CASE_REFERENCE.json',
             initialdir=str(self.path.parent) if self.path else None,
             defaultextension='.json',filetypes=[('JSON','*.json')])
         if not path:return None
         target=Path(path)
+        try:case=self.collect(base_dir=target.parent)
+        except Exception as exc:
+            messagebox.showerror('Ошибка CASE',str(exc),parent=self);return None
         target.parent.mkdir(parents=True,exist_ok=True)
         target.write_text(json.dumps(case,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
         self.path=target;self.case=case
-        self.parent._v('case_path').set(str(target))
+        self.parent.adopt(case,target)
         self.parent._log(f'Вариационный CASE сохранён: {target}\n')
-        try:self.parent._refresh_visibility()
-        except Exception:pass
         return target
 
     def run(self,series=False):
@@ -238,3 +258,4 @@ class ReferenceCaseEditor(tk.Toplevel):
         if path is None:return
         try:self.parent._launch_reference_case(path,self.case,series=series)
         except Exception as exc:messagebox.showerror('Запуск CASE',str(exc),parent=self)
+
