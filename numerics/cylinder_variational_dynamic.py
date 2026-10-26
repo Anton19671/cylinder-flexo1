@@ -281,7 +281,13 @@ def solve_dynamic_mvi(problem, mechanical, electrical=None, *, q_predictor,
         if failed:break
         if admissible_nodal_inf_norm(full.basis,g)<=tolerance:
             converged=True;status="CONVERGED";break
-        if projected<=tolerance:status="PROJECTED_ONLY_FULL_RESIDUAL_NOT_CONVERGED";break
+        # The X/Y projected residual is only a diagnostic. Never accept or
+        # terminate a fixed-rank sweep while the full coupled admissible
+        # mechanical/electric residual still exceeds tolerance.
+        if projected<=tolerance:
+            status="PROJECTED_ONLY_FULL_RESIDUAL_NOT_CONVERGED"
+    if not converged and status=="MAX_SWEEPS":
+        status="MAX_SWEEPS_FULL_RESIDUAL_NOT_CONVERGED"
     defect=float(np.max(abs(full.defect(v)),initial=0))
     if defect>1.e-9:converged=False;status="BOUNDARY_CONSTRAINT_DRIFT"
     certificate=certify_mvi_solution(
