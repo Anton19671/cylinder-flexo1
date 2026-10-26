@@ -35,6 +35,7 @@ def recover_thickness_fields(functional,mechanical,electrical=None,*,n_thickness
     gradient=np.empty((n,nx,ns,6,3))
     stress=np.empty_like(strain)
     hyper=np.empty_like(gradient)
+    deformation_gradient=np.empty((n,nx,ns,3,3))
     classical_nominal=np.empty((n,nx,ns,3,3))
     double_traction=np.empty((n,nx,ns,3))
     electric=np.empty((n,nx,ns,3))
@@ -66,6 +67,7 @@ def recover_thickness_fields(functional,mechanical,electrical=None,*,n_thickness
                 gradient[k,i,j]=point.gradient6x3
                 stress[k,i,j]=s
                 hyper[k,i,j]=m
+                deformation_gradient[k,i,j]=point.deformation_gradient
                 nominal,double=recover_normal_double_traction(
                     point.deformation_gradient,s,m)
                 classical_nominal[k,i,j]=nominal
@@ -78,6 +80,7 @@ def recover_thickness_fields(functional,mechanical,electrical=None,*,n_thickness
                                      point.electric3,functional.material)["total"]
     arrays=dict(z_m=z,displacement3_m=displacement,strain6=strain,gradient6x3=gradient,stress6_pa=stress,
         hyperstress6x3_pa_m=hyper,
+        deformation_gradient3x3=deformation_gradient,
         classical_first_piola3x3_pa=classical_nominal,
         normal_double_traction3_n_per_m=double_traction,
         electric3_v_per_m=electric,

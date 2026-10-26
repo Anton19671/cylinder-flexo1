@@ -13,6 +13,7 @@ from __future__ import annotations
 import math
 import numpy as np
 from cylinder_variational_boundary import _electric_mode, _time_factor, _number
+from cylinder_generalized_face_traction import generalized_face_tractions
 
 
 def face_conditions_from_recovery(functional, recovered, boundary_spec, *,
@@ -57,8 +58,30 @@ def face_conditions_from_recovery(functional, recovered, boundary_spec, *,
         report["mechanical_face_strong_check"][f"{side}_double_traction_abs_max_n_per_m"]=(
             float(np.max(np.abs(g),initial=0.)))
     report["mechanical_face_strong_check"]["available_component"]=(
-        "NORMAL_NORMAL_DOUBLE_TRACTION_ONLY")
-    output={}
+        "NORMAL_DOUBLE_AND_GENERALIZED_TRACTION_CANDIDATES")
+    # A second-gradient strong face candidate is recovered from physical
+    # tensors; it is NOT the variational weak residual or an acceptance gate.
+    output=generalized_face_tractions(
+        recovered,functional.ops,radius_m=functional.R)
+    surface_weights=np.asarray(functional.W,float)
+    for side,zsign in (("inner",-1.),("outer",1.)):
+        H=1.+zsign*functional.h/(2.*functional.R)
+        area_weights=surface_weights*H
+        area=float(np.sum(area_weights))
+        for field,unit in (
+            ("generalized_traction3_pa_candidate","pa"),
+            ("normal_double_traction3_n_per_m_candidate","n_per_m")):
+            vector=np.asarray(output[f"face_{side}_{field}"],float)
+            squared=np.sum(vector*vector,axis=-1)
+            rms=float(np.sqrt(np.sum(area_weights*squared)/area))
+            report["mechanical_face_strong_check"][
+                f"{side}_{field}_rms_{unit}"]=rms
+            report["mechanical_face_strong_check"][
+                f"{side}_{field}_abs_max_{unit}"]=float(
+                    np.max(np.abs(vector),initial=0))
+    report["mechanical_face_strong_check"]["candidate_status"]=(
+        "COVARIANT_RECOVERY_APPROXIMATE_NOT_INDEPENDENTLY_VERIFIED")
+    report["mechanical_face_strong_check"]["strong_check_performed"]=False
     if not functional.electrical_on:
         report["electric_status"]="DISABLED"
         return output,report
