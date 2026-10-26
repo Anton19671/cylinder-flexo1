@@ -2,7 +2,8 @@
 import unittest
 import numpy as np
 from flexo_gradient_g3d import (G3DMaterial, enthalpy_parts, enthalpy_derivatives,
-    covariant_strain_gradients, gradient_invariants, reference_electric_field)
+    covariant_strain_gradients, gradient_invariants, active_strain_gradients,
+    reference_electric_field)
 from flexo_scale_policy import numerical_status
 
 class TestG3D(unittest.TestCase):
@@ -52,6 +53,9 @@ class TestG3D(unittest.TestCase):
                 "eta_s":0.,"potential_order":2}}
         self.assertEqual(numerical_status(case),"NOT_IMPLEMENTED_COUPLED_G3D")
         case["micro"]["gradient_model"]="Gz"
-        with self.assertRaises(ValueError):numerical_status(case)
+        self.assertEqual(numerical_status(case),"NOT_IMPLEMENTED_COUPLED_GZ")
+        case["micro"]["gradient_model"]="unknown"
+        with self.assertRaisesRegex(ValueError,"gradient_model"):
+            numerical_status(case)
 
 if __name__=="__main__":unittest.main()

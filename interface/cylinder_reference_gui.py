@@ -56,7 +56,10 @@ def edit_reference_case(original, fields, boundary, load, newton, dynamics=None)
     case['output_dir']=str(fields['output_dir']).strip()
     if case['scale_model']=='MICRO':
         micro=case.setdefault('micro',{})
-        micro['gradient_model']='G3D'
+        model=str(fields.get('gradient_model',micro.get('gradient_model','G3D'))).strip().upper()
+        if model not in ('G3D','GZ'):
+            raise ValueError('Градиентная теория: G3D (18) или Gz (6)')
+        micro['gradient_model']='G3D' if model=='G3D' else 'Gz'
         micro['enable_flexoelectric']=bool(fields['flexo'])
         micro['ell_m']=numeric('ell_m')
         if not micro['enable_flexoelectric']:
@@ -108,7 +111,7 @@ class ReferenceCaseEditor(tk.Toplevel):
         else:
             dynamic=str(parent._v('calculation_kind','STATIC').get()).upper()=='DYNAMIC'
             self.case=json.loads((DYNAMIC_TEMPLATE if dynamic else TEMPLATE).read_text(encoding='utf-8'))
-        self.title('Вариационный CASE: G3D / флексо / МВИ / МКР')
+        self.title('Вариационный CASE: G3D / Gz / флексо / МВИ / МКР')
         self.geometry('930x780')
         self.transient(parent)
         self.fields={}
@@ -156,7 +159,10 @@ class ReferenceCaseEditor(tk.Toplevel):
             ('Пуассон ν','nu0',mat.get('nu0',''),None),
             ('Масштаб','scale_model',c.get('scale_model','MICRO'),('MACRO','MICRO')),
         ])
-        flexo=group('G3D и флексоэлектричество',[
+        flexo=group('Градиентная теория G3D/Gz и флексоэлектричество',[
+            ('Теория градиентов','gradient_model',
+             'Gz' if str(micro.get('gradient_model','G3D')).upper()=='GZ' else 'G3D',
+             ('G3D','Gz')),
             ('Длина ℓ, м','ell_m',micro.get('ell_m',0),None),
             ('Коэффициент μ₁, Кл/м','mu1',saved.get('mu1',micro.get('mu1_c_per_m',0)),None),
             ('Коэффициент μ₂, Кл/м','mu2',saved.get('mu2',micro.get('mu2_c_per_m',0)),None),
@@ -177,7 +183,7 @@ class ReferenceCaseEditor(tk.Toplevel):
         bc=copy.deepcopy(c.get('boundary_conditions',{}).get('variational',{}))
         if not micro.get('enable_flexoelectric',True) and micro.get('editor_saved_electrical_bc'):
             bc['electrical']=copy.deepcopy(micro['editor_saved_electrical_bc'])
-        self.bc_text=json_box('Граничные условия: механические / G3D / электрические',bc)
+        self.bc_text=json_box('Граничные условия: механические / градиентные / электрические',bc)
         self.load_text=json_box('Нагрузка и коэффициенты шагов (JSON)',
                                 c.get('reference_loads',c.get('load_definition',{})))
         self.newton_text=json_box('Параметры связанного Ньютона (JSON)',c.get('reference_newton',{}))

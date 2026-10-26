@@ -3,7 +3,8 @@
 """Strict macro/micro routing contract; no silent physics substitutions.
 
 MACRO: existing classical elastic cylinder, no strain-gradient/flexo terms.
-MICRO: G3D gradient elasticity, with optional bidirectional flexoelectric coupling.
+MICRO: selectable full G3D or thickness-only Gz gradient elasticity,
+with optional bidirectional flexoelectric coupling.
 The MICRO numerical solver is not connected at this stage; inputs can be
 validated and saved, but never dispatched as an existing macro solution.
 """
@@ -14,6 +15,7 @@ from flexo_gradient_g3d import G3DMaterial
 
 SCALES = ("MACRO", "MICRO")
 MICRO_GRADIENT_MODEL = "G3D"
+MICRO_GRADIENT_MODELS = ("G3D", "GZ")
 
 
 def flexoelectric_enabled(case):
@@ -44,8 +46,10 @@ def micro_material_from_case(case):
     micro = case.get("micro")
     if not isinstance(micro, dict):
         raise ValueError("MICRO case requires explicit 'micro' object")
-    if str(micro.get("gradient_model", "")).upper() != MICRO_GRADIENT_MODEL:
-        raise ValueError("Only full covariant G3D is derived; Gz is a distinct model")
+    gradient_model=micro.get("gradient_model")
+    if not isinstance(gradient_model,str) or gradient_model.strip().upper() not in MICRO_GRADIENT_MODELS:
+        raise ValueError("micro.gradient_model must be G3D (full 18 components) or Gz (6 thickness components)")
+    gradient_model=gradient_model.strip().upper()
     m = case.get("material")
     if not isinstance(m, dict):
         raise ValueError("MICRO case requires material object")
@@ -64,9 +68,10 @@ def micro_material_from_case(case):
         mu1_c_per_m=micro["mu1_c_per_m"] if flexo_on else 0.0,
         mu2_c_per_m=micro["mu2_c_per_m"] if flexo_on else 0.0,
         kappa_f_per_m=micro["kappa_f_per_m"] if flexo_on else 0.0,
+        gradient_model=gradient_model,
     )
     if material.ell_m <= 0:
-        raise ValueError("MICRO G3D requires ell_m>0; use MACRO to turn gradient elasticity OFF")
+        raise ValueError("MICRO G3D/Gz requires ell_m>0; use MACRO to turn gradient elasticity OFF")
     if flexo_on and material.kappa_f_per_m <= 0:
         raise ValueError("kappa must be positive when flexoelectricity is ON")
     for key in ("rho_kg_m3", "eta_s"):
@@ -92,9 +97,10 @@ def numerical_status(case):
     if scale == "MACRO":
         return "EXISTING_CLASSICAL_ELASTIC"
     micro_material_from_case(case)
-    return ("NOT_IMPLEMENTED_COUPLED_G3D" if flexoelectric_enabled(case)
-            else "NOT_IMPLEMENTED_GRADIENT_G3D")
+    model=micro_material_from_case(case).gradient_model
+    return ("NOT_IMPLEMENTED_COUPLED_"+model if flexoelectric_enabled(case)
+            else "NOT_IMPLEMENTED_GRADIENT_"+model)
 
 
-__all__ = ("SCALES", "MICRO_GRADIENT_MODEL", "scale_from_case",
+__all__ = ("SCALES", "MICRO_GRADIENT_MODEL", "MICRO_GRADIENT_MODELS", "scale_from_case",
            "micro_material_from_case", "flexoelectric_enabled", "numerical_status")

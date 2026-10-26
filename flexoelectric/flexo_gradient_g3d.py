@@ -9,6 +9,11 @@ This is NOT a coupled shell solver: no mechanical/electrical field discretizatio
 no higher-order boundary conditions, no dynamic time stepping are supplied here.
 The six engineering strain components are [ex, es, ez, gamma_xs, gamma_xz,
 gamma_sz]. The 6x3 covariant strain-gradient array has directions [x,s,z].
+For material.gradient_model="GZ", only the six physical z-direction
+entries contribute to gradient energy and flexoelectric polarization.
+The complete geometric gradient is still computed for transparent
+postprocessing; the constitutive 6x3 hyperstress is projected onto z.
+G3D remains the default for historical material constructors.
 """
 from __future__ import annotations
 
@@ -25,6 +30,7 @@ class G3DMaterial:
     mu1_c_per_m: float
     mu2_c_per_m: float
     kappa_f_per_m: float
+    gradient_model: str = "G3D"
 
     def __post_init__(self):
         for name in ("young_pa", "poisson", "ell_m", "mu1_c_per_m",
@@ -39,6 +45,21 @@ class G3DMaterial:
             raise ValueError("ell >= 0 and kappa >= 0 are required")
         if self.kappa_f_per_m == 0 and (self.mu1_c_per_m != 0 or self.mu2_c_per_m != 0):
             raise ValueError("kappa=0 requires mu1=mu2=0 (electric terms off)")
+        if not isinstance(self.gradient_model,str):
+            raise ValueError("gradient_model must be G3D or Gz")
+        mode=self.gradient_model.strip().upper()
+        if mode not in ("G3D","GZ"):
+            raise ValueError("gradient_model must be G3D or Gz")
+        object.__setattr__(self,"gradient_model",mode)
+
+    @property
+    def active_gradient_components(self):
+        """Physical strain-gradient entries participating in the enthalpy."""
+        return 18 if self.gradient_model=="G3D" else 6
+
+    @property
+    def gradient_model_label(self):
+        return "G3D" if self.gradient_model=="G3D" else "Gz"
 
     @property
     def lame_lambda(self):
@@ -84,6 +105,27 @@ def covariant_strain_gradients(strain6, dx6, ds6, dz6, *, radius_m, z_m):
     return grad
 
 
+def active_strain_gradients(grad6x3, gradient_model="G3D"):
+    """Material gradient selector; never changes the underlying shell kinematics.
+
+    G3D retains all covariant x,s,z components. Gz keeps only the six
+    through-thickness strain derivatives g[:,2]. This projection must
+    precede BOTH scalar enthalpy and its analytical first variation,
+    otherwise a false in-plane hyperstress remains in the weak form.
+    """
+    g=_array(grad6x3,(6,3),"gradient")
+    if not isinstance(gradient_model,str):
+        raise ValueError("gradient_model must be G3D or Gz")
+    mode=gradient_model.strip().upper()
+    if mode=="G3D":
+        return g
+    if mode!="GZ":
+        raise ValueError("gradient_model must be G3D or Gz")
+    active=np.zeros((6,3),dtype=float)
+    active[:,2]=g[:,2]
+    return active
+
+
 def gradient_invariants(grad6x3):
     """Eqs. (29)-(33): t_k and b_i = covariant div E (E_xs=gamma_xs/2)."""
     g = _array(grad6x3, (6, 3), "gradient")
@@ -115,6 +157,7 @@ def enthalpy_parts(strain6, grad6x3, electric3, material: G3DMaterial):
         raise TypeError("material must be G3DMaterial")
     lam, G = material.lame_lambda, material.shear_modulus
     ell2 = material.ell_m**2
+    g = active_strain_gradients(g, material.gradient_model)
     t, b = gradient_invariants(g)
     WC = .5*lam*e[:3].sum()**2 + G*(np.dot(e[:3],e[:3])+.5*np.dot(e[3:],e[3:]))
     WG = ell2*(.5*lam*np.dot(t,t) + G*(np.sum(g[:3]**2) + .5*np.sum(g[3:]**2)))
@@ -133,6 +176,7 @@ def enthalpy_derivatives(strain6, grad6x3, electric3, material: G3DMaterial):
         raise TypeError("material must be G3DMaterial")
     lam, G = material.lame_lambda, material.shear_modulus
     ell2, m1, m2 = material.ell_m**2, material.mu1_c_per_m, material.mu2_c_per_m
+    g = active_strain_gradients(g, material.gradient_model)
     t, b = gradient_invariants(g)
     sigma = np.empty(6,float)
     sigma[:3] = lam*np.sum(e[:3]) + 2*G*e[:3]
@@ -147,9 +191,14 @@ def enthalpy_derivatives(strain6, grad6x3, electric3, material: G3DMaterial):
     for row,(i,j) in enumerate(((0,1),(0,2),(1,2)),start=3):
         hyper[row,j] -= .5*m2*electric[i]
         hyper[row,i] -= .5*m2*electric[j]
+    if material.gradient_model=="GZ":
+        # Chain rule for H(E, P_z grad(E)): dH/dgrad(E)=P_z dH/d(P_z grad(E)).
+        # Without this, E_x/E_s would incorrectly generate hyperstress in
+        # ignored x/s gradients despite their absence from the Gz energy.
+        hyper[:,:2]=0.
     D = material.kappa_f_per_m*electric + m1*t + m2*b
     return sigma, hyper, D
 
 
-__all__ = ["G3DMaterial", "covariant_strain_gradients", "gradient_invariants",
+__all__ = ["G3DMaterial", "covariant_strain_gradients", "active_strain_gradients", "gradient_invariants",
            "reference_electric_field", "enthalpy_parts", "enthalpy_derivatives"]

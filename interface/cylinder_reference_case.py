@@ -413,6 +413,8 @@ def run_reference_case(case,case_path):
     functional=prepared.problem.functional
     summary.update(scale_model=case["scale_model"],
         gradient_enabled=functional.material.ell_m>0,
+        gradient_model=functional.material.gradient_model_label,
+        active_strain_gradient_components=functional.material.active_gradient_components,
         electrical_enabled=functional.electrical_on,
         quadrature=case["quadrature"],
         residual_scaling={"energy_j":float(functional.material.young_pa*functional.h*np.sum(functional.W)),
@@ -506,6 +508,8 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
         "accepted_steps":0,"requested_steps":newmark.n_steps,"steps":[],
         "mesh_convergence_verified":False,"time_step_convergence_verified":False,
         "scale_model":case["scale_model"],"gradient_enabled":f.material.ell_m>0,
+        "gradient_model":f.material.gradient_model_label,
+        "active_strain_gradient_components":f.material.active_gradient_components,
         "electrical_enabled":f.electrical_on,"density_kg_m3":dyn.density_kg_m3,
         "newmark":{"beta":newmark.beta,"gamma":newmark.gamma,
                    "dt_s":newmark.dt_s,"start_time_s":newmark.t_start_s},

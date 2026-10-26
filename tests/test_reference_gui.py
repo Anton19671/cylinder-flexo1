@@ -45,6 +45,16 @@ class ReferenceGuiTest(unittest.TestCase):
         self.assertEqual(result['custom_extension'],c['custom_extension'])
         self.assertEqual(c['method'],'FDM')
 
+    def test_gradient_model_switch_retains_choice_and_dynamic_state(self):
+        c,f=self.sample()
+        f['gradient_model']='Gz'
+        reduced=self.edit(c,f)
+        self.assertEqual(reduced['micro']['gradient_model'],'Gz')
+        self.assertEqual(c['micro']['gradient_model'],'G3D')
+        f['gradient_model']='G3D'
+        full=self.edit(reduced,f)
+        self.assertEqual(full['micro']['gradient_model'],'G3D')
+
     def test_flexo_off_on_restores_coefficients_and_electrode(self):
         c,f=self.sample()
         f['flexo']=False

@@ -166,7 +166,8 @@ class PhysicsBlockILU:
                 # The 2nd derivative block is deliberately approximate:
                 # it preconditions (not replaces) exact covariant G3D.
                 operator=(stiffness*grad
-                          +stiffness*(ell**2)*g3d
+                          +stiffness*(ell**2 if functional.material.gradient_model=="G3D"
+                                      else 0.)*g3d
                           +zeroth*w)
                 kind=("M",k)
             else:
