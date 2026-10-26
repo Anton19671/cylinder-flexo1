@@ -51,11 +51,14 @@ class TestG3D(unittest.TestCase):
             "micro":{"gradient_model":"G3D","ell_m":1e-9,"mu1_c_per_m":0.,
                 "mu2_c_per_m":1e-6,"kappa_f_per_m":1e-10,"rho_kg_m3":2400.,
                 "eta_s":0.,"potential_order":2}}
-        self.assertEqual(numerical_status(case),"NOT_IMPLEMENTED_COUPLED_G3D")
+        self.assertEqual(numerical_status(case),"EXPLICIT_VARIATIONAL_BACKEND_REQUIRED")
+        case["solver_backend"]="VARIATIONAL_REFERENCE"
+        self.assertEqual(numerical_status(case),"REFERENCE_COUPLED_G3D")
         case["micro"]["gradient_model"]="Gz"
-        self.assertEqual(numerical_status(case),"NOT_IMPLEMENTED_COUPLED_GZ")
+        self.assertEqual(numerical_status(case),"REFERENCE_COUPLED_GZ")
         case["micro"]["gradient_model"]="unknown"
         with self.assertRaisesRegex(ValueError,"gradient_model"):
             numerical_status(case)
 
 if __name__=="__main__":unittest.main()
+
