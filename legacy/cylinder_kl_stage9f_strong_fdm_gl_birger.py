@@ -183,81 +183,24 @@ def finite_difference_jacobian_frozen_gb(
 def _prepare_exact_frozen_gb_tangent_action(
     U,ops,bc,*,K0,GB,quadrature
 ):
-    """V3c exact dR(U;GB)[dU] for the verified frozen-GB inner solve."""
-    U=fl._validate_U(U,ops)
-    base_kin=kl.field_kinematics(U,ops,geometry="GREEN_LAGRANGE")
-    base_bout=bm.frozen_birger_resultants_from_kinematics(
-        base_kin,K0=K0,GB=GB,quadrature=quadrature
-    )
-    base_nm=base_bout.resultants
-    ns,nx=ops.grid.ns,ops.grid.nx
-
-    def action(dU):
-        dkin=gl._exact_tangent_kinematics(dU,ops,base_kin)
-        dnm=bm.frozen_birger_resultants_tangent_from_kinematics(
-            dkin,K0=K0,GB=GB,quadrature=quadrature
-        )
-        dstrong=gl._exact_tangent_strong(
-            base_kin,base_nm,dkin,dnm,ops
-        )
-        ql=gl._exact_tangent_end(
-            base_kin,base_nm,dkin,dnm,ops,side="LEFT"
-        )
-        qr=gl._exact_tangent_end(
-            base_kin,base_nm,dkin,dnm,ops,side="RIGHT"
-        )
-        lu=gl._bc_tangent_value(bc.left.u,ql['u'],ql['T_u'])
-        ru=gl._bc_tangent_value(bc.right.u,qr['u'],qr['T_u'])
-        lv=gl._bc_tangent_value(bc.left.v,ql['v'],ql['T_v'])
-        rv=gl._bc_tangent_value(bc.right.v,qr['v'],qr['T_v'])
-        lw=gl._bc_tangent_value(bc.left.w,ql['w'],ql['T_w'])
-        rw=gl._bc_tangent_value(bc.right.w,qr['w'],qr['T_w'])
-        ls=gl._bc_tangent_value(bc.left.slope,ql['theta_n'],ql['T_theta'])
-        rs=gl._bc_tangent_value(bc.right.slope,qr['theta_n'],qr['T_theta'])
-        rows=[]
-        for js in range(ns):
-            rows.append(lu[js]); rows.extend(dstrong[0,js,1:nx-1]); rows.append(ru[js])
-        for js in range(ns):
-            rows.append(lv[js]); rows.extend(dstrong[1,js,1:nx-1]); rows.append(rv[js])
-        for js in range(ns):
-            rows.append(lw[js]); rows.append(ls[js]); rows.extend(dstrong[2,js,2:nx-2]); rows.append(rs[js]); rows.append(rw[js])
-        out=np.asarray(rows,float)
-        if out.shape!=(3*ns*nx,):
-            raise KLStrongFDMGLBirgerError("analytic tangent residual size mismatch")
-        return out
-    return action
+    raise NotImplementedError(
+        "GL_BIRGER_ANALYTIC_TANGENT_NOT_CONSISTENT_WITH_CURRENT_RESIDUAL")
 
 
 def analytic_tangent_action_frozen_gb(
     U,dU,ops,bc,*,K0,GB,quadrature,generalized_load=None
 ):
-    """Exact V3c KL Green-Lagrange Birger tangent action at fixed GB."""
-    action=_prepare_exact_frozen_gb_tangent_action(
-        U,ops,bc,K0=K0,GB=GB,quadrature=quadrature
-    )
-    return action(dU)
+    """Disabled: the old hybrid GL tangent is not the current residual derivative."""
+    raise NotImplementedError(
+        "GL_BIRGER_ANALYTIC_TANGENT_NOT_CONSISTENT_WITH_CURRENT_RESIDUAL")
 
 
 def analytic_jacobian_frozen_gb(
     U,ops,bc,*,K0,GB,quadrature,generalized_load,base_residual=None
 ):
-    """Exact V3c frozen-GB KL Jacobian; outer material update is untouched."""
-    U=fl._validate_U(U,ops)
-    action=_prepare_exact_frozen_gb_tangent_action(
-        U,ops,bc,K0=K0,GB=GB,quadrature=quadrature
-    )
-    J,stats=v3an.assemble_dense_exact_tangent(U,action)
-    analytic_jacobian_frozen_gb.last_stats=stats.to_dict()
-    if base_residual is None:
-        r0,*_=frozen_birger_strong_residual_gl(
-            U,ops,bc,K0=K0,GB=GB,quadrature=quadrature,
-            generalized_load=generalized_load
-        )
-    else:
-        r0=np.asarray(base_residual,float).reshape(-1)
-        if r0.shape!=(U.size,):
-            raise ValueError("base_residual size mismatch")
-    return J,r0
+    """Disabled until the exact-normal, exact-curvature tangent is available."""
+    raise NotImplementedError(
+        "GL_BIRGER_ANALYTIC_JACOBIAN_NOT_CONSISTENT_WITH_CURRENT_RESIDUAL")
 
 
 analytic_jacobian_frozen_gb.last_stats=None
