@@ -153,7 +153,7 @@ def solve_static_subspace(problem, mechanical, electrical=None, *, dead_load=Non
         try:correction=np.linalg.solve(tangent,-g)
         except np.linalg.LinAlgError:
             status="SINGULAR_TANGENT_CHECK_SUPPORTS_AND_GAUGE";break
-        merit=float(np.linalg.norm(g))
+        merit=float(np.max(abs(g),initial=0))
         for halving in range(settings.max_halvings+1):
             alpha=2.**(-halving)
             trial=v+b@(alpha*correction)
@@ -161,7 +161,7 @@ def solve_static_subspace(problem, mechanical, electrical=None, *, dead_load=Non
             except ValueError as exc:
                 if "INVALID_" not in str(exc):raise
                 continue
-            if (np.linalg.norm(trial_g)<=(1.-1.e-4*alpha)*merit or
+            if (np.max(abs(trial_g),initial=0)<=(1.-1.e-4*alpha)*merit or
                     np.max(abs(trial_g),initial=0)<=tolerance):
                 record["step_factor"]=alpha
                 record["increment_scaled"]=float(np.max(abs(alpha*correction),initial=0))
