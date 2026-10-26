@@ -228,6 +228,16 @@ def _patch_field(spec,grid,coord,period,cm,mx_bounds,stencil):
 
 def _point_radial_field(spec, grid):
     """Concentrated radial force distributed conservatively to nearest nodes."""
+    # This legacy generator uses a conservative nearest-node stencil.
+    # Physical C1 radius inputs belong to the variational G3D generator;
+    # rejecting them here prevents silently changing the requested load.
+    unsupported={"s0","radius_x_m","radius_s_m"} & set(spec)
+    if unsupported:
+        raise LoadDefinitionError(
+            f"legacy point-load stencil cannot use {sorted(unsupported)}; "
+            "use variational G3D physical C1 point regularization")
+    if "P" in spec and "force" in spec:
+        raise LoadDefinitionError("select P or force, not both")
     P=_finite(spec.get("P", spec.get("force")), "P")
     x0=_finite(spec.get("x0"), "x0")
     th0=_finite(spec.get("theta0",0.0), "theta0")
