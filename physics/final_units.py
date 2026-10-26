@@ -89,7 +89,7 @@ def load_axis(factors,load_definition,system:str):
         else:
             return [abs(amplitude)*v for v in vals],f"p_line [{labels['line_load']}]","p_line"
     if typ=="POINT_RADIAL_FORCE":
-        try: amplitude=float(spec["P"])
+        try: amplitude=float(spec["P"] if "P" in spec else spec["force"])
         except Exception: pass
         else:
             return [abs(amplitude)*v for v in vals],f"P [{labels['force']}]","P"
