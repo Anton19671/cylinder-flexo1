@@ -632,9 +632,12 @@ class CylinderFunctional:
     def mass_action(self,acceleration,*,density_kg_m3,mechanical=None,velocity=None):
         """Consistent mechanical inertia from the SAME director/CUF ansatz.
 
-        No time integration is executed. KL finite-rotation kinetic energy
-        requires configuration-dependent director mass and gyroscopic terms;
-        rejecting KL prevents a false constant-mass approximation.
+        Returns the already quadrature-weighted DISCRETE weak inertial
+        residual in mechanical coefficient ordering (component,x,s).
+        CUF inertia is algebraic in surface coefficients, so multiplication
+        by W after its thickness mass matrix is the exact weak action.
+        FSDT/Reddy and KL include the necessary derivative adjoints.
+        No electric inertia or time integration is added here.
         """
         density=float(density_kg_m3)
         if not math.isfinite(density) or density<=0:
