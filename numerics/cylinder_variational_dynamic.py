@@ -12,6 +12,7 @@ from cylinder_variational_mvi import (
     StaticMVISettings, reconstruct_profiles, _initial_profiles, _normalize_partner,
 )
 from cylinder_mvi_cold_start import seed_inactive_mvi_partners
+from cylinder_mvi_acceptance import certify_mvi_solution
 
 
 @dataclass(frozen=True)
@@ -36,6 +37,7 @@ class DynamicSpatialResult:
     y_profiles: np.ndarray | None = None
     lift_scaled: np.ndarray | None = None
     scales: np.ndarray | None = None
+    mvi_certificate: dict | None = None
 
 
 def _effective_evaluator(problem, q_shape, p_shape, q_predictor, v_predictor,
@@ -282,11 +284,26 @@ def solve_dynamic_mvi(problem, mechanical, electrical=None, *, q_predictor,
         if projected<=tolerance:status="PROJECTED_ONLY_FULL_RESIDUAL_NOT_CONVERGED";break
     defect=float(np.max(abs(full.defect(v)),initial=0))
     if defect>1.e-9:converged=False;status="BOUNDARY_CONSTRAINT_DRIFT"
+    certificate=certify_mvi_solution(
+        x_profiles=x,y_profiles=y,lift_scaled=lift.reshape(shape),
+        scales=scales.reshape(shape),mechanical=qm,electrical=pm,
+        full_basis=full.basis,reduced_residual=g,
+        projected_residual_scaled=projected,
+        full_tolerance_scaled=tolerance,constraint_defect_scaled=defect,
+        solver_converged=converged)
+    if converged and not certificate["accepted"]:
+        converged=False
+        status=("MVI_PROFILE_RECONSTRUCTION_DRIFT"
+                if not certificate["profile_reconstruction_satisfied"]
+                else "MVI_FULL_RESIDUAL_NOT_CONVERGED"
+                if not certificate["full_equilibrium_satisfied"]
+                else "BOUNDARY_CONSTRAINT_DRIFT")
     scaled_r=scales*r;reaction=(scaled_r-full.basis@(full.basis.T@scaled_r))/scales
-    norm=admissible_nodal_inf_norm(full.basis,g)
+    norm=certificate["full_admissible_residual_scaled"]
     return DynamicSpatialResult(converged,status,qm,pm,velocity,acceleration,r.copy(),reaction,
         norm,norm/initial if initial else 0.,defect,tuple(history),iterations,sweeps,
-        projected,projected<=tolerance,x.copy(),y.copy(),lift.reshape(shape),scales.reshape(shape))
+        projected,projected<=tolerance,x.copy(),y.copy(),lift.reshape(shape),
+        scales.reshape(shape),certificate)
 
 
 __all__=("DynamicSpatialResult","solve_dynamic_subspace","solve_dynamic_fdm",

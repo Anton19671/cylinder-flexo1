@@ -18,6 +18,7 @@ from cylinder_variational_fdm import (
 from cylinder_variational_boundary import combine_functional_and_boundary
 from cylinder_residual_norms import admissible_nodal_inf_norm, admissible_nodal_metrics
 from cylinder_mvi_cold_start import seed_inactive_mvi_partners
+from cylinder_mvi_acceptance import certify_mvi_solution
 
 
 @dataclass(frozen=True)
@@ -42,6 +43,7 @@ class StaticMVIResult(StaticFDMResult):
     sweeps: int
     projected_residual_scaled: float
     projected_equilibrium_satisfied: bool
+    mvi_certificate: dict | None = None
 
 
 def reconstruct_profiles(x,y):
@@ -227,13 +229,27 @@ def solve_static_mvi(problem, mechanical, electrical=None, *, dead_load=None,
             status="PROJECTED_ONLY_FULL_RESIDUAL_NOT_CONVERGED";break
     defect=float(np.max(abs(full.defect(v)),initial=0))
     if defect>1.e-9:converged=False;status="BOUNDARY_CONSTRAINT_DRIFT"
+    certificate=certify_mvi_solution(
+        x_profiles=x,y_profiles=y,lift_scaled=lift.reshape(shape),
+        scales=scales.reshape(shape),mechanical=qm,electrical=pm,
+        full_basis=full.basis,reduced_residual=g,
+        projected_residual_scaled=projected,
+        full_tolerance_scaled=tolerance,constraint_defect_scaled=defect,
+        solver_converged=converged)
+    if converged and not certificate["accepted"]:
+        converged=False
+        status=("MVI_PROFILE_RECONSTRUCTION_DRIFT"
+                if not certificate["profile_reconstruction_satisfied"]
+                else "MVI_FULL_RESIDUAL_NOT_CONVERGED"
+                if not certificate["full_equilibrium_satisfied"]
+                else "BOUNDARY_CONSTRAINT_DRIFT")
     scaled_r=scales*r
     reaction=(scaled_r-full.basis@(full.basis.T@scaled_r))/scales
-    norm=admissible_nodal_inf_norm(full.basis,g)
+    norm=certificate["full_admissible_residual_scaled"]
     return StaticMVIResult(converged,status,qm,pm,energy,r.copy(),reaction,norm,
         norm/initial if initial else 0.,defect,tuple(history),iterations,
         x.copy(),y.copy(),lift.reshape(shape),scales.reshape(shape),sweeps,
-        projected,projected<=tolerance)
+        projected,projected<=tolerance,certificate)
 
 
 __all__=("StaticMVISettings","StaticMVIResult","solve_static_mvi","reconstruct_profiles")

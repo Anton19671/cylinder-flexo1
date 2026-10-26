@@ -470,7 +470,8 @@ def run_reference_case(case,case_path):
             if prepared.method=="MVI":
                 step.update(sweeps=result.sweeps,projected_residual_scaled=result.projected_residual_scaled,
                             projected_equilibrium_satisfied=result.projected_equilibrium_satisfied,
-                            full_equilibrium_satisfied=result.converged)
+                            full_equilibrium_satisfied=result.converged,
+                            mvi_certificate=result.mvi_certificate)
             radial=2*(int(functional.theory[-1])+1) if functional.theory.startswith("CUF_") else 2
             step["w_middle_abs_max_m"]=float(np.max(abs(result.mechanical[radial])))
             summary["steps"].append(step)
@@ -652,7 +653,8 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
                 "full_newmark_residual_tolerance":newmark.residual_tolerance_relative}
             if prepared.method=="MVI":step.update(
                 projected_residual_scaled=result.projected_residual_scaled,
-                projected_equilibrium_satisfied=result.projected_equilibrium_satisfied)
+                projected_equilibrium_satisfied=result.projected_equilibrium_satisfied,
+                mvi_certificate=result.mvi_certificate)
             if trace_defects is not None:
                 step["mechanical_trace_defects"]=trace_defects
             if newmark_kinematic_defects is not None:
