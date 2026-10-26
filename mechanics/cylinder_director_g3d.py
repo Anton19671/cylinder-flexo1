@@ -157,10 +157,15 @@ def _warp(theory,z,R,h):
 
 def _displacement(jets,theory,z,R,h,dx=0,ds=0,dz=0):
     """Cartesian physical components in rotating cylindrical reference basis."""
+    if (any(type(v) is not int or v<0 for v in (dx,ds,dz))
+            or dx+ds>2 or dz>2):
+        raise ValueError(
+            "director displacement supports nonnegative surface order <=2 "
+            "and thickness derivative order <=2")
     ax,bs=_warp(theory,z,R,h)
     q=jets.derivative(dx,ds)
-    wx=jets.derivative(dx+1,ds)[2] if dx+ds <= 2 else None
-    ws=jets.derivative(dx,ds+1)[2] if dx+ds <= 2 else None
+    wx=jets.derivative(dx+1,ds)[2]
+    ws=jets.derivative(dx,ds+1)[2]
     if dz==0:
         return np.array((
             q[0]+z*q[3]+ax[0]*(q[3]+wx),
