@@ -47,12 +47,19 @@ def edit_reference_case(original, fields, boundary, load, newton, dynamics=None,
                                =='MATRIX_FREE_GMRES' or
                                str(grid.get('operator_scheme','')).upper()=='SBP21_PERIODIC_ODD_CSR'):
         raise ValueError('Для смены метода в matrix-free CASE сначала создайте отдельный CASE')
+    scheme=str(fields.get('operator_scheme',grid.get('operator_scheme','LEGACY_REFERENCE'))).upper()
+    if scheme not in ('LEGACY_REFERENCE','SBP21_PERIODIC_ODD','SBP21_PERIODIC_ODD_CSR'):
+        raise ValueError('Неизвестная схема пространственных операторов')
+    fdm_backend=str(fields.get('fdm_backend',case.get('fdm_backend','DENSE_REFERENCE'))).upper()
+    if fdm_backend not in ('DENSE_REFERENCE','MATRIX_FREE_GMRES'):
+        raise ValueError('Неизвестный вариант МКР')
+    case['fdm_backend']=fdm_backend
     case['method']=method
     kind=str(fields.get('calculation_kind',case.get('calculation_kind','STATIC'))).upper()
     if kind not in ('STATIC','DYNAMIC'):raise ValueError('Тип задачи: STATIC / DYNAMIC')
     case['calculation_kind']=kind
     case.pop('fdm_grid',None);case.pop('mvi_grid',None);case.pop('grid',None)
-    grid.update(nx=integer('nx'),ns=integer('ns'))
+    grid.update(nx=integer('nx'),ns=integer('ns'),operator_scheme=scheme)
     case['mvi_grid' if method=='MVI' else 'fdm_grid']=grid
     if method=='MVI':
         case['rank']=integer('rank')
@@ -158,6 +165,10 @@ class ReferenceCaseEditor(tk.Toplevel):
             ('Теория','theory',c.get('theory','CUF'),('KL','FSDT','REDDY','CUF')),
             ('Порядок CUF','cuf_model',c.get('cuf_model','TE1'),('TE1','TE2','TE3','TE4')),
             ('Пространственный метод','method',method,('FDM','MVI')),
+            ('Схема операторов','operator_scheme',grid.get('operator_scheme','LEGACY_REFERENCE'),
+             ('LEGACY_REFERENCE','SBP21_PERIODIC_ODD','SBP21_PERIODIC_ODD_CSR')),
+            ('Вариант МКР','fdm_backend',c.get('fdm_backend','DENSE_REFERENCE'),
+             ('DENSE_REFERENCE','MATRIX_FREE_GMRES')),
             ('Ранг МВИ (1–8)','rank',c.get('rank',1),None),
             ('Узлы nx','nx',grid.get('nx',4),None),('Узлы ns','ns',grid.get('ns',4),None),
             ('Циклы МВИ','max_sweeps',c.get('reference_mvi',{}).get('max_sweeps',30),None),
