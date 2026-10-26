@@ -355,6 +355,17 @@ def compile_boundary_program(functional,mechanical,electrical=None,*,spec=None,
                     parity=1 if side=="outer" else -1
                     basis=tuple(float(parity**k) for k in range(p))
                     for i in range(nx):
+                        # End POTENTIAL rows fix every thickness coefficient
+                        # at this x node. The matching face electrode equation
+                        # is therefore exactly implied there; including it
+                        # makes C*C.T singular in sparse Newton-Krylov.
+                        # Both static and time-dependent voltages were checked
+                        # for compatibility above, so this removes ONLY
+                        # redundant equations, never a physical condition.
+                        if ((i==0 and _electric_mode(_object(electric,"left"))=="POTENTIAL")
+                                or (i==nx-1 and
+                                    _electric_mode(_object(electric,"right"))=="POTENTIAL")):
+                            continue
                         for j in range(ns):
                             indices=tuple((k*nx+i)*ns+j for k in range(p))
                             add("electrical",indices,basis,value,f"{side} electrode x{i} s{j}")
