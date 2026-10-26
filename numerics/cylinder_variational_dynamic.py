@@ -13,6 +13,7 @@ from cylinder_variational_mvi import (
 )
 from cylinder_mvi_cold_start import seed_inactive_mvi_partners
 from cylinder_mvi_acceptance import certify_mvi_solution
+from cylinder_mvi_continuation import continue_accepted_mvi_profiles
 
 
 @dataclass(frozen=True)
@@ -175,7 +176,8 @@ def solve_dynamic_mvi(problem, mechanical, electrical=None, *, q_predictor,
                       velocity_predictor, time_s, dt_s, beta, gamma,
                       density_kg_m3, dead_load=None, free_charge=None,
                       settings=None, mvi_settings=None, on_iteration=None,
-                      mass_damping_rate_per_s=0.0, eta_s=0.0):
+                      mass_damping_rate_per_s=0.0, eta_s=0.0,
+                      previous_mvi_result=None):
     """Complete rank-fixed frozen-partner X/Y cycle for a Newmark step."""
     if problem.kind!="DYNAMIC":
         raise ValueError("solve_dynamic_mvi requires DYNAMIC problem")
@@ -193,11 +195,19 @@ def solve_dynamic_mvi(problem, mechanical, electrical=None, *, q_predictor,
     full=affine_trace_space(c,target,np.zeros_like(scales))
     if full.basis.shape[1]>settings.max_free_dofs:raise ValueError("reference free-DOF limit exceeded")
     lift=full.origin.copy();state=first.state/scales
-    variation=state-lift if np.max(abs(full.defect(state)),initial=0)<=1.e-12 else full.basis@(full.basis.T@state)
+    variation=(state-lift if np.max(abs(full.defect(state)),initial=0)<=1.e-12
+               else full.basis@(full.basis.T@(state-lift)))
     nc=q.shape[0]+(0 if p is None else p.shape[0]);shape=(nc,*q.shape[1:])
     component_scale=np.maximum(np.linalg.norm(state.reshape(shape),axis=(1,2)),
                                np.linalg.norm(lift.reshape(shape),axis=(1,2)))
-    x,y=_initial_profiles(variation.reshape(shape),mvi_settings.rank,component_scale)
+    if previous_mvi_result is None:
+        x,y=_initial_profiles(variation.reshape(shape),mvi_settings.rank,component_scale)
+        initialization="COLD_START"
+    else:
+        x,y,_=continue_accepted_mvi_profiles(
+            previous_mvi_result,q,p,new_lift_scaled=lift.reshape(shape),
+            new_scales=scales,full_space=full,rank=mvi_settings.rank)
+        initialization="CONTINUATION"
     energy_scale=float(f.material.young_pa*f.h*np.sum(f.W))
 
     def fields():
@@ -236,6 +246,7 @@ def solve_dynamic_mvi(problem, mechanical, electrical=None, *, q_predictor,
     def record(sweep,previous_v=None):
         metrics=admissible_nodal_metrics(full.basis,g,q.size)
         row={"event":"sweep","sweep":sweep,"iteration":iterations,
+             "mvi_initialization":initialization,
              "residual_scaled":metrics["full"],
              "mechanical_residual_scaled":metrics["mechanical"],
              "electrical_residual_scaled":metrics["electrical"],

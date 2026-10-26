@@ -444,6 +444,7 @@ def run_reference_case(case,case_path):
         summary.update(rank=prepared.mvi_settings.rank,
             convergence_meaning="full admissible nodal residual; projected residual reported separately")
     q,p=prepared.mechanical,prepared.electrical
+    previous_mvi_result=None
     try:
         progress.configure(out,solver_backend=BACKEND)
         for index,factor in enumerate(prepared.factors,1):
@@ -456,7 +457,9 @@ def run_reference_case(case,case_path):
                 from cylinder_matrixfree_fdm import solve_matrixfree_static_fdm
             solve=(solve_matrixfree_static_fdm if prepared.fdm_backend=="MATRIX_FREE_GMRES"
                    else solve_static_fdm if prepared.method=="FDM" else solve_static_mvi)
-            extra={} if prepared.method=="FDM" else {"mvi_settings":prepared.mvi_settings}
+            extra=({} if prepared.method=="FDM" else
+                   {"mvi_settings":prepared.mvi_settings,
+                    "previous_mvi_result":previous_mvi_result})
             result=solve(prepared.problem,q,p,dead_load=factor*prepared.dead_load,
                 free_charge=None if prepared.free_charge is None else factor*prepared.free_charge,
                 settings=prepared.settings,on_iteration=report,**extra)
@@ -507,7 +510,9 @@ def run_reference_case(case,case_path):
                 step.update(sweeps=result.sweeps,projected_residual_scaled=result.projected_residual_scaled,
                             projected_equilibrium_satisfied=result.projected_equilibrium_satisfied,
                             full_equilibrium_satisfied=result.converged,
-                            mvi_certificate=result.mvi_certificate)
+                            mvi_certificate=result.mvi_certificate,
+                            mvi_initialization=("CONTINUATION" if previous_mvi_result is not None
+                                                else "COLD_START"))
             radial=2*(int(functional.theory[-1])+1) if functional.theory.startswith("CUF_") else 2
             step["w_middle_abs_max_m"]=float(np.max(abs(result.mechanical[radial])))
             summary["steps"].append(step)
@@ -515,6 +520,8 @@ def run_reference_case(case,case_path):
             if result.converged:
                 summary["accepted_steps"]+=1
                 q,p=result.mechanical,result.electrical
+                if prepared.method=="MVI":
+                    previous_mvi_result=result
             else:
                 summary["failed_step_index"]=index
                 summary["failed_step_code"]=result.status
@@ -559,6 +566,7 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
     summary["fdm_backend"]=prepared.fdm_backend
     if prepared.mvi_settings is not None:summary["rank"]=prepared.mvi_settings.rank
     q,p=prepared.mechanical,prepared.electrical
+    previous_mvi_result=None
     velocity=np.zeros_like(q);acceleration=np.zeros_like(q)
     if prepared.fdm_backend=="MATRIX_FREE_GMRES":
         from cylinder_variational_boundary import compile_boundary_program
@@ -612,7 +620,9 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
                 from cylinder_matrixfree_fdm import solve_matrixfree_dynamic_fdm
             solve=(solve_matrixfree_dynamic_fdm if prepared.fdm_backend=="MATRIX_FREE_GMRES"
                    else solve_dynamic_fdm if prepared.method=="FDM" else solve_dynamic_mvi)
-            extra={} if prepared.method=="FDM" else {"mvi_settings":prepared.mvi_settings}
+            extra=({} if prepared.method=="FDM" else
+                   {"mvi_settings":prepared.mvi_settings,
+                    "previous_mvi_result":previous_mvi_result})
             result=solve(prepared.problem,q,p,q_predictor=q_predictor,
                 velocity_predictor=velocity_predictor,time_s=time_s,dt_s=newmark.dt_s,
                 beta=newmark.beta,gamma=newmark.gamma,density_kg_m3=dyn.density_kg_m3,
@@ -707,7 +717,9 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
             if prepared.method=="MVI":step.update(
                 projected_residual_scaled=result.projected_residual_scaled,
                 projected_equilibrium_satisfied=result.projected_equilibrium_satisfied,
-                mvi_certificate=result.mvi_certificate)
+                mvi_certificate=result.mvi_certificate,
+                mvi_initialization=("CONTINUATION" if previous_mvi_result is not None
+                                    else "COLD_START"))
             if trace_defects is not None:
                 step["mechanical_trace_defects"]=trace_defects
             if newmark_kinematic_defects is not None:
@@ -725,6 +737,8 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
                 break
             q,p=result.mechanical,result.electrical
             velocity,acceleration=result.velocity,result.acceleration
+            if prepared.method=="MVI":
+                previous_mvi_result=result
             summary["accepted_steps"]+=1
             summary["converged"]=summary["accepted_steps"]==newmark.n_steps
             summary["status"]="CONVERGED" if summary["converged"] else "IN_PROGRESS"

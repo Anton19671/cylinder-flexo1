@@ -19,6 +19,7 @@ from cylinder_variational_boundary import combine_functional_and_boundary
 from cylinder_residual_norms import admissible_nodal_inf_norm, admissible_nodal_metrics
 from cylinder_mvi_cold_start import seed_inactive_mvi_partners
 from cylinder_mvi_acceptance import certify_mvi_solution
+from cylinder_mvi_continuation import continue_accepted_mvi_profiles
 
 
 @dataclass(frozen=True)
@@ -99,7 +100,7 @@ def _initial_profiles(field,rank,roundoff_scale):
 
 def solve_static_mvi(problem, mechanical, electrical=None, *, dead_load=None,
                      free_charge=None, settings=None, mvi_settings=None,
-                     on_iteration=None):
+                     on_iteration=None, previous_mvi_result=None):
     if problem.kind!="STATIC":raise ValueError("solve_static_mvi requires STATIC")
     settings=StaticFDMSettings() if settings is None else settings
     mvi_settings=StaticMVISettings() if mvi_settings is None else mvi_settings
@@ -127,13 +128,20 @@ def solve_static_mvi(problem, mechanical, electrical=None, *, dead_load=None,
         # needlessly mixes roundoff from large components into inactive ones.
         variation=state-lift
     else:
-        variation=full.basis@(full.basis.T@state)
+        variation=full.basis@(full.basis.T@(state-lift))
     nc=q.shape[0]+(0 if p is None else p.shape[0])
     shape=(nc,*q.shape[1:])
     initial_scaled=(first.state/scales).reshape(shape)
     roundoff_scale=np.maximum(np.linalg.norm(initial_scaled,axis=(1,2)),
                               np.linalg.norm(lift.reshape(shape),axis=(1,2)))
-    x,y=_initial_profiles(variation.reshape(shape),mvi_settings.rank,roundoff_scale)
+    if previous_mvi_result is None:
+        x,y=_initial_profiles(variation.reshape(shape),mvi_settings.rank,roundoff_scale)
+        initialization="COLD_START"
+    else:
+        x,y,_=continue_accepted_mvi_profiles(
+            previous_mvi_result,q,p,new_lift_scaled=lift.reshape(shape),
+            new_scales=scales,full_space=full,rank=mvi_settings.rank)
+        initialization="CONTINUATION"
 
     def fields():
         v=lift+reconstruct_profiles(x,y).ravel()
@@ -175,6 +183,7 @@ def solve_static_mvi(problem, mechanical, electrical=None, *, dead_load=None,
     def record_sweep(sweep,previous_v=None):
         metrics=admissible_nodal_metrics(full.basis,g,q.size)
         row={"event":"sweep","sweep":sweep,"iteration":iterations,
+             "mvi_initialization":initialization,
              "residual_scaled":metrics["full"],
              "mechanical_residual_scaled":metrics["mechanical"],
              "electrical_residual_scaled":metrics["electrical"],
