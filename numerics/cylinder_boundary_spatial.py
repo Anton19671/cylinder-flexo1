@@ -19,6 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import copy
 import numpy as np
+from scipy.linalg import qr, solve_triangular
 
 from cylinder_functional_assembly import _basis_moments
 from cylinder_variational_boundary import combine_functional_and_boundary
@@ -101,8 +102,11 @@ def affine_trace_space(matrix, target, base, *, directions=None, labels=(),
     if max(u.size, t.shape[1], c.shape[0]) > 4096:
         raise ValueError("dense reference trace assembly limited to 4096 unknowns/rows")
     if t.shape[1]:
-        sv = np.linalg.svd(t, compute_uv=False)
-        if t.shape[1] > t.shape[0] or sv[-1] <= rank_tolerance*sv[0]:
+        # Rank-revealing pivoted QR; never truncate selected MVI directions.
+        _, rt, _ = qr(t, mode="economic", pivoting=True, check_finite=False)
+        pivots = np.abs(np.diag(rt))
+        if (t.shape[1] > t.shape[0] or not len(pivots)
+                or np.min(pivots) <= rank_tolerance*np.max(pivots)):
             raise ValueError("dependent spatial directions; normalize frozen MVI partners")
     scale = np.linalg.norm(c, axis=1)
     if np.any(scale == 0):
@@ -117,20 +121,33 @@ def affine_trace_space(matrix, target, base, *, directions=None, labels=(),
         lift = np.empty(0)
         z = np.empty((0, 0))
     else:
-        # SVD here only eliminates linear BC constraints; it never truncates
-        # a physical MVI state, adds regularization or solves shell equilibrium.
-        left, singular, right = np.linalg.svd(a, full_matrices=True)
-        cutoff = rank_tolerance*sv[0]
-        rank = int(np.count_nonzero(singular > cutoff))
-        lift = right[:rank].T @ ((left[:, :rank].T @ rhs)/singular[:rank])
-        z = right[rank:].T
+        # C*T may have dependent rows (e.g. intersecting electrodes).
+        # Pivoted QR of A.T identifies an independent constraint row set.
+        # Full QR completes an orthonormal null basis WITHOUT SVD.
+        q_rows, rr, permutation = qr(
+            a.T, mode="full", pivoting=True, check_finite=False)
+        diagonal = np.abs(np.diag(rr))
+        if diagonal.size:
+            cutoff = rank_tolerance*float(np.max(diagonal))
+            rank = int(np.count_nonzero(diagonal > cutoff))
+        else:
+            rank = 0
+        if rank:
+            # A_ind = R_ind.T * Q_r.T, so A_ind*lift=rhs_ind.
+            rhs_ind = rhs[np.asarray(permutation[:rank], dtype=int)]
+            coeff = solve_triangular(
+                rr[:rank, :rank].T, rhs_ind, lower=True,
+                check_finite=False)
+            lift = q_rows[:, :rank] @ coeff
+        else:
+            lift = np.zeros(t.shape[1])
+        z = q_rows[:, rank:]
     mismatch = a@lift-rhs
     # Use each row's uncancelled arithmetic scale. An exactly admissible
     # electrode can have C*u ~ roundoff although its individual potentials
     # are nonzero; scaling by |C*u| incorrectly rejects such MVI half-steps.
     tol = 1.e-10*np.maximum(1.e-12, abs(d)+abs(c)@abs(u)+abs(a)@abs(lift))
-    # A dense SVD may mix independent zero-target blocks at roundoff level.
-    # Include its backward-error floor as well as the physical row scale.
+    # Account for QR backward error at machine precision.
     tol += 20*np.finfo(float).eps*max(a.shape)*float(np.max(abs(rhs), initial=0))
     # A previous constrained solve or an exact profile QR coordinate change
     # can leave roundoff at a zero prescribed trace. Its backward-error scale
