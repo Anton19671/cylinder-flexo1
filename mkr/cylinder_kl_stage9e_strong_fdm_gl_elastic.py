@@ -347,7 +347,9 @@ def analytic_tangent_action(
     U,dU,ops,bc,*,E,nu,h,generalized_load=None,
     resultants_method="ANALYTIC",quadrature=None
 ):
-    """Exact V3b KL Green-Lagrange elastic tangent action dR(U)[dU]."""
+    """Unsupported: legacy hybrid tangent differs from current GL residual."""
+    raise NotImplementedError(
+        "GL_ANALYTIC_TANGENT_NOT_CONSISTENT_WITH_CURRENT_RESIDUAL")
     action=_prepare_exact_elastic_tangent_action(
         U,ops,bc,E=E,nu=nu,h=h,resultants_method=resultants_method,
         quadrature=quadrature,
@@ -359,7 +361,9 @@ def analytic_jacobian(
     U,ops,bc,*,E,nu,h,generalized_load,
     resultants_method="ANALYTIC",quadrature=None,base_residual=None
 ):
-    """Exact V3b KL dense Jacobian; no finite-difference perturbations."""
+    """Unsupported: do not expose a Jacobian of obsolete GL equations."""
+    raise NotImplementedError(
+        "GL_ANALYTIC_JACOBIAN_NOT_CONSISTENT_WITH_CURRENT_RESIDUAL")
     U=fl._validate_U(U,ops)
     action=_prepare_exact_elastic_tangent_action(
         U,ops,bc,E=E,nu=nu,h=h,resultants_method=resultants_method,
