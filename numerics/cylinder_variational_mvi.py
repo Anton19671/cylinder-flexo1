@@ -84,7 +84,7 @@ def _initial_profiles(field,rank,roundoff_scale):
             q,_,_=pivoted_qr(field[c].T,mode="economic",pivoting=True,
                              check_finite=False)
             y[c]=q[:,:rank].T
-            x[c]=field[c]@q[:,:rank]
+            x[c]=(field[c]@q[:,:rank]).T
             error=np.linalg.norm(x[c].T@y[c]-field[c])
             # Ignore only backward error of the affine projection/previous
             # profile reconstruction, scaled to this component's own units.
