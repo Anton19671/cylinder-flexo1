@@ -273,20 +273,27 @@ def run_kl_load_series(
             previous_state,current_state,factor,current_factor,previous_factor,
             mode=predictor_mode
         )
-        sol=d1.solve_kl_one_step(
-            m,
-            step_initial,
-            ops=ops,maps=maps,bc=bc,
-            E0=E0,nu0=nu0,h=h,
-            quadrature=quadrature,
-            generalized_load=load,
-            mvi_settings=mvi_settings,
-            material_diagram=material_diagram,
-            birger_settings=birger_settings,
-            initial_GB=current_GB,
-            previous_accepted_epsilon_i=previous_epsilon,
-        )
-
+        try:
+            sol=d1.solve_kl_one_step(
+                m,
+                step_initial,
+                ops=ops,maps=maps,bc=bc,
+                E0=E0,nu0=nu0,h=h,
+                quadrature=quadrature,
+                generalized_load=load,
+                mvi_settings=mvi_settings,
+                material_diagram=material_diagram,
+                birger_settings=birger_settings,
+                initial_GB=current_GB,
+                previous_accepted_epsilon_i=previous_epsilon,
+            )
+    
+        except (ValueError,RuntimeError,np.linalg.LinAlgError) as exc:
+            failed_index=k
+            failed_status=f"{type(exc).__name__}: {exc}"
+            fprog.emit("step_failed",stage="LOAD_STEP",
+                       solver_status=failed_status,converged=False)
+            break
         if not sol.converged:
             failed_index=k
             failed_status=sol.status
