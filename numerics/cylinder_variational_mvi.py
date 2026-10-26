@@ -76,12 +76,14 @@ def _initial_profiles(field,rank,roundoff_scale):
     x=np.zeros((nc,rank,nx));y=np.zeros((nc,rank,ns))
     # Constant first partner activates the axisymmetric cold start. Higher
     # modes are deterministic and independent, not identically zero terms.
-    bank=np.cos(np.pi*np.arange(rank)[:,None]*(np.arange(ns)+.5)/ns)
+    bank=np.cos(np.pi*np.arange(rank)[:,None]*(np.arange(nx)+.5)/nx)
     bank=np.linalg.qr(bank.T,mode="reduced")[0].T
     for c in range(nc):
         noise=50*np.finfo(float).eps*max(nx,ns)*roundoff_scale[c]
         if np.linalg.norm(field[c])<=noise:
-            y[c]=bank
+            # Sandwich MVI: all X factors are ready, Y starts at zero.
+            # The represented field remains exactly zero, with no lift.
+            x[c]=bank
         else:
             # Pivoted QR selects an independent row space without SVD.
             # The represented field must already fit the requested fixed rank.
@@ -146,20 +148,21 @@ def solve_static_mvi(problem, mechanical, electrical=None, *, dead_load=None,
         g=full.basis.T@(scales*r)/energy_scale
         return v,qm,pm,float(energy),r,g
 
-    def projected_norm(v,r):
+    def projected_components(v,r):
         # No extra nodal field may be inserted to force inhomogeneous traces.
         # Until X/Y impose them, use full residual as a conservative diagnostic.
         if np.max(np.abs(full.defect(v)),initial=0)>1.e-9:
             reduced=full.basis.T@(scales*r)/energy_scale
-            return admissible_nodal_inf_norm(full.basis,reduced)
-        norms=[]
-        for axis in ("X","Y"):
+            value=admissible_nodal_inf_norm(full.basis,reduced)
+            return {"X":value,"Y":value}
+        norms={}
+        for axis in ("Y","X"):
             xx,yy=_normalize_partner(x,y,axis)
             directions=separated_profile_directions(xx,yy,axis)
             space=affine_trace_space(c,target,v,directions=directions)
             reduced=space.basis.T@(scales*r)/energy_scale
-            norms.append(admissible_nodal_inf_norm(space.basis,reduced))
-        return max(norms)
+            norms[axis]=admissible_nodal_inf_norm(space.basis,reduced)
+        return norms
 
     history=[];iterations=0;sweeps=0;status="MAX_SWEEPS";converged=False
     v,qm,pm,energy,r,g=evaluate()
@@ -167,11 +170,14 @@ def solve_static_mvi(problem, mechanical, electrical=None, *, dead_load=None,
     # cannot see a zero-mean circumferential load. Align its *inactive* Y
     # directions with the admissible residual. No field or rank changes.
     admissible=(full.basis@g).reshape(shape)
-    x,y=seed_inactive_mvi_partners(x,y,admissible)
+    x,y=seed_inactive_mvi_partners(x,y,admissible,first_axis="Y")
     v,qm,pm,energy,r,g=evaluate()
     initial=admissible_nodal_inf_norm(full.basis,g)
     tolerance=settings.absolute_tolerance_scaled+settings.relative_tolerance*initial
-    projected=projected_norm(v,r)
+    projected_parts=projected_components(v,r)
+    projected=max(projected_parts.values())
+    field_change=0.
+    change_tolerance=max(1.e-8,0.5*settings.relative_tolerance)
 
     def record_sweep(sweep,previous_v=None):
         metrics=admissible_nodal_metrics(full.basis,g,q.size)
@@ -183,6 +189,10 @@ def solve_static_mvi(problem, mechanical, electrical=None, *, dead_load=None,
              "basis_coordinate_residual_scaled":metrics["basis_coordinates"],
              "residual_relative_to_initial":metrics["full"]/initial if initial else 0.,
              "projected_residual_scaled":projected,
+             "projected_x_residual_scaled":projected_parts["X"],
+             "projected_y_residual_scaled":projected_parts["Y"],
+             "sweep_field_change_relative":field_change,
+             "sweep_field_change_tolerance":change_tolerance,
              "projected_diagnostic_applicable":bool(
                  np.max(np.abs(full.defect(v)),initial=0)<=1.e-9),
              "potential_j":energy,
@@ -194,12 +204,12 @@ def solve_static_mvi(problem, mechanical, electrical=None, *, dead_load=None,
 
     record_sweep(0)
     if initial<=tolerance and np.max(np.abs(full.defect(v)),initial=0)<=1.e-9:
-        converged=True;status="CONVERGED"
+        converged=True;status="CONVERGED_FULL"
     for sweep in range(1,mvi_settings.max_sweeps+1):
         if converged:break
         failed=False
         previous_v=v.copy()
-        for axis in ("X","Y"):
+        for axis in ("Y","X"):
             x,y=_normalize_partner(x,y,axis)
             v,qm,pm=fields()
             directions=separated_profile_directions(x,y,axis)
@@ -226,19 +236,24 @@ def solve_static_mvi(problem, mechanical, electrical=None, *, dead_load=None,
                 status="HALFSTEP_"+axis+"_"+result.status;failed=True;break
         sweeps=sweep
         v,qm,pm,energy,r,g=evaluate()
-        projected=projected_norm(v,r)
+        projected_parts=projected_components(v,r)
+        projected=max(projected_parts.values())
+        # A relative physical-field test must not normalize small motion by 1.
+        field_change=float(np.linalg.norm(v-previous_v)/max(
+            np.linalg.norm(v),np.linalg.norm(previous_v),1.e-30))
         record_sweep(sweep,previous_v)
         if failed:break
-        if (admissible_nodal_inf_norm(full.basis,g)<=tolerance
+        # Classical sandwich/Krysko finite-rank stop: both tangent
+        # equations AND relative field change on the completed Y->X state.
+        if (projected<=tolerance and field_change<=change_tolerance
                 and np.max(np.abs(full.defect(v)),initial=0)<=1.e-9):
-            converged=True;status="CONVERGED";break
-        # The X/Y projected residual is only a diagnostic. Never accept or
-        # terminate a fixed-rank sweep while the full coupled admissible
-        # mechanical/electric residual still exceeds tolerance.
-        if projected<=tolerance:
-            status="PROJECTED_ONLY_FULL_RESIDUAL_NOT_CONVERGED"
+            converged=True
+            status=("CONVERGED_FULL" if
+                admissible_nodal_inf_norm(full.basis,g)<=tolerance else
+                "CONVERGED_PROJECTED")
+            break
     if not converged and status=="MAX_SWEEPS":
-        status="MAX_SWEEPS_FULL_RESIDUAL_NOT_CONVERGED"
+        status="MAX_SWEEPS_PROJECTED_NOT_CONVERGED"
     defect=float(np.max(abs(full.defect(v)),initial=0))
     if defect>1.e-9:converged=False;status="BOUNDARY_CONSTRAINT_DRIFT"
     certificate=certify_mvi_solution(
@@ -247,14 +262,16 @@ def solve_static_mvi(problem, mechanical, electrical=None, *, dead_load=None,
         full_basis=full.basis,reduced_residual=g,
         projected_residual_scaled=projected,
         full_tolerance_scaled=tolerance,constraint_defect_scaled=defect,
-        solver_converged=converged)
+        solver_converged=converged,
+        field_change_relative=field_change,
+        field_change_tolerance=change_tolerance)
     if converged and not certificate["accepted"]:
         converged=False
         status=("MVI_PROFILE_RECONSTRUCTION_DRIFT"
                 if not certificate["profile_reconstruction_satisfied"]
-                else "MVI_FULL_RESIDUAL_NOT_CONVERGED"
-                if not certificate["full_equilibrium_satisfied"]
-                else "BOUNDARY_CONSTRAINT_DRIFT")
+                else "BOUNDARY_CONSTRAINT_DRIFT"
+                if not certificate["boundary_constraint_satisfied"]
+                else "MVI_PROJECTED_OR_FIELD_CHANGE_NOT_CONVERGED")
     scaled_r=scales*r
     reaction=(scaled_r-full.basis@(full.basis.T@scaled_r))/scales
     norm=certificate["full_admissible_residual_scaled"]
