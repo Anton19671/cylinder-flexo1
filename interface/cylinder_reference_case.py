@@ -13,6 +13,7 @@ from cylinder_functional_assembly import (CylinderFunctional,
 from cylinder_boundary_spatial import BoundarySpatialProblem
 from cylinder_variational_fdm import StaticFDMSettings, solve_static_fdm, state_scales
 from cylinder_variational_mvi import StaticMVISettings, solve_static_mvi
+from cylinder_physical_fields import recover_thickness_fields
 from cylinder_variational_dynamic import solve_dynamic_fdm, solve_dynamic_mvi
 from cylinder_newmark_mvi import NewmarkSettings, validate_dynamic_case
 from cylinder_dynamic_loads import normalize_time_law
@@ -450,6 +451,11 @@ def run_reference_case(case,case_path):
             if prepared.method=="MVI":
                 arrays.update(x_profiles=result.x_profiles,y_profiles=result.y_profiles,
                               lift_scaled=result.lift_scaled,state_scales=result.scales)
+            # Recover physical 3D fields for accepted or failed iterate,
+            # preserving the same actual nonlinear state of MVI/FDM.
+            arrays.update(recover_thickness_fields(
+                functional,result.mechanical,result.electrical,
+                n_thickness=11))
             with temp.open("wb") as stream:np.savez_compressed(stream,**arrays)
             os.replace(temp,out/state_name)
             history_name=f"REFERENCE_{'MVI' if prepared.method=='MVI' else 'NEWTON'}_{index:04d}.json"
@@ -630,6 +636,11 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
             if prepared.method=="MVI":arrays.update(x_profiles=result.x_profiles,
                 y_profiles=result.y_profiles,lift_scaled=result.lift_scaled,
                 state_scales=result.scales)
+            # Recover physical 3D fields for accepted or failed iterate,
+            # preserving the same actual nonlinear state of MVI/FDM.
+            arrays.update(recover_thickness_fields(
+                f,result.mechanical,result.electrical,
+                n_thickness=11))
             with temp.open("wb") as stream:np.savez_compressed(stream,**arrays)
             os.replace(temp,out/state_name)
             history_name=f"REFERENCE_DYNAMIC_{prepared.method}_{index:04d}.json"
