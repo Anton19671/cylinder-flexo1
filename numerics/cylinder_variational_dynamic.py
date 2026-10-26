@@ -10,6 +10,7 @@ from cylinder_variational_fdm import StaticFDMSettings, state_scales, solve_chec
 from cylinder_variational_mvi import (
     StaticMVISettings, reconstruct_profiles, _initial_profiles, _normalize_partner,
 )
+from cylinder_mvi_cold_start import seed_inactive_mvi_partners
 
 
 @dataclass(frozen=True)
@@ -170,9 +171,15 @@ def solve_dynamic_mvi(problem, mechanical, electrical=None, *, q_predictor,
                       density_kg_m3, dead_load=None, free_charge=None,
                       settings=None, mvi_settings=None, on_iteration=None,
                       mass_damping_rate_per_s=0.0, eta_s=0.0):
-    """Complete frozen-partner X/Y cycle for one effective Newmark step."""
+    """Complete rank-fixed frozen-partner X/Y cycle for a Newmark step."""
+    if problem.kind!="DYNAMIC":
+        raise ValueError("solve_dynamic_mvi requires DYNAMIC problem")
     settings=StaticFDMSettings() if settings is None else settings
     mvi_settings=StaticMVISettings() if mvi_settings is None else mvi_settings
+    if not isinstance(settings,StaticFDMSettings):
+        raise TypeError("invalid Newton settings")
+    if not isinstance(mvi_settings,StaticMVISettings):
+        raise TypeError("invalid MVI settings")
     q=np.asarray(mechanical,float);p=None if electrical is None else np.asarray(electrical,float)
     f=problem.functional;scales=state_scales(f,q,p,settings)
     first=problem.assemble(q,p,dead_load=dead_load,free_charge=free_charge,time_s=time_s,
@@ -211,6 +218,11 @@ def solve_dynamic_mvi(problem, mechanical, electrical=None, *, q_predictor,
         return max(values)
 
     history=[];iterations=0;sweeps=0;status="MAX_SWEEPS";converged=False
+    v,assembled,r,g,qm,pm,velocity,acceleration=full_data()
+    # Effective Newmark residual, NOT the static residual, seeds inactive
+    # factors so nonaxisymmetric inertia/load cannot stall the first sweep.
+    admissible=(full.basis@g).reshape(shape)
+    x,y=seed_inactive_mvi_partners(x,y,admissible)
     v,assembled,r,g,qm,pm,velocity,acceleration=full_data()
     initial=float(np.max(abs(g),initial=0));tolerance=settings.absolute_tolerance_scaled+settings.relative_tolerance*initial
     projected=projected_norm(v,r)

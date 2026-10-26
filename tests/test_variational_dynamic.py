@@ -35,7 +35,7 @@ class DynamicFunctional:
         return SimpleNamespace(total_enthalpy_j=float(np.sum(self.W*(q*q+q**4/4-load*q))),
             mechanical_residual=self.W*(2*q+(q**3 if self.nonlinear else 0)-load),
             electrical_residual=self.W*(-p-charge))
-    def mass_action(self,acceleration,*,density_kg_m3):
+    def mass_action(self,acceleration,*,density_kg_m3,mechanical=None,velocity=None):
         return self.W*float(density_kg_m3)*acceleration
 
 

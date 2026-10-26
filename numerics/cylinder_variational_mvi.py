@@ -16,6 +16,7 @@ from cylinder_variational_fdm import (
     StaticFDMSettings, StaticFDMResult, solve_static_subspace, state_scales,
 )
 from cylinder_variational_boundary import combine_functional_and_boundary
+from cylinder_mvi_cold_start import seed_inactive_mvi_partners
 
 
 @dataclass(frozen=True)
@@ -156,6 +157,12 @@ def solve_static_mvi(problem, mechanical, electrical=None, *, dead_load=None,
         return max(norms)
 
     history=[];iterations=0;sweeps=0;status="MAX_SWEEPS";converged=False
+    v,qm,pm,energy,r,g=evaluate()
+    # For an exact zero separated component, the original constant partner
+    # cannot see a zero-mean circumferential load. Align its *inactive* Y
+    # directions with the admissible residual. No field or rank changes.
+    admissible=(full.basis@g).reshape(shape)
+    x,y=seed_inactive_mvi_partners(x,y,admissible)
     v,qm,pm,energy,r,g=evaluate()
     initial=float(np.max(abs(g),initial=0))
     tolerance=settings.absolute_tolerance_scaled+settings.relative_tolerance*initial
