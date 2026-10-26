@@ -274,10 +274,40 @@ def build_case(case_json):
     )
 
     rank=_integer_min(_required(cfg,"rank","case"),"case.rank",1)
-    initial_state=mvi.ProfileStateTE1(
-        np.zeros((6,rank,grid.nx),float),
-        np.zeros((6,rank,grid.ns),float),
-    )
+    # Never start both MVI factors at zero: the frozen-partner tangent
+    # then has no directions and cannot respond to a nonzero load.
+    # A user-supplied profile NPZ remains the authoritative initial state.
+    if rank>min(grid.nx,grid.ns):
+        raise CaseInputError("rank exceeds grid dimensions")
+    profile_source=cfg.get("initial_profiles_npz")
+    if profile_source is not None:
+        profile_path=Path(profile_source)
+        if not profile_path.is_absolute():
+            profile_path=case_dir/profile_path
+        try:
+            with np.load(profile_path,allow_pickle=False) as saved:
+                X=np.asarray(saved["X"],float).copy()
+                Y=np.asarray(saved["Y"],float).copy()
+        except (OSError,KeyError,ValueError) as exc:
+            raise CaseInputError(
+                "initial_profiles_npz must contain finite X/Y profiles") from exc
+        if X.shape!=(6,rank,grid.nx) or Y.shape!=(6,rank,grid.ns):
+            raise CaseInputError("initial_profiles_npz X/Y shape mismatch")
+        if not np.isfinite(X).all() or not np.isfinite(Y).all():
+            raise CaseInputError("initial_profiles_npz contains nonfinite profiles")
+        initial_state=mvi.ProfileStateTE1(X,Y)
+    else:
+        # Deterministic rank-fixed cold start: zero reconstructed displacement,
+        # but independent nonzero circumferential partners.
+        Y=np.broadcast_to(
+            np.cos(np.pi*np.arange(rank)[:,None]*
+                   (np.arange(grid.ns)[None,:]+0.5)/grid.ns),
+            (6,rank,grid.ns)).copy()
+        Y=np.broadcast_to(
+            np.linalg.qr(Y[0].T,mode="reduced")[0].T,
+            (6,rank,grid.ns)).copy()
+        initial_state=mvi.ProfileStateTE1(
+            np.zeros((6,rank,grid.nx),float),Y)
 
     birger_settings=None
     diagram=None
