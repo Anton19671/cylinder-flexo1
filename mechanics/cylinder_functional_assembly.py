@@ -181,9 +181,13 @@ class SurfaceOperators:
         else:
             # Original dense reference: retain rank validation of the
             # periodic derivative and its checkerboard-null protection.
-            values=np.linalg.svd(Ds,compute_uv=False)
+            # Rank-revealing QR checks the periodic null mode without SVD.
+            from scipy.linalg import qr
+            _, upper, _ = qr(Ds, mode="economic", pivoting=True,
+                             check_finite=False)
+            diagonal=np.abs(np.diag(upper))
             rank=int(np.count_nonzero(
-                values>max(values[0],1.)*1.e-11))
+                diagonal>max(float(np.max(diagonal,initial=0)),1.)*1.e-11))
             if rank!=Ds.shape[0]-1:
                 raise ValueError(
                     "Ds has spurious null modes (possible even-grid checkerboard)")
