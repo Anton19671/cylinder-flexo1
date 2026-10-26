@@ -213,9 +213,11 @@ def _write_calculation_readme(calculation_dir: Path, calculation_name: str) -> N
     )
     canonical=calculation_dir/"README_RESULTS_EN_RU.txt"
     legacy=calculation_dir/"README_RESULTS_RU.txt"
-    canonical.write_text(text,encoding="utf-8")
+    if not canonical.exists():
+        canonical.write_text(text,encoding="utf-8")
     # Legacy filename retained for old scripts/tests; content is intentionally bilingual.
-    legacy.write_text(text,encoding="utf-8")
+    if not legacy.exists():
+        legacy.write_text(text,encoding="utf-8")
 
 
 def _append_run_index(calculation_dir: Path, calculation_name: str, info: dict, cfg: dict) -> Path:
