@@ -49,7 +49,9 @@ class TestIndependentSwitches(unittest.TestCase):
         self.assertEqual(terms["flexoelectric"],0)
         _s,_m,D=enthalpy_derivatives(e,g,E,mat)
         np.testing.assert_array_equal(D,np.zeros(3))
-        self.assertEqual(numerical_status(configuration),"NOT_IMPLEMENTED_GRADIENT_G3D")
+        self.assertEqual(numerical_status(configuration),"EXPLICIT_VARIATIONAL_BACKEND_REQUIRED")
+        configuration["solver_backend"]="VARIATIONAL_REFERENCE"
+        self.assertEqual(numerical_status(configuration),"REFERENCE_GRADIENT_G3D")
 
     def test_on_has_coupled_material_terms(self):
         cfg=case(True);mat=micro_material_from_case(cfg)
@@ -57,7 +59,8 @@ class TestIndependentSwitches(unittest.TestCase):
         self.assertEqual(mat.mu1_c_per_m,2)
         self.assertEqual(mat.mu2_c_per_m,-0.5)
         self.assertEqual(mat.kappa_f_per_m,4)
-        self.assertEqual(numerical_status(cfg),"NOT_IMPLEMENTED_COUPLED_G3D")
+        cfg["solver_backend"]="VARIATIONAL_REFERENCE"
+        self.assertEqual(numerical_status(cfg),"REFERENCE_COUPLED_G3D")
 
     def test_off_ignores_inactive_electrical_input_values(self):
         cfg=case(False)
@@ -89,3 +92,4 @@ class TestIndependentSwitches(unittest.TestCase):
 
 if __name__=="__main__":
     unittest.main()
+
