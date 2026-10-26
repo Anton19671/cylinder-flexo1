@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from cylinder_boundary_spatial import affine_trace_space, separated_profile_directions
-from cylinder_variational_fdm import StaticFDMSettings, state_scales
+from cylinder_variational_fdm import StaticFDMSettings, state_scales, solve_checked_reduced_tangent
 from cylinder_variational_mvi import (
     StaticMVISettings, reconstruct_profiles, _initial_profiles, _normalize_partner,
 )
@@ -129,11 +129,12 @@ def solve_dynamic_subspace(problem, mechanical, electrical, *, q_predictor,
         if failed:break
         record["tangent_symmetry_relative"]=float(
             np.linalg.norm(tangent-tangent.T)/max(np.linalg.norm(tangent),1.e-300))
-        record["tangent_condition"]=float(np.linalg.cond(tangent))
-        if not np.isfinite(record["tangent_condition"]) or record["tangent_condition"]>1/np.finfo(float).eps:
-            status="SINGULAR_TANGENT_CHECK_SUPPORTS_AND_GAUGE";break
-        try:correction=np.linalg.solve(tangent,-g)
+        try:
+            correction,estimate=solve_checked_reduced_tangent(tangent,g)
+            record["tangent_condition"]=estimate
+            record["tangent_condition_method"]="LU_1_NORM_ESTIMATE"
         except np.linalg.LinAlgError:
+            record["tangent_condition"]=float("inf")
             status="SINGULAR_TANGENT_CHECK_SUPPORTS_AND_GAUGE";break
         merit=float(np.max(abs(g),initial=0))
         for halving in range(settings.max_halvings+1):
