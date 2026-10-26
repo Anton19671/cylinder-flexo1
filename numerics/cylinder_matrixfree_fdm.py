@@ -18,7 +18,7 @@ No physical tangent regularization or artificial electric penalty is
 introduced. Dependent or ill-conditioned constraints fail closed.
 The Newton step solves
     [P K P + (I-P)] delta = -P g
-with line search on ||P g||_2, where g is the scaled FULL residual.
+with line search on ||P g||_inf, where g is the scaled FULL residual.
 This is an explicit experimental alternative to the dense FDM solver.
 Its large-grid computational efficiency, preconditioning, physical
 convergence and boundary accuracy have NOT been established.
@@ -34,7 +34,7 @@ try:
     from scipy.sparse import linalg as sla
 except ImportError as exc:
     raise ImportError(
-        "Optional full FDM Newton-Krylov route requires scipy>=1.11") from exc
+        "Optional full FDM Newton-Krylov route requires scipy>=1.12") from exc
 
 from cylinder_functional_assembly import _basis_moments
 from cylinder_variational_boundary import compile_boundary_program
@@ -257,7 +257,7 @@ def _solve(problem, q0, p0, *, time_s, dead_load, free_charge,
         (q.ravel(),p.ravel()))
     z=projector.project_affine(initial_state/scales)
     data=evaluate(z)
-    initial=float(np.linalg.norm(data[2]))
+    initial=float(np.max(np.abs(data[2]),initial=0))
     tol=settings.absolute_tolerance_scaled+settings.relative_tolerance*initial
     preconditioner=None
     if settings.krylov_preconditioner=="PHYSICS_BLOCK_ILU":
@@ -274,7 +274,7 @@ def _solve(problem, q0, p0, *, time_s, dead_load, free_charge,
     status="MAX_ITERATIONS"
     for index in range(settings.max_iterations+1):
         g=data[2]
-        norm=float(np.linalg.norm(g))
+        norm=float(np.max(np.abs(g),initial=0))
         rec={"iteration":index,"residual_scaled":norm,
              "residual_relative_to_initial":norm/initial if initial else 0.,
              "linear_solver":"MATRIX_FREE_GMRES",
@@ -327,6 +327,8 @@ def _solve(problem, q0, p0, *, time_s, dead_load, free_charge,
             if "INVALID_" not in str(exc):raise
             status="INVALID_TANGENT_PERTURBATION";break
         rec["krylov_matvecs"]=tangent_count[0]
+        if tangent_count[0]>settings.krylov_max_matvecs:
+            status="KRYLOV_MATVEC_BUDGET_EXCEEDED";break
         rec["krylov_iterations"]=len(linear_history)
         rec["krylov_last_relative_residual"]=(
             linear_history[-1] if linear_history else 0.)
@@ -336,7 +338,7 @@ def _solve(problem, q0, p0, *, time_s, dead_load, free_charge,
         correction=projector.project_null(correction)
         true_linear=float(np.linalg.norm(action(correction)+g))
         rec["krylov_true_residual_scaled"]=true_linear
-        if true_linear>max(1.e-11,2.*settings.krylov_rtol*norm):
+        if true_linear>max(1.e-11,2.*settings.krylov_rtol*float(np.linalg.norm(g))):
             status="KRYLOV_TRUE_RESIDUAL_TOO_LARGE";break
         rec["increment_scaled"]=float(np.max(np.abs(correction),initial=0))
         merit=norm
@@ -347,7 +349,7 @@ def _solve(problem, q0, p0, *, time_s, dead_load, free_charge,
             except ValueError as exc:
                 if "INVALID_" not in str(exc):raise
                 continue
-            next_norm=float(np.linalg.norm(candidate[2]))
+            next_norm=float(np.max(np.abs(candidate[2]),initial=0))
             if next_norm<=(1.-1.e-4*factor)*merit or next_norm<=tol:
                 rec["step_factor"]=factor
                 z,data=trial,candidate
@@ -364,7 +366,7 @@ def _solve(problem, q0, p0, *, time_s, dead_load, free_charge,
     # gradient defines the actual reactions, not the reduced GMRES RHS.
     sr=scales*residual
     reaction=(sr-projector.project_null(sr))/scales
-    norm=float(np.linalg.norm(gradient))
+    norm=float(np.max(np.abs(gradient),initial=0))
     return dict(
         converged=converged,status=status,mechanical=qm,electrical=pm,
         total_potential_j=energy,full_residual=residual.copy(),
