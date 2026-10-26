@@ -146,7 +146,7 @@ class VariationalFDMCaseTest(unittest.TestCase):
                 run_mvi_rank_series(path)
             self.assertFalse((root/"run").exists())
             c["solver_backend"]="CLASSICAL";path.write_text(json.dumps(c))
-            with self.assertRaisesRegex(FinalCaseError,"VARIATIONAL_BC_SPATIAL_NOT_CONNECTED"):
+            with self.assertRaisesRegex(FinalCaseError,"VARIATIONAL_REFERENCE"):
                 run_final_case(path)
 
     def test_actual_coupled_shell_case_solves_and_saves_fields(self):
