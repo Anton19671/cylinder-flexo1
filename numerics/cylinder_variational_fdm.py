@@ -7,7 +7,9 @@ coupled indefinite system and globalize on residual, never energy decrease.
 This small-grid backend is explicit and never substitutes for MVI.
 """
 from dataclasses import dataclass
+import warnings
 import numpy as np
+from scipy.linalg import LinAlgWarning, lu_factor, lu_solve, get_lapack_funcs
 
 from cylinder_boundary_spatial import affine_trace_space
 from cylinder_variational_boundary import combine_functional_and_boundary
@@ -66,6 +68,44 @@ def state_scales(functional, mechanical, electrical, settings):
         scales[3*np.prod(functional.ops.shape):q.size]=1.
     if electrical is not None:scales[q.size:]=settings.potential_scale_v
     return scales
+
+
+def solve_checked_reduced_tangent(tangent, projected_residual):
+    """Solve the exact indefinite reduced Newton system with LU, never SVD.
+
+    LAPACK xGECON estimates the reciprocal ONE-norm condition from the
+    *same LU factors*; no singular values, pseudo-inverse, or regularization.
+    Reject a singular/ill-conditioned system instead of quietly modifying it.
+    """
+    a=np.asarray(tangent,float)
+    g=np.asarray(projected_residual,float)
+    if a.ndim!=2 or a.shape!=(len(g),len(g)) or not (
+            np.isfinite(a).all() and np.isfinite(g).all()):
+        raise np.linalg.LinAlgError("invalid reduced tangent/residual")
+    norm1=float(np.linalg.norm(a,ord=1))
+    if norm1<=0 or not np.isfinite(norm1):
+        raise np.linalg.LinAlgError("zero or nonfinite reduced tangent")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error",LinAlgWarning)
+        try:
+            lu,piv=lu_factor(a,check_finite=False)
+        except (LinAlgWarning,ValueError) as exc:
+            raise np.linalg.LinAlgError("singular reduced tangent LU") from exc
+    gecon=get_lapack_funcs("gecon",(a,))
+    rcond,info=gecon(lu,norm1)
+    if (info!=0 or not np.isfinite(rcond) or
+            rcond<=np.finfo(float).eps):
+        raise np.linalg.LinAlgError("ill-conditioned reduced tangent")
+    correction=lu_solve((lu,piv),-g,check_finite=False)
+    if not np.isfinite(correction).all():
+        raise np.linalg.LinAlgError("nonfinite reduced Newton correction")
+    defect=float(np.max(np.abs(a@correction+g),initial=0))
+    scale=(float(np.linalg.norm(a,ord=np.inf))*
+           float(np.max(np.abs(correction),initial=0))+
+           float(np.max(np.abs(g),initial=0)))
+    if defect>5.e-10*max(scale,np.finfo(float).tiny):
+        raise np.linalg.LinAlgError("reduced Newton linear residual too large")
+    return correction,float(1./rcond)
 
 
 def solve_static_subspace(problem, mechanical, electrical=None, *, dead_load=None,
@@ -146,12 +186,12 @@ def solve_static_subspace(problem, mechanical, electrical=None, *, dead_load=Non
         if status=="INVALID_TANGENT_PERTURBATION":break
         record["tangent_symmetry_relative"]=float(
             np.linalg.norm(tangent-tangent.T)/max(np.linalg.norm(tangent),1.e-300))
-        record["tangent_condition"]=float(np.linalg.cond(tangent))
-        if (not np.isfinite(record["tangent_condition"]) or
-                record["tangent_condition"]>1./np.finfo(float).eps):
-            status="SINGULAR_TANGENT_CHECK_SUPPORTS_AND_GAUGE";break
-        try:correction=np.linalg.solve(tangent,-g)
+        try:
+            correction,estimate=solve_checked_reduced_tangent(tangent,g)
+            record["tangent_condition"]=estimate
+            record["tangent_condition_method"]="LU_1_NORM_ESTIMATE"
         except np.linalg.LinAlgError:
+            record["tangent_condition"]=float("inf")
             status="SINGULAR_TANGENT_CHECK_SUPPORTS_AND_GAUGE";break
         merit=float(np.max(abs(g),initial=0))
         for halving in range(settings.max_halvings+1):
