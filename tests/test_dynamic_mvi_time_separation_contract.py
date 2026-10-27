@@ -37,7 +37,9 @@ class SpatialMviNewmarkContractTests(unittest.TestCase):
         yd=np.array([3.,-1.,1.,4.])
         q0=np.outer(x,y)[None,...]
         v0=(np.outer(xd,y)+np.outer(x,yd))[None,...]
-        a0=(2*np.outer(xd,yd))[None,...]
+        # The initial acceleration is an independent Newmark field;
+        # it need not have the same spatial rank as endpoint displacement.
+        a0=(2*np.outer(xd,yd)+.3*np.outer(x,y))[None,...]
         dt=.08
         beta=.25
         gamma=.5
