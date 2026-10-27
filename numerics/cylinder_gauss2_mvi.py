@@ -358,6 +358,8 @@ def solve_gauss2_mvi_step(initial, settings, *, mvi_settings, equations,
         # unit-sized displacement or an absolute error floor.
         previous_field = _profile_field(x0, y0)
         normalized_actual = u0 / old
+        if not np.isfinite(normalized_actual).all():
+            raise ValueError('GAUSS2_MVI_CONTINUATION_INVALID_OLD_SCALES')
         per_component_amplitude = np.max(
             np.abs(normalized_actual), axis=(1, 2), keepdims=True)
         limit = mvi_settings.endpoint_rank_tolerance * np.maximum(
