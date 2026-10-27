@@ -60,7 +60,7 @@ def assemble_physical_end_rows(balance, mechanical, grid, *, axial_orders,
                 node=k if side_index==0 else grid.nx-1-k
                 if kind=="ESSENTIAL":
                     field=q[i] if k==0 else direct_coefficient_derivative(q[i],k,0,grid)
-                    trace=field[node,:] * (-1 if k==1 and side_index==0 else 1)
+                    # Evaluate every essential trace at the ACTUAL physical end.\n                    # The adjacent rows hold additional equations; they are\n                    # not sampling locations for d_n q or d_nn q.\n                    physical_end=0 if side_index==0 else -1\n                    trace=field[physical_end,:] * (-1 if k==1 and side_index==0 else 1)
                 else:
                     actions=(balance.mechanical_end_displacement,
                              balance.mechanical_end_slope,
