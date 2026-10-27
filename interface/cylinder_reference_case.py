@@ -399,9 +399,11 @@ def _write_dynamic_history(path,steps):
 def _postprocess_options(case):
     data=case.get("postprocess",{})
     if not isinstance(data,dict) or set(data)-{
-            "thickness_stations","electric_induction_scale_c_per_m2"}:
+            "thickness_stations","electric_induction_scale_c_per_m2",
+            "dynamic_analytics"}:
         raise ValueError(
-            "postprocess permits thickness_stations and electric_induction_scale_c_per_m2")
+            "postprocess permits thickness_stations, "
+            "electric_induction_scale_c_per_m2 and dynamic_analytics")
     n=_integer(data.get("thickness_stations",11),
                "postprocess.thickness_stations",3)
     if n>201:
@@ -409,8 +411,31 @@ def _postprocess_options(case):
     scale=data.get("electric_induction_scale_c_per_m2")
     if scale is not None:
         scale=_real(scale,"postprocess.electric_induction_scale_c_per_m2",True)
-    return {"thickness_stations":n,"electric_induction_scale_c_per_m2":scale}
-
+    raw=data.get("dynamic_analytics",{})
+    if isinstance(raw,bool):
+        raw={"enabled":raw}
+    if not isinstance(raw,dict) or set(raw)-{
+            "enabled","transient_fraction","forcing_hz"}:
+        raise ValueError(
+            "postprocess.dynamic_analytics must be a boolean or an object "
+            "with enabled, transient_fraction and forcing_hz")
+    default_enabled=str(case.get("calculation_kind","")).upper()=="DYNAMIC"
+    enabled=raw.get("enabled",default_enabled)
+    if not isinstance(enabled,bool):
+        raise ValueError("postprocess.dynamic_analytics.enabled must be boolean")
+    fraction=_real(raw.get("transient_fraction",.2),
+                   "postprocess.dynamic_analytics.transient_fraction")
+    if not 0<=fraction<.9:
+        raise ValueError(
+            "postprocess.dynamic_analytics.transient_fraction must be in [0,0.9)")
+    forcing=raw.get("forcing_hz")
+    if forcing is not None:
+        forcing=_real(forcing,"postprocess.dynamic_analytics.forcing_hz",True)
+    return {"thickness_stations":n,
+            "electric_induction_scale_c_per_m2":scale,
+            "dynamic_analytics":{"enabled":enabled,
+                                  "transient_fraction":fraction,
+                                  "forcing_hz":forcing}}
 
 def run_reference_case(case,case_path):
     prepared=prepare_reference_case(case,base_dir=Path(case_path).parent)
@@ -744,6 +769,31 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
             summary["status"]="CONVERGED" if summary["converged"] else "IN_PROGRESS"
             _write_json(out/"FINAL_RUN_SUMMARY.json",summary)
     finally:progress.reset()
+    # Export after the accepted Newmark states and final summary have been
+    # persisted. This is strictly postprocessing: never change solver success.
+    analytics=postprocess["dynamic_analytics"]
+    if not analytics["enabled"]:
+        summary["dynamic_analytics"]={"status":"DISABLED"}
+    elif summary["accepted_steps"]<1:
+        summary["dynamic_analytics"]={"status":"NO_ACCEPTED_STEPS"}
+    else:
+        try:
+            from cylinder_dynamic_analytics import export_dynamic_analytics
+            exported=export_dynamic_analytics(
+                out,transient_fraction=analytics["transient_fraction"],
+                forcing_hz=analytics["forcing_hz"])
+            summary["dynamic_analytics"]={
+                "status":"EXPORTED","output_dir":exported["output_dir"],
+                "workbooks":exported["workbooks"],
+                "probe_count":exported["probes"],
+                "complete":exported["complete"]}
+        except Exception as exc:
+            # Leave complete/partial accepted physical states intact. A failed
+            # optional visualization must never invalidate a Newmark step.
+            summary["dynamic_analytics"]={
+                "status":"EXPORT_FAILED","error_type":type(exc).__name__,
+                "message":str(exc)}
+    _write_json(out/"FINAL_RUN_SUMMARY.json",summary)
     return summary
 
 
