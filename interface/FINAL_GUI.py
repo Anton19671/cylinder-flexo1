@@ -18,6 +18,7 @@ import sys
 import threading
 import time
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import ttk, filedialog, messagebox
 
 # Historical GUI helpers are kept separate from the current solver modules.
@@ -211,6 +212,7 @@ class SolverGUI(tk.Tk):
         self.vars={}
         from cylinder_time_integrator_gui import TIME_INTEGRATOR_CHOICES
         self.time_integrator=tk.StringVar(self,value=TIME_INTEGRATOR_CHOICES[0])
+        self.time_integrator.trace_add("write",lambda *_:self._refresh_time_integrator_controls())
         self._build_ui()
         self._install_global_edit_bindings()
         self._refresh_visibility()
@@ -6503,6 +6505,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         state={"format":"CYLINDER_GUI_PARAMETERS_V2","vars":{k:v.get() for k,v in self.vars.items() if k!="initial_slope_rtol"},"advanced_bc":self.advanced_bc,"engineering_bc":self.engineering_bc,"variational_bc":copy.deepcopy(getattr(self,"variational_bc",None)),"load_full_circumference":bool(getattr(self,"load_full_var",tk.BooleanVar(value=False)).get())}
         for name,widget in (("curve_points",getattr(self,"curve_points",None)),("curve_parameters",getattr(self,"curve_parameters",None)),("curve_piecewise",getattr(self,"curve_piecewise",None)),("control_points",getattr(self,"control_points_text",None))):
             if widget is not None:state[name]=widget.get("1.0","end-1c")
+        state["time_integrator"]=self.time_integrator.get()
         return state
 
     def _apply_gui_state(self,state):
@@ -6523,6 +6526,10 @@ class FinalSolverGUI(EnhancedSolverGUI):
             raise ValueError(
                 "Файл параметров интерфейса повреждён: отсутствует объект vars."
             )
+        from cylinder_time_integrator_gui import TIME_INTEGRATOR_CHOICES, time_integrator_code
+        selection=state.get("time_integrator",TIME_INTEGRATOR_CHOICES[0])
+        code=time_integrator_code(selection)
+        self.time_integrator.set(TIME_INTEGRATOR_CHOICES[code=="GAUSS2_IRK4"])
         for k,val in state["vars"].items():
             if k!="initial_slope_rtol":
                 if k=="output_dir" and _is_legacy_program_results_root(val):val=str(_default_results_root())
@@ -6604,17 +6611,18 @@ class FinalSolverGUI(EnhancedSolverGUI):
         if self.proc is not None and self.proc.poll() is None:
             raise ValueError("Расчёт уже выполняется")
         from cylinder_time_integrator_gui import plan_time_integrator_run
-        plan=plan_time_integrator_run(path,self.time_integrator.get(),series=series)
+        plan=plan_time_integrator_run(path,self.time_integrator.get() if cfg.get("calculation_kind")=="DYNAMIC" else "NEWMARK",series=series)
         output=plan.output_dir
         result_dir=output/"MVI_1_8_SERIES" if series else output
         if result_dir.exists() and any(result_dir.iterdir()):
             raise ValueError(f"Папка результатов не пуста: {result_dir}")
         self.run_output_dir=result_dir
         loads=cfg.get("reference_loads") or cfg.get("load_definition") or {}
-        self.expected_steps=8 if series else len(loads.get("load_factors",[]))
+        self.expected_steps=(8 if series else int(cfg.get("dynamics",{}).get("n_steps",0))
+                             if plan.calculation_kind=="DYNAMIC" else len(loads.get("load_factors",[])))
         self.run_kind="REFERENCE_SERIES" if series else "REFERENCE_CASE"
         self._stop_requested=False;self._paused=False;self._paused_pids=[]
-        cmd=[sys.executable,str(APP_DIR/"interface"/"restored_gui_runner.py"),str(path),self.time_integrator.get()]+(["--series"] if series else [])
+        cmd=[sys.executable,str(APP_DIR/"interface"/"restored_gui_runner.py"),str(path),"NEWMARK" if plan.integrator=="STATIC" else plan.integrator]+(["--series"] if series else [])
         self._log("\n=== REFERENCE START ===\n"+" ".join(cmd)+"\n")
         self._progress_reset(self.expected_steps)
         self.proc=subprocess.Popen(cmd,cwd=str(APP_DIR),stdout=subprocess.PIPE,
@@ -7093,9 +7101,8 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self._display_bindings={}
         self._install_standard_defaults()
 
-        banner=tk.Frame(self,background="#12344d",height=70)
+        banner=tk.Frame(self,background="#12344d")
         banner.pack(fill="x")
-        banner.pack_propagate(False)
         titlebox=tk.Frame(banner,background="#12344d")
         titlebox.pack(side="left",fill="y",padx=18,pady=10)
         tk.Label(titlebox,text="CYL_SOLVER",font=("Segoe UI Semibold",17),foreground="white",background="#12344d").pack(anchor="w")
@@ -7153,7 +7160,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         ttk.Radiobutton(timebar,text="Статика",value="STATIC",
                         variable=self._v("calculation_kind","STATIC"),
                         command=self._on_calculation_kind_change).pack(side="left",padx=(0,12))
-        ttk.Radiobutton(timebar,text="Динамика · Ньюмарк + МВИ/МКР",
+        ttk.Radiobutton(timebar,text="Динамика · МВИ/МКР",
                         value="DYNAMIC",
                         variable=self._v("calculation_kind","STATIC"),
                         command=self._on_calculation_kind_change).pack(side="left",padx=(0,12))
@@ -7187,6 +7194,10 @@ class FinalSolverGUI(EnhancedSolverGUI):
             progress_row,text="Принято 0/0 · 0%",width=30,anchor="w"
         )
         self.progress_label.pack(side="left",padx=(0,8))
+        self.tab_menu_button=ttk.Menubutton(progress_row,text="Все вкладки ▾")
+        self.tab_menu=tk.Menu(self.tab_menu_button,tearoff=False)
+        self.tab_menu_button.configure(menu=self.tab_menu)
+        self.tab_menu_button.pack(side="left",padx=(0,8))
         self.progress=GreenStepProgressbar(progress_row,mode="determinate",length=205,height=18)
         self.progress.set_text("Принято 0/0 · 0%")
         self.progress.pack(side="left",fill="x",expand=True)
@@ -7212,14 +7223,15 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self._build_problem_tab()
         self._build_load_tab()
         self._build_cylinder_tab()
-        self._build_numeric_tab()
+        self._scroll_pages=[]
+        self._build_scrollable_page("tab_numeric",self._build_numeric_tab)
         self._build_birger_tab()
         self._build_j2_tab()
         self._build_online_tab()
         self._build_results_tab()
         self._build_dynamic_setup_tab()
-        self._build_dynamics_tab()
-        self._build_files_tab()
+        self._build_scrollable_page("tab_dynamics",self._build_dynamics_tab)
+        self._build_scrollable_page("tab_files",self._build_files_tab)
         self._build_run_tab()
         self._prepare_basic_problem_grid()
         self._apply_basic_grid_preset()
@@ -7242,27 +7254,59 @@ class FinalSolverGUI(EnhancedSolverGUI):
             self.notebook.select(self.tab_dynamic_setup)
 
     def _arrange_problem_workstation(self,event=None):
-        """Three readable desktop work areas; preserve two-pane compact mode."""
+        """Show the side sketch only after both input panes have enough room."""
         try:
-            width=int(self.tab_problem.winfo_width())
+            width=int(self.tab_problem.winfo_width())-20
             if width<=1:return
-            wide=width>=1210
-            if getattr(self,"_problem_layout_is_wide",None)==wide:return
-            self._problem_layout_is_wide=wide
-            if wide:
-                self.tab_problem.columnconfigure(0,weight=5)
-                self.tab_problem.columnconfigure(1,weight=6)
-                self.tab_problem.columnconfigure(2,weight=4)
-                self.problem_right_host.grid_configure(padx=(0,9))
-                self.problem_side_preview.grid()
-            else:
+            font=tkfont.Font(self,font=ttk.Style(self).lookup("TLabel","font"))
+            left_min=max(480,self.problem_left_inner.winfo_reqwidth()+40,font.measure("nz — точек Гаусса по толщине")+font.measure("0000000000000000")+90)
+            right_min=max(540,self.problem_right_host.winfo_reqwidth())
+            sketch_min=max(340,self.problem_side_preview.winfo_reqwidth(),font.measure("Классическая упругость")+160)
+            wide=width>=left_min+right_min+sketch_min+30
+            mode="wide" if wide else "split" if width>=left_min+right_min else "stacked"
+            if getattr(self,"_problem_layout_is_wide",None)==mode:return
+            self._problem_layout_is_wide=mode
+            for col in range(3):self.tab_problem.columnconfigure(col,weight=0,minsize=0,uniform="")
+            self.tab_problem.rowconfigure(0,weight=1)
+            self.tab_problem.rowconfigure(1,weight=1 if mode=="stacked" else 0)
+            self.problem_left_host.grid_configure(row=0,column=0,padx=(0,8 if mode!="stacked" else 0),pady=0)
+            self.problem_right_host.grid_configure(row=1 if mode=="stacked" else 0,column=0 if mode=="stacked" else 1,padx=(0,9 if wide else 0),pady=(8,0) if mode=="stacked" else 0)
+            if mode=="stacked":
                 self.tab_problem.columnconfigure(0,weight=1)
-                self.tab_problem.columnconfigure(1,weight=1)
-                self.tab_problem.columnconfigure(2,weight=0)
-                self.problem_right_host.grid_configure(padx=0)
-                self.problem_side_preview.grid_remove()
+            else:
+                self.tab_problem.columnconfigure(0,weight=1,minsize=left_min)
+                self.tab_problem.columnconfigure(1,weight=1,minsize=right_min)
+            if wide:
+                self.tab_problem.columnconfigure(2,weight=0,minsize=sketch_min)
+                self.problem_side_preview.grid()
+            else:self.problem_side_preview.grid_remove()
             self._schedule_problem_scheme_redraw(70)
         except tk.TclError:return
+
+    def _build_scrollable_page(self,name,builder):
+        """Keep the notebook page identity while making its controls reachable."""
+        page=getattr(self,name)
+        page.columnconfigure(0,weight=1);page.rowconfigure(0,weight=1)
+        canvas=tk.Canvas(page,width=1,height=1,highlightthickness=0,background="#f4f6f8")
+        canvas.grid(row=0,column=0,sticky="nsew")
+        bar=ttk.Scrollbar(page,orient="vertical",command=canvas.yview,style="Green.Vertical.TScrollbar")
+        bar.grid(row=0,column=1,sticky="ns")
+        xbar=ttk.Scrollbar(page,orient="horizontal",command=canvas.xview)
+        xbar.grid(row=1,column=0,sticky="ew")
+        canvas.configure(yscrollcommand=bar.set,xscrollcommand=xbar.set)
+        content=ttk.Frame(canvas,padding=2)
+        window=canvas.create_window((0,0),window=content,anchor="nw")
+        def resize(_event=None):
+            canvas.itemconfigure(window,width=max(canvas.winfo_width(),content.winfo_reqwidth()),height=max(canvas.winfo_height(),content.winfo_reqheight()))
+            canvas.configure(scrollregion=canvas.bbox("all"))
+            if content.winfo_reqwidth()>canvas.winfo_width():xbar.grid()
+            else:xbar.grid_remove()
+        content.bind("<Configure>",resize)
+        canvas.bind("<Configure>",resize)
+        self._scroll_pages.append((canvas,content))
+        setattr(self,name,content)
+        try:builder()
+        finally:setattr(self,name,page)
 
     def _build_cylinder_tab(self):
         from cylinder_live_preview import bind_cylinder_view
@@ -7377,7 +7421,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         heading.grid(row=0,column=0,sticky="ew",pady=(0,12))
         ttk.Label(heading,text="Параметры динамического расчёта",
                   font=("Segoe UI Semibold",14)).pack(anchor="w")
-        ttk.Label(heading,text="Ньюмарк по времени · полный пространственный расчёт МВИ/МКР на каждом шаге",
+        ttk.Label(heading,text="Ньюмарк или Гаусс–Рунге–Кутта IRK4 · пространственный расчёт на каждом шаге",
                   foreground="#52687a",wraplength=850,justify="left").pack(anchor="w",pady=(3,0))
         content.columnconfigure(0,weight=1)
         columns=ttk.Frame(content)
@@ -7399,6 +7443,14 @@ class FinalSolverGUI(EnhancedSolverGUI):
             entry.grid(row=row,column=1,sticky="ew",pady=5)
             return entry
 
+        from cylinder_time_integrator_gui import TIME_INTEGRATOR_CHOICES
+        integration=ttk.LabelFrame(left,text="Интегратор по времени",padding=(12,10))
+        integration.pack(fill="x",pady=(0,12))
+        self.time_integrator_combo=ttk.Combobox(integration,textvariable=self.time_integrator,
+            values=TIME_INTEGRATOR_CHOICES,state="readonly",width=38)
+        self.time_integrator_combo.pack(fill="x")
+        self.time_integrator_note=ttk.Label(integration,text="",wraplength=430,justify="left",foreground="#52687a")
+        self.time_integrator_note.pack(fill="x",pady=(7,0))
         timecard=ttk.LabelFrame(left,text="1. Время и схема Ньюмарка",padding=(12,10))
         timecard.pack(fill="x",pady=(0,12))
         timecard.columnconfigure(1,weight=1)
@@ -7671,6 +7723,8 @@ class FinalSolverGUI(EnhancedSolverGUI):
                (getattr(self,"problem_right_canvas",None),getattr(self,"problem_right_inner",None)),
                (getattr(self,"load_left_canvas",None),getattr(self,"load_left_inner",None)),
                (getattr(self,"dynamic_setup_canvas",None),getattr(self,"dynamic_setup_inner",None)))
+        pairs=pairs+tuple(getattr(self,"_scroll_pages",()))+((getattr(self,"online_scroll_canvas",None),getattr(self,"online_scroll_inner",None)),)
+        if isinstance(target,(tk.Text,tk.Listbox,ttk.Treeview)):return None
         for canvas,inner in pairs:
             if canvas is None or inner is None:continue
             if not (self._widget_is_inside(target,inner) or target is canvas):continue
@@ -7696,7 +7750,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         for canvas,inner in ((getattr(self,"problem_left_canvas",None),getattr(self,"problem_left_inner",None)),
                              (getattr(self,"problem_right_canvas",None),getattr(self,"problem_right_inner",None)),
                              (getattr(self,"load_left_canvas",None),getattr(self,"load_left_inner",None)),
-               (getattr(self,"dynamic_setup_canvas",None),getattr(self,"dynamic_setup_inner",None))):
+               (getattr(self,"dynamic_setup_canvas",None),getattr(self,"dynamic_setup_inner",None)))+tuple(getattr(self,"_scroll_pages",()))+((getattr(self,"online_scroll_canvas",None),getattr(self,"online_scroll_inner",None)),):
             if canvas is None or inner is None:continue
             try:canvas.unbind("<MouseWheel>");inner.unbind("<MouseWheel>")
             except Exception:pass
@@ -7707,6 +7761,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
                 if id(w) in seen:continue
                 seen.add(id(w))
                 try:
+                    if isinstance(w,(tk.Text,tk.Listbox,ttk.Treeview)):continue
                     w.bind("<MouseWheel>",self._dispatch_scrollable_mousewheel,add="+")
                     w.bind("<Button-4>",self._dispatch_scrollable_mousewheel,add="+")
                     w.bind("<Button-5>",self._dispatch_scrollable_mousewheel,add="+")
@@ -7982,6 +8037,10 @@ class FinalSolverGUI(EnhancedSolverGUI):
         tabs.extend(((self.tab_online,"Онлайн-расчёт"),(self.tab_results,"Результаты"),(self.tab_dynamics,"Анализ динамики")))
         if expert:tabs.extend(((self.tab_files,"Файлы и начальные поля"),(self.tab_run,"Журнал")))
         for tab,title in tabs:self.notebook.add(tab,text=title)
+        if hasattr(self,"tab_menu"):
+            self.tab_menu.delete(0,"end")
+            for tab,title in tabs:
+                self.tab_menu.add_command(label=title,command=lambda page=tab:self.notebook.select(page))
         visible={str(tab) for tab,_ in tabs}
         try:
             if selected in visible:self.notebook.select(selected)
@@ -8108,6 +8167,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self._sync_display_selectors()
         self._refresh_basic_grid_visibility()
         self._refresh_expert_control_visibility()
+        self.after_idle(self._arrange_problem_workstation)
 
     def _refresh_basic_grid_visibility(self):
         if not hasattr(self,"basic_fdm_controls"):return
@@ -8221,6 +8281,31 @@ class FinalSolverGUI(EnhancedSolverGUI):
         if reference_runnable and hasattr(self,"series_btn"):
             try:self.series_btn.configure(state="normal" if reference[1].get("method")=="MVI" else "disabled")
             except Exception:pass
+        self._refresh_time_integrator_controls()
+
+    def _refresh_time_integrator_controls(self):
+        from cylinder_time_integrator_gui import TIME_INTEGRATOR_CHOICES
+        dynamic=self._v("calculation_kind","STATIC").get()=="DYNAMIC"
+        irk=self.time_integrator.get()==TIME_INTEGRATOR_CHOICES[1]
+        combo=getattr(self,"time_integrator_combo",None)
+        if combo is not None:combo.configure(state="readonly" if dynamic else "disabled")
+        note=getattr(self,"time_integrator_note",None)
+        if note is not None:
+            note.configure(text=("IRK4: динамика, только МВИ; отдельная папка результатов. Серия МВИ 1–8 недоступна." if irk else "Ньюмарк: динамика МВИ/МКР. Параметры β и γ — ниже."))
+        if hasattr(self,"dyn_newmark_expert"):
+            for widget in self.dyn_newmark_expert.winfo_children():
+                if isinstance(widget,ttk.Entry):
+                    key=str(widget.cget("textvariable"))
+                    beta_gamma={str(self._v("dyn_beta")),str(self._v("dyn_gamma"))}
+                    widget.configure(state="disabled" if irk and key in beta_gamma else "normal")
+        if hasattr(self,"series_btn"):
+            active=self._active_reference_case()
+            available=(active[1].get("method")=="MVI" if active else
+                       self._v("method").get()=="MVI" and not dynamic and
+                       self._v("scale_model","MACRO").get()=="MACRO" and
+                       self._v("theory").get() not in capreg.PLANNED_THEORIES)
+            running=self.proc is not None and self.proc.poll() is None
+            self.series_btn.configure(state="normal" if available and not running and not (dynamic and irk) else "disabled")
 
     def _on_theory_change(self):
         self.advanced_bc=None
@@ -8383,5 +8468,6 @@ def main():
 
 if __name__=="__main__":
     main()
+
 
 

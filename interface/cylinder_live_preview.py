@@ -99,10 +99,29 @@ def render_cylinder_view(gui, canvas):
     canvas.create_text(w - 10, 10, anchor="ne", fill="#52687a",
                        font=("Segoe UI", 9), text=physics)
 
+    units = "м" if value("unit_system") == "SI_N_M_PA" else "мм"
+    dimensions = ", ".join(
+        f"{caption}={value(key)}" for key, caption in
+        (("L", "L"), ("R", "R"), ("h", "h")) if value(key)
+    )
+    load_caption = _LOAD_NAMES.get(load, load)
+    if load != "EXTERNAL_NPZ":
+        load_caption += " · внутрь" if direction == "EXTERNAL" else " · наружу"
+    if dynamic:
+        load_caption += f" · F(t): {value('dyn_law', 'HARMONIC')}"
+    load_id=canvas.create_text(w / 2,h-8,anchor="s",fill="#52687a",
+                       font=("Segoe UI",9),width=max(180,w-25),text=load_caption)
+    dimensions_id=canvas.create_text(w/2,canvas.bbox(load_id)[1]-7,anchor="s",fill="#17324d",
+                       font=("Segoe UI",9),width=max(180,w-25),
+                       text=f"{dimensions} [{units}]" if dimensions else "Размеры не заданы")
+    footer_top=canvas.bbox(dimensions_id)[1]
+
     length = max(85.0, min(w - 115.0, w * 0.62 * zoom))
     x0, x1 = (w - length) / 2, (w + length) / 2
-    cy = h * 0.48
-    radius = min(80.0, h * 0.20 * zoom)
+    diagram_top=55.0
+    diagram_bottom=max(diagram_top+30,footer_top-60.0)
+    cy=(diagram_top+diagram_bottom)/2
+    radius=min(80.0,max(12.0,(diagram_bottom-diagram_top)*0.42*zoom))
     cap = max(10.0, min(36.0, radius * 0.5))
 
     # Tube, end contours and a rotating axial guide.  The guide makes it
@@ -173,26 +192,10 @@ def render_cylinder_view(gui, canvas):
         return str(raw)
 
     left, right = bc_label("bc_left"), bc_label("bc_right")
-    canvas.create_text(x0 + 8, cy + radius + 17, anchor="nw",
+    canvas.create_text(x0 + 8, cy + radius + 10, anchor="nw",
                        font=("Segoe UI Semibold", 9), fill="#17324d",
                        width=max(65, length * .45), text=f"x=0: {left}")
-    canvas.create_text(x1 - 8, cy + radius + 17, anchor="ne",
+    canvas.create_text(x1 - 8, cy + radius + 10, anchor="ne",
                        font=("Segoe UI Semibold", 9), fill="#17324d",
                        width=max(65, length * .45), text=f"x=L: {right}")
 
-    units = "м" if value("unit_system") == "SI_N_M_PA" else "мм"
-    dimensions = ", ".join(
-        f"{caption}={value(key)}" for key, caption in
-        (("L", "L"), ("R", "R"), ("h", "h")) if value(key)
-    )
-    load_caption = _LOAD_NAMES.get(load, load)
-    if load != "EXTERNAL_NPZ":
-        load_caption += " · внутрь" if direction == "EXTERNAL" else " · наружу"
-    if dynamic:
-        load_caption += f" · F(t): {value('dyn_law', 'HARMONIC')}"
-    canvas.create_text(w / 2, h - 36, fill="#17324d",
-                       font=("Segoe UI", 9), width=max(180, w - 25),
-                       text=f"{dimensions} [{units}]" if dimensions else "Размеры не заданы")
-    canvas.create_text(w / 2, h - 14, fill="#52687a",
-                       font=("Segoe UI", 9), width=max(180, w - 25),
-                       text=load_caption)
