@@ -368,7 +368,11 @@ def prepare_reference_case(case, *, base_dir=None):
                 acceleration=np.zeros_like(q),density_kg_m3=dynamic.density_kg_m3)
             if np.max(abs(a.projected_residual),initial=0)>1.e-10:
                 raise ValueError("ZERO initial conditions are not in equilibrium at start_time_s; delay the load or supply a preloaded-state route")
-        if a.space.basis.shape[1]>settings.max_free_dofs:
+        # The full admissible grid space certifies an MVI result, but its
+        # dimension is NOT the number of unknowns solved in an X/Y half-step.
+        # The dense FDM cap applies only to the full-nodal FDM Newton solve.
+        # Every frozen-partner MVI subspace independently enforces this cap.
+        if method == "FDM" and a.space.basis.shape[1]>settings.max_free_dofs:
             raise ValueError("reference free-DOF limit exceeded; use a smaller verification grid")
     if kind=="DYNAMIC" and method=="MVI":
         # The genuine separated Newmark solution has NO additive nodal lift.
