@@ -180,7 +180,7 @@ def _state_arrays(state):
 def run_gauss2_variational_mvi_history(problem, initial, settings, *,
         mvi_settings, n_steps, density_kg_m3, loads_at, output_dir,
         newton_settings=None, mass_damping_rate_per_s=0., eta_s=0.,
-        on_accepted_step=None):
+        on_accepted_step=None, physical_case=None):
     """Opt-in physical IRK4 MVI history; only complete steps get STEP_XXXX.
 
     On a failed step the last accepted state remains on disk, the summary
@@ -198,6 +198,17 @@ def run_gauss2_variational_mvi_history(problem, initial, settings, *,
         raise TypeError('time-dependent physical loads_at(t) required')
     if on_accepted_step is not None and not callable(on_accepted_step):
         raise TypeError('on_accepted_step must be a callback or None')
+    physics_digest=None
+    if physical_case is not None:
+        from cylinder_dynamic_case_passport import dynamic_physics_sha256
+        physics_digest=dynamic_physics_sha256(physical_case)
+        dyn=physical_case["dynamics"]
+        if (dyn["n_steps"]!=n_steps or
+                not math.isclose(float(dyn["time_step_s"]),settings.dt_s,rel_tol=1e-12,abs_tol=0.) or
+                not math.isclose(float(dyn.get("start_time_s",0.)),initial.time_s,rel_tol=1e-12,abs_tol=1e-13) or
+                not math.isclose(float(dyn["density_kg_m3"]),float(density_kg_m3),rel_tol=1e-12,abs_tol=0.) or
+                physical_case.get("rank")!=mvi_settings.rank):
+            raise ValueError('GAUSS2_PHYSICAL_CASE_TIME_DENSITY_OR_RANK_MISMATCH')
     out=Path(output_dir).expanduser().resolve()
     if out.exists() and (not out.is_dir() or any(out.iterdir())):
         raise ValueError('GAUSS2_OUTPUT_DIR_NOT_EMPTY')
@@ -212,7 +223,9 @@ def run_gauss2_variational_mvi_history(problem, initial, settings, *,
              't_start_s':initial.time_s,'dt_s':settings.dt_s,
              'status':'RUNNING','steps':[],
              'endpoint_policy':'NO_RANK_CHANGE_OR_PROJECTION',
-             'moving_supports_supported':False}
+             'moving_supports_supported':False,
+             'physical_case_sha256':physics_digest,
+             'physical_case_declared':physics_digest is not None}
     _atomic_npz(out/'GAUSS2_MVI_INITIAL.npz',_state_arrays(initial))
     _atomic_json(summary_path,summary)
     previous=None
