@@ -151,8 +151,9 @@ def direct_strong_jet_balance(mechanical_coefficients, derivative_orders, grid,
 
     Let B_a = sum_b (-1)^b d_s^b A_(a,b).
     Mechanical bulk: B_0-d_x B_1+d_xx B_2-d_xxx B_3-f.
-    End actions conjugate to (q,q_x,q_xx):
-       n_x*(B_1-d_x B_2+d_xx B_3, B_2-d_x B_3, B_3).
+    End actions conjugate to the OUTWARD-NORMAL traces (q,d_n q,d_nn q):
+       (n_x*(B_1-d_x B_2+d_xx B_3), B_2-d_x B_3, n_x*B_3).
+    The double traction has NO outward-normal sign: d_n q = n_x*d_x q.
     Electric bulk: E_0-d_x E_1-d_s E_2-charge.
     Electric end potential action: n_x*E_1.
 
@@ -217,7 +218,7 @@ def direct_strong_jet_balance(mechanical_coefficients, derivative_orders, grid,
         raise ValueError("electric charge requires electrical coefficients")
     return DirectStrongBalance(
         strong, elec_bulk, _outward_ends(q_action),
-        _outward_ends(qx_action) if qx_action is not None else None,
+        np.stack((qx_action[..., 0, :], qx_action[..., -1, :])) if qx_action is not None else None,
         _outward_ends(qxx_action) if qxx_action is not None else None,
         elec_end, tuple(range(highest, grid.nx-highest)), highest)
 
