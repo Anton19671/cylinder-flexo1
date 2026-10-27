@@ -5907,6 +5907,8 @@ class FinalSolverGUI(EnhancedSolverGUI):
     def run_mvi_series(self):
         active=self._active_reference_case()
         if active is not None:
+            self._sync_reference_case()
+            active=self._active_reference_case()
             path,cfg=active
             try:self._launch_reference_case(path,cfg,series=True)
             except Exception as exc:messagebox.showerror("МВИ 1–8",str(exc))
@@ -6307,6 +6309,8 @@ class FinalSolverGUI(EnhancedSolverGUI):
     def run_case(self):
         active=self._active_reference_case()
         if active is not None:
+            self._sync_reference_case()
+            active=self._active_reference_case()
             path,cfg=active
             try:self._launch_reference_case(path,cfg)
             except Exception as exc:messagebox.showerror("Запуск CASE",str(exc))
@@ -6328,6 +6332,8 @@ class FinalSolverGUI(EnhancedSolverGUI):
     def validate_case(self):
         active=self._active_reference_case()
         if active is not None:
+            self._sync_reference_case()
+            active=self._active_reference_case()
             path,_=active
             try:
                 result=validate_final_case(path)
@@ -6550,6 +6556,8 @@ class FinalSolverGUI(EnhancedSolverGUI):
         # do not reinterpret opening the file as a selector conversion event.
         self._last_unit_system=self._v("unit_system","N_MM_MPA").get()
         self._refresh_material_mode(); self._refresh_visibility(); self._refresh_load_step_mode(); self._refresh_curve_visibility(); self._update_units(); self._update_grid_info(); self._schedule_problem_scheme_redraw(20)
+        self._reference_case_key=None
+        self._sync_reference_case()
         try:
             if self.vars.get("curve_preview_max") and self.vars["curve_preview_max"].get().strip():self._preview_birger_curve()
         except Exception:pass
@@ -6592,9 +6600,132 @@ class FinalSolverGUI(EnhancedSolverGUI):
         if path is None:
             raise ValueError("Сначала сохраните вариационный CASE")
         self._v("case_path").set(str(Path(path).resolve()))
-        self._v("calculation_kind").set(case.get("calculation_kind","STATIC"))
-        self._refresh_visibility()
-        self._update_grid_info()
+        self._sync_reference_case()
+
+    def _schedule_reference_sync(self):
+        if hasattr(self,"reference_bar"):
+            self.after_idle(self._sync_reference_case)
+
+    def _sync_reference_case(self):
+        """Show the saved CASE, and prevent edits to unrelated GUI inputs."""
+        if not hasattr(self,"reference_bar") or getattr(self,"_syncing_reference",False):return
+        self._syncing_reference=True
+        try:
+            active=self._active_reference_case()
+            if not active:
+                self._release_reference_locks()
+                self.reference_bar.pack_forget()
+                self._reference_case_key=None
+                self._refresh_visibility()
+                return
+            path,cfg=active
+            stat=path.stat()
+            key=(str(path.resolve()),stat.st_mtime_ns,stat.st_size)
+            if getattr(self,"_reference_case_key",None)!=key:
+                self._release_reference_locks()
+                self._reference_case_key=key
+                self._populate_reference_view(cfg)
+            self.reference_message.configure(text="Вариационный CASE: "+path.name+". Параметры изменяются через редактор CASE.")
+            if not self.reference_bar.winfo_manager():
+                self.reference_bar.pack(fill="x",before=self._reference_bar_before,padx=0)
+            self._refresh_visibility()
+            self._apply_reference_locks()
+        finally:self._syncing_reference=False
+
+    def _populate_reference_view(self,cfg):
+        def put(key,value):self._v(key).set("" if value is None else str(value))
+        unit=str((cfg.get("units") or {}).get("system","SI_N_M_PA"))
+        self._last_unit_system=unit
+        put("unit_system",unit)
+        for key in ("theory","cuf_model","method","rank","calculation_kind","scale_model","geometry_model","material_model"):
+            put(key,cfg.get(key,""))
+        put("material_source","USER")
+        geo=cfg.get("geometry") or {};material=cfg.get("material") or {}
+        for key in ("L","R","h"):put(key,geo.get(key))
+        for key in ("E0","nu0"):put(key,material.get(key))
+        micro=cfg.get("micro") or {}
+        put("micro_flexoelectric","ON" if micro.get("enable_flexoelectric",False) else "OFF")
+        for key,source in (("micro_ell_m","ell_m"),("micro_mu1","mu1_c_per_m"),
+            ("micro_mu2","mu2_c_per_m"),("micro_kappa","kappa_f_per_m"),
+            ("micro_rho","rho_kg_m3"),("micro_eta","eta_s"),("micro_potential_order","potential_order")):
+            put(key,micro.get(source))
+        grid=cfg.get("mvi_grid" if cfg.get("method")=="MVI" else "fdm_grid") or cfg.get("grid") or {}
+        for prefix in ("","mvi_"):
+            for key in ("nx","ns"):put(prefix+key,grid.get(key))
+        quad=cfg.get("quadrature") or {}
+        put("quadrature_type",quad.get("type"));put("n_gauss",quad.get("n_gauss"))
+        bc=(cfg.get("boundary_conditions") or {}).get("variational") or {}
+        self.variational_bc=copy.deepcopy(bc)
+        mechanical=bc.get("mechanical") or {}
+        for side in ("left","right"):
+            item=mechanical.get(side) or {}
+            put("bc_"+side,item.get("support") if isinstance(item,dict) else "")
+        load=cfg.get("reference_loads") or cfg.get("load_definition") or {}
+        put("load_type",load.get("type"));put("load_face",load.get("face"))
+        q=load.get("q")
+        put("load_q",abs(float(q)) if q is not None else "")
+        put("load_pressure_direction","EXTERNAL" if q is not None and float(q)<0 else "INTERNAL")
+        for key,source in (("load_x1","x1"),("load_x2","x2"),
+            ("load_c0","c0"),("load_c1","c1"),("load_c2","c2"),
+            ("load_harmonic_m","m"),("load_harmonic_n","n"),
+            ("load_band_width","band_width"),("load_point_x0","x0"),
+            ("load_point_theta0","theta0")):
+            put(key,load.get(source))
+        for key,source in (("load_p_line","p_line"),("load_point_P","P")):
+            val=load.get(source);put(key,abs(float(val)) if val is not None else "")
+        dynamics=cfg.get("dynamics") or {}
+        for key,source in (("dyn_dt","time_step_s"),("dyn_steps","n_steps"),
+            ("dyn_density","density_kg_m3"),("dyn_beta","newmark_beta"),
+            ("dyn_gamma","newmark_gamma"),("dyn_t0","start_time_s"),("dyn_damping","damping")):
+            put(key,dynamics.get(source))
+        law=dynamics.get("time_law") or {}
+        put("dyn_law",law.get("kind"))
+        for key,source in (("dyn_amplitude","amplitude"),("dyn_load_start","start_time_s"),
+            ("dyn_load_freq","frequency_hz"),("dyn_load_phase_rad","phase_rad"),
+            ("dyn_load_duration","duration_s"),("dyn_load_decay","decay_rate_per_s"),
+            ("dyn_load_freq_end","frequency_end_hz"),("dyn_load_center","center_time_s"),
+            ("dyn_load_sigma","sigma_s")):
+            put(key,law.get(source))
+        put("output_dir",cfg.get("output_dir"))
+        self._sync_display_selectors();self._update_units();self._update_grid_info()
+        self._schedule_problem_scheme_redraw(20)
+
+    def _reference_widgets(self):
+        roots=[self._reference_model_panel,self._reference_timebar,self.tab_problem,
+               self.tab_load,self.tab_numeric,self.tab_dynamic_setup]
+        roots.extend(getattr(self,name,None) for name in ("mvi_profile_row","initial_state_frame","gb_frame","output_dir_choose_btn"))
+        stack=[w for w in roots if w is not None]
+        while stack:
+            widget=stack.pop()
+            try:stack.extend(widget.winfo_children())
+            except tk.TclError:continue
+            if widget is getattr(self,"time_integrator_combo",None):continue
+            if isinstance(widget,(ttk.Entry,ttk.Combobox,ttk.Button,ttk.Radiobutton,ttk.Checkbutton,tk.Entry,tk.Text,tk.Button,tk.Checkbutton,tk.Radiobutton)):
+                yield widget
+
+    def _apply_reference_locks(self):
+        if not self._active_reference_case():return
+        saved=getattr(self,"_reference_widget_states",{})
+        for widget in self._reference_widgets():
+            try:
+                if widget not in saved:saved[widget]=str(widget.cget("state"))
+                widget.configure(state="disabled")
+            except tk.TclError:pass
+        self._reference_widget_states=saved
+
+    def _release_reference_locks(self):
+        for widget,state in getattr(self,"_reference_widget_states",{}).items():
+            try:widget.configure(state=state)
+            except tk.TclError:pass
+        self._reference_widget_states={}
+
+    def _edit_active_reference_case(self):
+        active=self._active_reference_case()
+        if active:return self.open_reference_case(active[1],active[0])
+
+    def _close_active_reference_case(self):
+        self._v("case_path").set("")
+        self._sync_reference_case()
 
     def open_reference_case(self,case=None,path=None):
         from cylinder_reference_gui import ReferenceCaseEditor
@@ -7115,6 +7246,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
             ttk.Radiobutton(levelrow,text=text,value=value,variable=self._v("ui_level"),style="Mode.TRadiobutton",command=self._apply_ui_level_layout).pack(side="left",padx=(0,4))
 
         model=ttk.LabelFrame(self,text="Расчётная модель",padding=(12,9))
+        self._reference_model_panel=model
         model.pack(fill="x",padx=12,pady=(10,7))
         # Two compact rows prevent the selector strip from forcing the window wider than the monitor.
         for c in range(4):model.columnconfigure(c,weight=1)
@@ -7156,6 +7288,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self.model_info.grid(row=2,column=0,columnspan=4,sticky="w",pady=(7,0))
 
         timebar=ttk.LabelFrame(self,text="Тип задачи и пространственный метод",padding=5)
+        self._reference_timebar=timebar
         timebar.pack(fill="x",padx=12,pady=(0,5))
         ttk.Radiobutton(timebar,text="Статика",value="STATIC",
                         variable=self._v("calculation_kind","STATIC"),
@@ -7169,7 +7302,13 @@ class FinalSolverGUI(EnhancedSolverGUI):
         # Keeping them here above the notebook squeezed the problem geometry
         # and boundary editors to an unusable strip on scaled Windows screens.
 
+        self.reference_bar=ttk.Frame(self,padding=(12,3,12,3))
+        self.reference_message=ttk.Label(self.reference_bar,text="",foreground="#8a4b00")
+        self.reference_message.pack(side="left",fill="x",expand=True)
+        ttk.Button(self.reference_bar,text="Редактировать CASE…",command=self._edit_active_reference_case).pack(side="left",padx=5)
+        ttk.Button(self.reference_bar,text="Закрыть CASE",command=self._close_active_reference_case).pack(side="left")
         actions=ttk.Frame(self,padding=(12,0,12,7));actions.pack(fill="x")
+        self._reference_bar_before=actions
         ttk.Button(actions,text="Открыть параметры",command=self.open_parameters).pack(side="left",padx=(0,5))
         ttk.Button(actions,text="Сохранить параметры в папку…",command=self.save_parameters_to_folder).pack(side="left",padx=5)
         ttk.Button(actions,text="Проверить",command=self.validate_case).pack(side="left",padx=(14,5))
@@ -7241,6 +7380,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self._refresh_material_mode()
         self._update_units()
         self._install_global_scroll_dispatch()
+        self._v("case_path").trace_add("write",lambda *_:self._schedule_reference_sync())
         self.notebook.bind(
             "<<NotebookTabChanged>>",
             lambda _e:self._schedule_problem_scheme_redraw(70),add="+")
@@ -8266,6 +8406,10 @@ class FinalSolverGUI(EnhancedSolverGUI):
                 status=("MICRO · G3D ВКЛ; ФЛЕКСО ВЫКЛ (mu1=mu2=kappa=0, "
                         "электрический потенциал не решается). "
                         "Численный микрорасчёт пока недоступен.")
+            if reference:
+                micro=reference[1].get("micro") or {}
+                effect="ВКЛ" if micro.get("enable_flexoelectric",False) else "ВЫКЛ"
+                status=f"Вариационный CASE · {reference[1].get('scale_model')} · флексо {effect}. Параметры — в редакторе CASE."
             self.scale_note.configure(text=status)
             if hasattr(self,"model_info"):self._update_grid_info()
         retired=self._v("material_model","HOOKE").get()!="HOOKE"
@@ -8282,6 +8426,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
             try:self.series_btn.configure(state="normal" if reference[1].get("method")=="MVI" else "disabled")
             except Exception:pass
         self._refresh_time_integrator_controls()
+        self._apply_reference_locks()
 
     def _refresh_time_integrator_controls(self):
         from cylinder_time_integrator_gui import TIME_INTEGRATOR_CHOICES
@@ -8306,6 +8451,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
                        self._v("theory").get() not in capreg.PLANNED_THEORIES)
             running=self.proc is not None and self.proc.poll() is None
             self.series_btn.configure(state="normal" if available and not running and not (dynamic and irk) else "disabled")
+        if hasattr(self,"reference_bar"):self._apply_reference_locks()
 
     def _on_theory_change(self):
         self.advanced_bc=None

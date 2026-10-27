@@ -170,3 +170,43 @@ class RestoredGuiTabsTests(TestCase):
         dimensions=next(bounds for text,bounds in labels.items() if text=="Размеры не заданы" or text.startswith("L="))
         self.assertLess(max(bounds[3] for bounds in bottom),dimensions[1])
         win.destroy()
+
+    def test_reference_case_edit_is_saved_and_no_unrelated_fields_are_editable(self):
+        app=self.app
+        template=Path(__file__).resolve().parents[1]/"config/CASE_REFERENCE_CUF_G3D_MVI_DYNAMIC.json"
+        original=json.loads(template.read_text())
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/"input.json"
+            path.write_text(json.dumps(original))
+            app._v("case_path").set(str(path));self.pump()
+            self.assertTrue(app.reference_bar.winfo_ismapped())
+            self.assertEqual(float(app._v("L").get()),original["geometry"]["L"])
+            self.assertEqual(float(app._v("E0").get()),original["material"]["E0"])
+            self.assertEqual(app._v("unit_system").get(),"SI_N_M_PA")
+            entries=[w for w in self.walk(app.problem_left_inner) if isinstance(w,gui.ttk.Entry) and str(w.cget("textvariable"))==str(app._v("L"))]
+            self.assertEqual(len(entries),1)
+            self.assertIn("disabled",entries[0].state())
+            self.assertNotIn("disabled",app.time_integrator_combo.state())
+            from cylinder_reference_gui import ReferenceCaseEditor
+            editor=app._edit_active_reference_case();self.pump()
+            self.assertIsInstance(editor,ReferenceCaseEditor)
+            self.assertEqual(float(editor.fields["L"].get()),original["geometry"]["L"])
+            editor.fields["L"].set("1.5")
+            loads=json.loads(editor.load_text.get("1.0","end-1c"));loads["q"]=0.02
+            editor.load_text.delete("1.0","end");editor.load_text.insert("1.0",json.dumps(loads))
+            target=Path(folder)/"edited.json"
+            with patch.object(gui.filedialog,"asksaveasfilename",return_value=str(target)):
+                self.assertEqual(editor.save(),target)
+            self.pump()
+            edited=json.loads(target.read_text())
+            self.assertEqual(edited["geometry"]["L"],1.5)
+            self.assertEqual(edited["load_definition"]["q"],0.02)
+            self.assertEqual(json.loads(path.read_text()),original)
+            self.assertEqual(float(app._v("L").get()),1.5)
+            self.assertEqual(float(app._v("load_q").get()),0.02)
+            self.assertIn("disabled",entries[0].state())
+            editor.destroy()
+            app._close_active_reference_case();self.pump()
+            self.assertFalse(app.reference_bar.winfo_ismapped())
+            self.assertNotIn("disabled",entries[0].state())
+            self.assertFalse(self.errors,self.errors)
