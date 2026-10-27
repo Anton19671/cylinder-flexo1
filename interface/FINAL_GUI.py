@@ -19,6 +19,9 @@ from cylinder_dynamic_parameter_sweep import plan_parameter_sweep, run_parameter
 from cylinder_final_stage11a_dispatcher import (
     validate_final_case,run_final_case,run_mvi_rank_series
 )
+from cylinder_time_integrator_gui import (
+    TIME_INTEGRATOR_CHOICES,plan_time_integrator_run,execute_time_integrator_plan
+)
 ROOT=Path(__file__).resolve().parent.parent
 TEMPLATES={
  ("G3D","STATIC"):"CASE_REFERENCE_CUF_G3D_STATIC.json",
@@ -49,6 +52,11 @@ class ElasticFlexoGUI(tk.Tk):
         self.kind=tk.StringVar(value="STATIC")
         ttk.Combobox(opts,textvariable=self.kind,values=("STATIC","DYNAMIC"),
                      state="readonly",width=10).pack(side="left",padx=8)
+        ttk.Label(opts,text="Интегратор").pack(side="left",padx=(10,0))
+        self.time_integrator=tk.StringVar(value=TIME_INTEGRATOR_CHOICES[0])
+        ttk.Combobox(opts,textvariable=self.time_integrator,
+                     values=TIME_INTEGRATOR_CHOICES,state="readonly",
+                     width=34).pack(side="left",padx=5)
         ttk.Button(opts,text="Новый CASE",command=self.new_case).pack(side="left",padx=5)
         ttk.Button(opts,text="Открыть CASE",command=self.open_case).pack(side="left",padx=5)
         self.path_label=ttk.Label(box,text="CASE не выбран",wraplength=870)
@@ -218,10 +226,17 @@ class ElasticFlexoGUI(tk.Tk):
         self.running=True
         self.sweep_status_path=None
         for b in self.actions:b.configure(state="disabled")
-        self._log(f"Старт: {path}\n")
+        try:
+            plan=plan_time_integrator_run(path,self.time_integrator.get(),series=series)
+        except Exception as exc:
+            self.running=False
+            for b in self.actions:b.configure(state="normal")
+            messagebox.showerror("Интегратор",str(exc),parent=self)
+            return
+        self._log(f"Старт: {path} | {plan.integrator} | {plan.output_dir}\n")
         def worker():
             try:
-                result=(run_mvi_rank_series(path) if series else run_final_case(path))
+                result=execute_time_integrator_plan(plan)
                 self.events.put(("result",result))
             except Exception as exc:
                 self.events.put(("error",f"{type(exc).__name__}: {exc}"))
