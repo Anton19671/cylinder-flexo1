@@ -193,7 +193,7 @@ def solve_gauss2_variational_fdm_step(
             raise ValueError("invalid physical stage equations")
         # Orthogonal admissible balance + complementary essential equations.
         # Both are dimensionless; their subspaces cannot cancel each other.
-        equations=b@(b.T@(scales*full)/energy_scale)+(scaled-space.origin)
+        equations=b@(b.T@(scales*full)/energy_scale)+(scaled-space.project(scaled))
         return (equations[:qsize].reshape(q0.shape),
                 None if p is None else equations[qsize:].reshape(p.shape))
 
