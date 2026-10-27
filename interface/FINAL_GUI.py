@@ -13,7 +13,7 @@ import tkinter as tk
 from tkinter import ttk,filedialog,messagebox
 from cylinder_reference_gui import ReferenceCaseEditor
 from cylinder_dynamic_sweep_gui import DynamicSweepDialog
-from cylinder_dynamic_parameter_sweep import run_parameter_sweep
+from cylinder_dynamic_parameter_sweep import run_parameter_sweep, plan_parameter_sweep
 from cylinder_dynamic_sweep_gui import DynamicSweepDialog
 from cylinder_dynamic_parameter_sweep import plan_parameter_sweep, run_parameter_sweep
 from cylinder_final_stage11a_dispatcher import (
@@ -33,6 +33,7 @@ class ElasticFlexoGUI(tk.Tk):
         self.geometry("1000x680")
         self.vars={};self.case=None;self.case_path=None
         self.events=Queue();self.running=False
+        self.sweep_status_path=None;self.sweep_last_status=None
         self.latest_result_dir=None
         self.sweep_status_path=None
         self.sweep_last_snapshot=None
@@ -242,6 +243,9 @@ class ElasticFlexoGUI(tk.Tk):
         """Run validated parameter studies without blocking Tk's event loop."""
         if self.running:
             return
+        plan=plan_parameter_sweep(spec_file)
+        self.sweep_status_path=(None if preflight_only else plan["output_dir"]/"SWEEP_STATUS.json")
+        self.sweep_last_status=None
         self.running=True
         for button in self.actions:
             button.configure(state="disabled")
@@ -258,6 +262,19 @@ class ElasticFlexoGUI(tk.Tk):
         Thread(target=worker,daemon=True).start()
 
     def poll(self):
+        if self.running and self.sweep_status_path is not None:
+            try:
+                if self.sweep_status_path.is_file():
+                    status=json.loads(self.sweep_status_path.read_text(encoding="utf-8"))
+                    progress=(status.get("status"),status.get("completed_runs"),
+                              len(status.get("runs",())))
+                    if progress!=self.sweep_last_status:
+                        self.sweep_last_status=progress
+                        self._log("Серия: {} | готово: {} / {}\n".format(*progress))
+            except (OSError,ValueError):
+                # Status is updated atomically by the worker; keep GUI alive
+                # if a status file is temporarily unavailable.
+                pass
         try:
             while True:
                 kind,value=self.events.get_nowait()
@@ -288,6 +305,7 @@ class ElasticFlexoGUI(tk.Tk):
                     self._poll_sweep_status()
                     self.running=False
                     for b in self.actions:b.configure(state="normal")
+                    self.sweep_status_path=None
                     self.sweep_status_path=None
         except Empty:pass
         self._poll_sweep_status()
