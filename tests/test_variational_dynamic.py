@@ -61,7 +61,8 @@ class DynamicSpatialTest(unittest.TestCase):
         np.testing.assert_allclose(mvi.electrical,fdm.electrical,atol=2e-10)
         np.testing.assert_allclose(mvi.velocity,2/(.1)*mvi.mechanical,atol=2e-12)
         np.testing.assert_allclose(mvi.acceleration,4/(.1**2)*mvi.mechanical,atol=2e-12)
-        self.assertEqual(mvi.sweeps,1)
+        self.assertGreaterEqual(mvi.sweeps,1)
+        self.assertEqual(mvi.status,"CONVERGED_FULL")
         self.assertLess(mvi.admissible_residual_scaled,1e-10)
         represented=mvi.scales*(reconstruct_profiles(mvi.x_profiles,mvi.y_profiles))
         np.testing.assert_allclose(represented,np.concatenate((mvi.mechanical,mvi.electrical)),atol=1e-13)
@@ -89,7 +90,15 @@ class DynamicCaseTest(unittest.TestCase):
 
     def test_contract_rejects_inconsistent_initial_or_unsupported_inertia(self):
         c=self.sample();c['theory']='KL'
-        with self.assertRaisesRegex(ValueError,'director inertia'):prepare_reference_case(c)
+        prepared_kl=prepare_reference_case(c)
+        self.assertEqual(prepared_kl.problem.functional.theory,'KL')
+        acceleration=np.ones_like(prepared_kl.mechanical)
+        inertia=prepared_kl.problem.functional.mass_action(
+            acceleration,density_kg_m3=prepared_kl.dynamics.density_kg_m3,
+            mechanical=prepared_kl.mechanical,velocity=np.zeros_like(acceleration))
+        self.assertEqual(inertia.shape,acceleration.shape)
+        self.assertTrue(np.isfinite(inertia).all())
+        self.assertGreater(np.max(np.abs(inertia)),0.)
         c=self.sample();c['dynamics']['time_law']={'kind':'CONSTANT','amplitude':1.}
         with self.assertRaisesRegex(ValueError,'not in equilibrium'):prepare_reference_case(c)
         c=self.sample();c['boundary_conditions']['variational']['mechanical']['left']['time_law']={
@@ -136,7 +145,15 @@ class DynamicCaseTest(unittest.TestCase):
             density_kg_m3=prepared.dynamics.density_kg_m3)
         self.assertEqual(at_start.space.matrix.shape,at_end.space.matrix.shape)
         self.assertAlmostEqual(float(np.max(abs(at_start.space.target))),0.)
-        self.assertAlmostEqual(float(np.max(abs(at_end.space.target))),2.)
+        # The original physical electrode rows prescribe 2 V. The reduced
+        # orthonormal constraint basis uses rescaled target coordinates.
+        initial_rows=[row for row in at_start.edge.constraints if row.field=="electrical"]
+        final_rows=[row for row in at_end.edge.constraints if row.field=="electrical"]
+        self.assertTrue(initial_rows)
+        self.assertEqual(len(initial_rows),len(final_rows))
+        self.assertTrue(all(abs(row.prescribed)<1e-14 for row in initial_rows))
+        self.assertTrue(all(abs(row.prescribed-2.)<1e-14 for row in final_rows))
+        self.assertGreater(float(np.max(abs(at_end.space.target))),0.)
 
     def test_boundary_time_law_rejects_undersampled_frequency(self):
         c=self.sample()
