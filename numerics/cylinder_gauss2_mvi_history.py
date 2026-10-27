@@ -226,6 +226,10 @@ def run_gauss2_variational_mvi_history(problem, initial, settings, *,
              'moving_supports_supported':False,
              'physical_case_sha256':physics_digest,
              'physical_case_declared':physics_digest is not None}
+    if physical_case is not None:
+        # Preserve the declared input for independent physics verification.
+        # The digest alone is insufficient if a summary is edited later.
+        _atomic_json(out/'GAUSS2_PHYSICAL_CASE.json',physical_case)
     _atomic_npz(out/'GAUSS2_MVI_INITIAL.npz',_state_arrays(initial))
     _atomic_json(summary_path,summary)
     previous=None
