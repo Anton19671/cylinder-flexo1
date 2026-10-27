@@ -3,12 +3,17 @@
 from __future__ import annotations
 import copy
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 from queue import Queue,Empty
 from threading import Thread
 import tkinter as tk
 from tkinter import ttk,filedialog,messagebox
 from cylinder_reference_gui import ReferenceCaseEditor
+from cylinder_dynamic_sweep_gui import DynamicSweepDialog
+from cylinder_dynamic_parameter_sweep import plan_parameter_sweep, run_parameter_sweep
 from cylinder_final_stage11a_dispatcher import (
     validate_final_case,run_final_case,run_mvi_rank_series
 )
@@ -23,9 +28,12 @@ class ElasticFlexoGUI(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Цилиндр: упругость и флексоэлектричество G3D / Gz")
-        self.geometry("940x610")
+        self.geometry("1000x680")
         self.vars={};self.case=None;self.case_path=None
         self.events=Queue();self.running=False
+        self.latest_result_dir=None
+        self.sweep_status_path=None
+        self.sweep_last_snapshot=None
         box=ttk.Frame(self,padding=12);box.pack(fill="both",expand=True)
         ttk.Label(box,text="KL / Тимошенко / Редди / Carrera TE1--TE4  |  МВИ / МКР  |  Ньюмарк",
                   font=("Segoe UI",12,"bold")).pack(anchor="w",pady=8)
@@ -47,11 +55,22 @@ class ElasticFlexoGUI(tk.Tk):
         for name,command in (("Редактировать",self.edit_case),
                              ("Проверить",self.validate_case),
                              ("Рассчитать",lambda:self.start(False)),
-                             ("МВИ 1--8",lambda:self.start(True))):
+                             ("МВИ 1--8",lambda:self.start(True)),
+                             ("Бифуркации / динамика",self.open_dynamic_sweep)):
             button=ttk.Button(actions,text=name,command=command)
             button.pack(side="left",padx=6);self.actions.append(button)
+        status=ttk.Frame(box)
+        status.pack(fill="x",pady=(8,2))
+        self.sweep_status_text=tk.StringVar(value="Серия динамики не запущена")
+        ttk.Label(status,textvariable=self.sweep_status_text,wraplength=670).pack(side="left",padx=(0,10))
+        self.sweep_progress=ttk.Progressbar(status,orient="horizontal",
+                                           mode="determinate",length=160,maximum=1)
+        self.sweep_progress.pack(side="left",padx=8)
+        self.results_button=ttk.Button(status,text="Открыть результаты",
+                                       command=self.open_results,state="disabled")
+        self.results_button.pack(side="right")
         ttk.Label(box,text="Журнал",font=("Segoe UI",10,"bold")).pack(anchor="w",pady=(12,3))
-        self.log=tk.Text(box,height=17,wrap="word",state="disabled")
+        self.log=tk.Text(box,height=13,wrap="word",state="disabled")
         self.log.pack(fill="both",expand=True)
         self.after(100,self.poll)
     def _v(self,key,default=""):
@@ -102,6 +121,87 @@ class ElasticFlexoGUI(tk.Tk):
     def _launch_reference_case(self,path,case=None,series=False):
         if case is not None:self.adopt(case,path)
         self.start(series)
+    def open_dynamic_sweep(self):
+        """Open the study controls for a saved, independently validated CASE."""
+        if self.running:
+            return
+        try:
+            path=self.saved_path()
+            info=validate_final_case(path)
+            if info["calculation_kind"]!="DYNAMIC":
+                raise ValueError("Сначала выберите и сохраните динамический CASE")
+            DynamicSweepDialog(self,path)
+        except Exception as exc:
+            messagebox.showerror("Динамическая серия",str(exc),parent=self)
+
+    def start_parameter_sweep(self,spec_file,*,preflight_only=False):
+        """Run the existing full-shell sweep engine outside the Tk event loop."""
+        if self.running:
+            raise ValueError("Другой расчёт уже выполняется")
+        plan=plan_parameter_sweep(spec_file)
+        count=len(plan["jobs"])
+        self.running=True
+        self.sweep_last_snapshot=None
+        self.sweep_status_path=(None if preflight_only
+                                else plan["output_dir"]/"SWEEP_STATUS.json")
+        self.sweep_progress.configure(maximum=count,value=0)
+        self.sweep_status_text.set(
+            ("Проверка" if preflight_only else "Расчёт")+" серии: 0 / "+str(count))
+        for button in self.actions:
+            button.configure(state="disabled")
+        self._log(f"Серия: {spec_file} | точек: {count}\n")
+        def worker():
+            try:
+                report=run_parameter_sweep(spec_file,preflight_only=preflight_only)
+                self.events.put(("sweep_result",(report,preflight_only)))
+            except Exception as exc:
+                self.events.put(("error",f"{type(exc).__name__}: {exc}"))
+            finally:
+                self.events.put(("done",None))
+        Thread(target=worker,daemon=True).start()
+
+    def _poll_sweep_status(self):
+        """Read only atomically persisted progress; never access Tk from a worker."""
+        path=self.sweep_status_path
+        if path is None or not path.is_file():
+            return
+        try:
+            status=json.loads(path.read_text(encoding="utf-8"))
+        except (OSError,ValueError):
+            return
+        completed=int(status.get("completed_runs",0))
+        running=next((r.get("index") for r in status.get("runs",[])
+                      if r.get("status")=="RUNNING"),None)
+        state=(completed,status.get("status"),running)
+        if state==self.sweep_last_snapshot:
+            return
+        self.sweep_last_snapshot=state
+        self.sweep_progress.configure(value=completed)
+        suffix="" if running is None else f" | выполняется {running}"
+        self.sweep_status_text.set(
+            f"Серия: {completed}/{len(status.get('runs',[]))} | "
+            f"{status.get('status','UNKNOWN')}{suffix}")
+        self._log(self.sweep_status_text.get()+"\n")
+        self.latest_result_dir=path.parent
+        self.results_button.configure(state="normal")
+
+    def open_results(self):
+        """Open an existing results folder on Windows/macOS/Linux."""
+        folder=self.latest_result_dir
+        if folder is None or not Path(folder).is_dir():
+            messagebox.showerror("Результаты","Папка результатов пока не создана",parent=self)
+            return
+        try:
+            folder=Path(folder).resolve()
+            if sys.platform=="win32":
+                os.startfile(str(folder))
+            elif sys.platform=="darwin":
+                subprocess.Popen(["open",str(folder)])
+            else:
+                subprocess.Popen(["xdg-open",str(folder)])
+        except (OSError,ValueError) as exc:
+            messagebox.showerror("Результаты",str(exc),parent=self)
+
     def start(self,series):
         if self.running:return
         try:
@@ -112,6 +212,7 @@ class ElasticFlexoGUI(tk.Tk):
         except Exception as exc:
             messagebox.showerror("Расчёт",str(exc),parent=self);return
         self.running=True
+        self.sweep_status_path=None
         for b in self.actions:b.configure(state="disabled")
         self._log(f"Старт: {path}\n")
         def worker():
@@ -129,13 +230,33 @@ class ElasticFlexoGUI(tk.Tk):
                 if kind=="result":
                     self._log("Результат:\n"+json.dumps(value,ensure_ascii=False,
                              default=str,indent=2)+"\n")
+                    path=value.get("output_dir") if isinstance(value,dict) else None
+                    if path and Path(path).is_dir():
+                        self.latest_result_dir=Path(path)
+                        self.results_button.configure(state="normal")
+                elif kind=="sweep_result":
+                    report,preflight_only=value
+                    done=report.get("preflighted_cases",0) if preflight_only else report.get("completed_runs",0)
+                    self.sweep_progress.configure(value=done)
+                    self.sweep_status_text.set(
+                        f"{'Проверено' if preflight_only else 'Завершено'}: "
+                        f"{done}/{len(report.get('values',[]))} | {report.get('status')}")
+                    self._log(self.sweep_status_text.get()+"\n")
+                    if not preflight_only:
+                        self.latest_result_dir=Path(report["output_dir"])
+                        self.results_button.configure(state="normal")
+                        self._log("Бифуркационные Excel и графики: "+
+                                  str(self.latest_result_dir/"BIFURCATION_ANALYTICS")+"\n")
                 elif kind=="error":
                     self._log("Ошибка: "+value+"\n")
                     messagebox.showerror("Расчёт",value,parent=self)
-                else:
+                elif kind=="done":
+                    self._poll_sweep_status()
                     self.running=False
                     for b in self.actions:b.configure(state="normal")
+                    self.sweep_status_path=None
         except Empty:pass
+        self._poll_sweep_status()
         self.after(100,self.poll)
 def main():
     ElasticFlexoGUI().mainloop()
