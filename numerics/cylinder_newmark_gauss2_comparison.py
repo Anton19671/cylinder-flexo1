@@ -9,6 +9,12 @@ import json
 from pathlib import Path
 import numpy as np
 
+from cylinder_dynamic_case_passport import dynamic_physics_sha256
+from cylinder_newmark_audit import audit_newmark_step
+from cylinder_gauss2_mvi_history import _bounded_field_error
+from cylinder_gauss2_rk import GAUSS2_A, GAUSS2_B, GAUSS2_C
+
+
 
 def _summary(folder,name):
     with (folder/name).open("r",encoding="utf-8") as f:
@@ -75,6 +81,11 @@ def compare_newmark_gauss2_mvi(newmark_folder,gauss_folder):
             abs(dt-float(g["dt_s"]))>1e-12*dt or
             abs(t0-float(g["t_start_s"]))>1e-12*max(1,abs(t0))):
         raise ValueError("DYNAMIC_COMPARISON_TIME_GRID_MISMATCH")
+    physical_n=_summary(nfolder,"REFERENCE_CASE.json")
+    physical_g=_summary(gfolder,"GAUSS2_PHYSICAL_CASE.json")
+    if (dynamic_physics_sha256(physical_n)!=digest or
+            dynamic_physics_sha256(physical_g)!=digest):
+        raise ValueError("DYNAMIC_COMPARISON_SAVED_PHYSICS_DISAGREE_WITH_PASSPORT")
     fields=("mechanical","velocity","electrical") if n.get("electrical_enabled") else (
         "mechanical","velocity")
     ni=_load(nfolder,"REFERENCE_DYNAMIC_INITIAL.npz",("time_s",)+fields)
@@ -82,6 +93,12 @@ def compare_newmark_gauss2_mvi(newmark_folder,gauss_folder):
     for key in ("time_s",)+fields:
         if ni[key].shape!=gi[key].shape or not np.array_equal(ni[key],gi[key]):
             raise ValueError("DYNAMIC_COMPARISON_DIFFERENT_INITIAL_STATES")
+    ni_all=_load(nfolder,"REFERENCE_DYNAMIC_INITIAL.npz",("acceleration",))
+    ni_prev={**ni,**ni_all}
+    gi_prev=gi
+    beta=float(temporal["beta"]);gamma=float(temporal["gamma"])
+    if not np.isfinite([beta,gamma]).all() or beta<=0 or gamma<0:
+        raise ValueError("DYNAMIC_COMPARISON_INVALID_NEWMARK_PARAMETERS")
     rows=[]
     for i,(ns,gs) in enumerate(zip(n["steps"],g["steps"]),1):
         if ns.get("index")!=i or gs.get("index")!=i:
@@ -97,6 +114,40 @@ def compare_newmark_gauss2_mvi(newmark_folder,gauss_folder):
             vv=float(value)
             if not np.isfinite(vv) or abs(vv-expected)>32*np.finfo(float).eps*max(1,abs(expected)):
                 raise ValueError("DYNAMIC_COMPARISON_TIME_GRID_MISMATCH")
+        kin=_load(nfolder,nf,("acceleration",))
+        audit_newmark_step(ni_prev["mechanical"],ni_prev["velocity"],
+                           ni_prev["acceleration"],a["mechanical"],
+                           a["velocity"],kin["acceleration"],
+                           dt_s=dt,beta=beta,gamma=gamma)
+        ni_prev={**a,**kin}
+        stage=_load(gfolder,gf,("stage_time_s","stage_mechanical",
+                               "stage_velocity","stage_acceleration",
+                               "x_profiles","y_profiles","state_scales"))
+        for index in range(2):
+            if abs(float(stage["stage_time_s"][index])-
+                   (t0+(i-1+GAUSS2_C[index])*dt)) > 1e-12*max(1,abs(expected)):
+                raise ValueError("DYNAMIC_COMPARISON_GAUSS_STAGE_TIME_MISMATCH")
+        aa=stage["stage_acceleration"]
+        expected_v=gi_prev["velocity"][None]+dt*np.einsum("ij,j...->i...",GAUSS2_A,aa)
+        expected_q=(gi_prev["mechanical"][None]+
+                    dt*GAUSS2_C[:,None,None,None]*gi_prev["velocity"][None]+
+                    dt*dt*np.einsum("ij,j...->i...",GAUSS2_A@GAUSS2_A,aa))
+        _bounded_field_error(stage["stage_velocity"],expected_v,"STAGE_VELOCITY")
+        _bounded_field_error(stage["stage_mechanical"],expected_q,"STAGE_DISPLACEMENT")
+        final_q=gi_prev["mechanical"]+dt*np.einsum("i,i...->...",GAUSS2_B,stage["stage_velocity"])
+        final_v=gi_prev["velocity"]+dt*np.einsum("i,i...->...",GAUSS2_B,aa)
+        _bounded_field_error(b["mechanical"],final_q,"END_DISPLACEMENT")
+        _bounded_field_error(b["velocity"],final_v,"END_VELOCITY")
+        combined=b["mechanical"] if "electrical" not in b else np.concatenate(
+            (b["mechanical"],b["electrical"]))
+        x=stage["x_profiles"];y=stage["y_profiles"];scale=stage["state_scales"]
+        if (x.shape!=(combined.shape[0],rank,combined.shape[1]) or
+                y.shape!=(combined.shape[0],rank,combined.shape[2]) or
+                scale.shape!=combined.shape or np.any(scale<=0)):
+            raise ValueError("DYNAMIC_COMPARISON_GAUSS_PROFILE_SHAPE_MISMATCH")
+        _bounded_field_error(scale*np.einsum("crx,crs->cxs",x,y),
+                             combined,"FIXED_RANK_ENDPOINT")
+        gi_prev=b
         rows.append(dict(index=i,time_s=expected,
                          field_errors={key:_errors(b[key],a[key]) for key in fields}))
     return dict(comparison="Gauss IRK4 fixed-rank MVI versus Newmark fixed-rank MVI",
