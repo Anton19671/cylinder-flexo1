@@ -13,6 +13,8 @@ import tkinter as tk
 from tkinter import ttk,filedialog,messagebox
 from cylinder_reference_gui import ReferenceCaseEditor
 from cylinder_dynamic_sweep_gui import DynamicSweepDialog
+from cylinder_dynamic_parameter_sweep import run_parameter_sweep
+from cylinder_dynamic_sweep_gui import DynamicSweepDialog
 from cylinder_dynamic_parameter_sweep import plan_parameter_sweep, run_parameter_sweep
 from cylinder_final_stage11a_dispatcher import (
     validate_final_case,run_final_case,run_mvi_rank_series
@@ -56,6 +58,7 @@ class ElasticFlexoGUI(tk.Tk):
                              ("Проверить",self.validate_case),
                              ("Рассчитать",lambda:self.start(False)),
                              ("МВИ 1--8",lambda:self.start(True)),
+                             ("Бифуркации",self.open_parameter_sweep),
                              ("Бифуркации / динамика",self.open_dynamic_sweep)):
             button=ttk.Button(actions,text=name,command=command)
             button.pack(side="left",padx=6);self.actions.append(button)
@@ -223,6 +226,37 @@ class ElasticFlexoGUI(tk.Tk):
                 self.events.put(("error",f"{type(exc).__name__}: {exc}"))
             finally:self.events.put(("done",None))
         Thread(target=worker,daemon=True).start()
+    def open_parameter_sweep(self):
+        if self.running:
+            return
+        try:
+            path=self.saved_path()
+            info=validate_final_case(path)
+            if info["calculation_kind"]!="DYNAMIC":
+                raise ValueError("Для бифуркационной серии нужен сохранённый DYNAMIC CASE")
+            DynamicSweepDialog(self,path)
+        except Exception as exc:
+            messagebox.showerror("Бифуркационная серия",str(exc),parent=self)
+
+    def start_parameter_sweep(self,spec_file,*,preflight_only=False):
+        """Run validated parameter studies without blocking Tk's event loop."""
+        if self.running:
+            return
+        self.running=True
+        for button in self.actions:
+            button.configure(state="disabled")
+        self._log(f"Проверка серии: {spec_file}\n" if preflight_only
+                  else f"Запуск бифуркационной серии: {spec_file}\\n")
+        def worker():
+            try:
+                result=run_parameter_sweep(spec_file,preflight_only=preflight_only)
+                self.events.put(("result",result))
+            except Exception as exc:
+                self.events.put(("error",f"{type(exc).__name__}: {exc}"))
+            finally:
+                self.events.put(("done",None))
+        Thread(target=worker,daemon=True).start()
+
     def poll(self):
         try:
             while True:
