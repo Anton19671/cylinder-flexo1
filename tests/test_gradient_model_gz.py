@@ -89,8 +89,17 @@ class GzMaterialTests(unittest.TestCase):
         self.assertEqual(parts["gradient"],0.)
         self.assertEqual(parts["flexoelectric"],0.)
         _,M,D=enthalpy_derivatives(E,g,ef,gz)
-        np.testing.assert_array_equal(M,0.)
+        # Zero flexoelectric energy at zero z-gradient does not imply zero
+        # first variation: the flexoelectric enthalpy is linear in g[:, 2].
+        np.testing.assert_array_equal(M[:,:2],0.)
+        self.assertGreater(np.max(np.abs(M[:,2])),0.)
         np.testing.assert_allclose(D,gz.kappa_f_per_m*ef)
+        delta=1.e-6
+        for j in range(6):
+            gp=g.copy();gm=g.copy();gp[j,2]+=delta;gm[j,2]-=delta
+            slope=(enthalpy_parts(E,gp,ef,gz)['total']-
+                   enthalpy_parts(E,gm,ef,gz)['total'])/(2*delta)
+            np.testing.assert_allclose(slope,M[j,2],rtol=2.e-7,atol=1.e-8)
 
     def test_micro_CASE_accepts_both_and_rejects_unknown(self):
         template=dict(scale_model="MICRO",geometry_model="GREEN_LAGRANGE",
