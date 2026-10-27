@@ -210,3 +210,15 @@ class RestoredGuiTabsTests(TestCase):
             self.assertFalse(app.reference_bar.winfo_ismapped())
             self.assertNotIn("disabled",entries[0].state())
             self.assertFalse(self.errors,self.errors)
+
+    def test_legacy_inputs_cannot_start_an_unsupported_solver_route(self):
+        app=self.app
+        app._v("case_path").set("");app._v("scale_model").set("MACRO")
+        app._v("calculation_kind").set("STATIC");app._refresh_visibility();self.pump()
+        self.assertIn("disabled",app.top_run_btn.state())
+        self.assertIn("disabled",app.series_btn.state())
+        self.assertIn("вариационный CASE",app.model_info.cget("text"))
+        with patch.object(app,"_auto_run_bundle",side_effect=AssertionError("must not create output")) as bundle:
+            app.run_case();app.run_mvi_series();app.validate_case()
+            bundle.assert_not_called()
+        self.assertFalse(self.errors,self.errors)

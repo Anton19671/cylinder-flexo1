@@ -839,6 +839,23 @@ def run_reference_mvi_series(case,case_path,ranks=range(1,9)):
     for rank in ranks:
         candidate=copy.deepcopy(case);candidate["rank"]=rank
         prepare_reference_case(candidate,base_dir=Path(case_path).parent)
+        # Rank-specific CASE files are written into a different directory.
+        # Preserve the original meaning of any CASE-relative time tables when
+        # the saved rank file is reopened and validated by the runner.
+        laws=[]
+        dynamics=candidate.get("dynamics") or {}
+        if isinstance(dynamics,dict):laws.append(dynamics.get("time_law"))
+        bc=(candidate.get("boundary_conditions") or {}).get("variational") or {}
+        if isinstance(bc,dict):
+            for family in ("mechanical","electrical"):
+                sites=bc.get(family) or {}
+                if isinstance(sites,dict):
+                    laws.extend(data.get("time_law") for data in sites.values() if isinstance(data,dict))
+        for law in laws:
+            if isinstance(law,dict) and "csv_path" in law:
+                table=Path(str(law["csv_path"])).expanduser()
+                if not table.is_absolute():table=Path(case_path).resolve().parent/table
+                law["csv_path"]=str(table.resolve())
         prepared.append(candidate)
     base=Path(case["output_dir"])
     if not base.is_absolute():base=Path(case_path).parent/base
@@ -866,3 +883,4 @@ def run_reference_mvi_series(case,case_path,ranks=range(1,9)):
 
 __all__=("BACKEND","selected_backend","prepare_reference_case","run_reference_case",
          "run_reference_dynamic_case","run_reference_mvi_series")
+

@@ -5433,7 +5433,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
             if hasattr(self,"progress_status_label"):
                 self.progress_status_label.configure(text="Расчёт…" if running else "Готово")
         except Exception:pass
-        try:self.top_run_btn.configure(state="disabled" if running else "normal")
+        try:self.top_run_btn.configure(state="disabled" if running or not self._active_reference_case() else "normal")
         except Exception:pass
         try:self.top_stop_btn.configure(state="normal" if running else "disabled")
         except Exception:pass
@@ -5879,6 +5879,9 @@ class FinalSolverGUI(EnhancedSolverGUI):
         return bundle,case_path
 
     def _run_case_auto_bundle(self):
+        if self._active_reference_case() is None:
+            messagebox.showerror("Запуск CASE","Создайте или загрузите вариационный CASE. Текущий решатель не запускает старый формат параметров.")
+            return
         if self.proc is not None and self.proc.poll() is None:
             messagebox.showwarning("Расчёт","Расчёт уже выполняется");return
         try:
@@ -5913,23 +5916,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
             try:self._launch_reference_case(path,cfg,series=True)
             except Exception as exc:messagebox.showerror("МВИ 1–8",str(exc))
             return
-        if self.vars["method"].get()!="MVI":
-            messagebox.showwarning("МВИ-1…8","Серия доступна только при method=MVI");return
-        if self.proc is not None and self.proc.poll() is None:
-            messagebox.showwarning("Расчёт","Расчёт уже выполняется");return
-        try:
-            cfg=self._case_dict();bundle,p=self._auto_run_bundle(cfg);validate_final_case(p)
-            run_dir=Path(bundle["run_dir"]).resolve()
-            self.run_output_dir=run_dir/"MVI_1_8_SERIES"
-            self.expected_steps=8;self.run_kind="MVI_SERIES"
-            self._paused=False;self._paused_pids=[];self._pause_started_at=None;self._paused_total=0.0
-            cmd=[sys.executable,str(APP_DIR/"RUN_MVI_1_8.py"),str(p)]
-            self._log("\n=== START MVI-1…8 ===\n"+" ".join(cmd)+"\n")
-            self.run_btn.configure(state="disabled");self.series_btn.configure(state="disabled");self._progress_reset(8)
-            self.proc=subprocess.Popen(cmd,cwd=str(APP_DIR),stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,bufsize=1,encoding="utf-8",errors="replace")
-            self._set_top_running_state(True);threading.Thread(target=self._read_process_output,daemon=True).start()
-        except Exception as exc:
-            self._set_top_running_state(False);messagebox.showerror("МВИ-1…8 — ошибка",str(exc));self._log(f"MVI SERIES START FAIL: {type(exc).__name__}: {exc}\n")
+        messagebox.showerror("МВИ 1–8","Создайте или загрузите вариационный CASE. Текущий решатель не принимает старый формат параметров.")
 
     def _refresh_curve_visibility(self):
         if not hasattr(self,"curve_table_frame"):return
@@ -6315,19 +6302,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
             try:self._launch_reference_case(path,cfg)
             except Exception as exc:messagebox.showerror("Запуск CASE",str(exc))
             return
-        if self.post_proc is not None and self.post_proc.poll() is None:
-            messagebox.showwarning("Постобработка","Дождитесь окончания постобработки предыдущего расчёта или выберите другую папку результатов.")
-            return
-        if not self._preflight_or_show(): return
-        self._stop_requested=False
-        self._paused=False;self._paused_pids=[];self._pause_started_at=None;self._paused_total=0.0
-        self._reset_online_view(); self._online_wall_start=time.monotonic()
-        try:self.notebook.select(self.tab_online)
-        except Exception:pass
-        # Use the output-bundle launcher defined in this final GUI class, not
-        # the legacy parent launcher.  Each press of Start therefore gets a
-        # unique self-contained run folder + GUI preset + independent Excel.
-        return self._run_case_auto_bundle()
+        messagebox.showerror("Запуск CASE","Создайте или загрузите вариационный CASE. Текущий решатель не принимает старый формат параметров.")
 
     def validate_case(self):
         active=self._active_reference_case()
@@ -6340,8 +6315,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
                 messagebox.showinfo("Проверка CASE",f"Вариационный {result['method']} принят; сеточная сходимость не проверена.")
             except Exception as exc:messagebox.showerror("Проверка CASE",str(exc))
             return
-        if not self._preflight_or_show(): return
-        return super().validate_case()
+        messagebox.showerror("Проверка CASE","Создайте или загрузите вариационный CASE. Текущий решатель не принимает старый формат параметров.")
 
     def _j2_case_from_gui(self):
         kind=self._v("j2_hardening_kind","LINEAR").get().upper().strip()
@@ -7311,6 +7285,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self._reference_bar_before=actions
         ttk.Button(actions,text="Открыть параметры",command=self.open_parameters).pack(side="left",padx=(0,5))
         ttk.Button(actions,text="Сохранить параметры в папку…",command=self.save_parameters_to_folder).pack(side="left",padx=5)
+        ttk.Button(actions,text="Новый CASE…",command=self.open_reference_case).pack(side="left",padx=5)
         ttk.Button(actions,text="Проверить",command=self.validate_case).pack(side="left",padx=(14,5))
         self.series_btn=ttk.Button(actions,text="МВИ 1–8",command=self.run_mvi_series)
         self.series_btn.pack(side="left",padx=5)
@@ -8426,6 +8401,9 @@ class FinalSolverGUI(EnhancedSolverGUI):
             try:self.series_btn.configure(state="normal" if reference[1].get("method")=="MVI" else "disabled")
             except Exception:pass
         self._refresh_time_integrator_controls()
+        running=self.proc is not None and self.proc.poll() is None
+        if hasattr(self,"top_run_btn"):
+            self.top_run_btn.configure(state="normal" if reference_runnable and not running else "disabled")
         self._apply_reference_locks()
 
     def _refresh_time_integrator_controls(self):
@@ -8445,10 +8423,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
                     widget.configure(state="disabled" if irk and key in beta_gamma else "normal")
         if hasattr(self,"series_btn"):
             active=self._active_reference_case()
-            available=(active[1].get("method")=="MVI" if active else
-                       self._v("method").get()=="MVI" and not dynamic and
-                       self._v("scale_model","MACRO").get()=="MACRO" and
-                       self._v("theory").get() not in capreg.PLANNED_THEORIES)
+            available=bool(active and active[1].get("method")=="MVI")
             running=self.proc is not None and self.proc.poll() is None
             self.series_btn.configure(state="normal" if available and not running and not (dynamic and irk) else "disabled")
         if hasattr(self,"reference_bar"):self._apply_reference_locks()
@@ -8596,6 +8571,8 @@ class FinalSolverGUI(EnhancedSolverGUI):
             self.model_info.configure(text=f"Вариационный CASE · {cfg.get('theory')} "
                 f"{cfg.get('cuf_model','')} · {cfg.get('method')} · флексо {flag}. "
                 "Параметры загружены из сохранённого CASE.",foreground="#9a6700")
+        elif hasattr(self,"model_info"):
+            self.model_info.configure(text="Для проверки и расчёта создайте или загрузите вариационный CASE.",foreground="#9a6700")
         if not hasattr(self,"basic_grid_info"):return
         try:
             if self._v("method","FDM").get()=="MVI":
