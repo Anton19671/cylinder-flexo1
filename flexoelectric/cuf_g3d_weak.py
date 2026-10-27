@@ -277,6 +277,41 @@ def _cuf_virtual_kinematic_library(order,z,radius_m,thickness_m):
     return out
 
 
+
+def _batched_virtual_strain_gradients(virtual_library, F, Fx, Fs, Fz, *, radius_m, z_m):
+    """Vectorize original analytic CUF virtual-jet first variations."""
+    virtual=np.asarray(virtual_library,float)
+    if virtual.ndim!=6 or virtual.shape[-3:]!=(4,3,3):
+        raise ValueError('CUF virtual jet library has invalid shape')
+    parts=virtual.reshape((-1,4,3,3))
+    dF=parts[:,0]
+
+    def pack(matrix):
+        return np.stack((matrix[:,0,0],matrix[:,1,1],matrix[:,2,2],
+                         2*matrix[:,0,1],2*matrix[:,0,2],
+                         2*matrix[:,1,2]),axis=-1)
+
+    def sym(left):
+        return .5*(left+left.transpose((0,2,1)))
+
+    de=pack(sym(np.matmul(dF.transpose((0,2,1)),F)))
+    derivatives=[]
+    for original,variation in zip((Fx,Fs,Fz),(parts[:,1],parts[:,2],parts[:,3])):
+        left=np.matmul(variation.transpose((0,2,1)),F)+np.matmul(original.T,dF)
+        derivatives.append(pack(sym(left)))
+    grad=np.empty((parts.shape[0],6,3),float)
+    grad[:,:,0]=derivatives[0]
+    grad[:,:,1]=derivatives[1]/(1.+z_m/radius_m)
+    grad[:,:,2]=derivatives[2]
+    invr=1./(radius_m+z_m)
+    grad[:,1,1]+=de[:,5]*invr
+    grad[:,2,1]-=de[:,5]*invr
+    grad[:,3,1]+=de[:,4]*invr
+    grad[:,4,1]-=de[:,3]*invr
+    grad[:,5,1]+=2.*(de[:,2]-de[:,1])*invr
+    return de,grad
+
+
 def thickness_weak_coefficients(jets: CUFSurfaceJets, material: G3DMaterial, *,
                                  radius_m, thickness_m, n_gauss=12):
     """Thickness integrated, exact Gateaux weak coefficients (114--115,128--131).
@@ -303,17 +338,10 @@ def thickness_weak_coefficients(jets: CUFSurfaceJets, material: G3DMaterial, *,
             state.strain6,state.gradient6x3,state.electric3,material)["total"]
         virtual_library=_cuf_virtual_kinematic_library(
             jets.te_order,float(z),R,h)
-        for a in range(3):
-            for i in range(jets.te_order+1):
-                for k in range(len(MECHANICAL_VARIATIONS)):
-                    dF,dFx,dFs,dFz=virtual_library[a,i,k]
-                    de,(dex,des,dez) = _strain_variation_from_deformation_jets(
-                        F,dF,Fx,Fs,Fz,dFx,dFs,dFz
-                    )
-                    dg=covariant_strain_gradients(
-                        de,dex,des,dez,radius_m=R,z_m=z
-                    )
-                    coeff[a,i,k] += w*H*(np.dot(S,de)+np.sum(M*dg))
+        variations,gradients=_batched_virtual_strain_gradients(
+            virtual_library,F,Fx,Fs,Fz,radius_m=R,z_m=z)
+        work=(variations@S+np.einsum('nij,ij->n',gradients,M))
+        coeff+=w*H*work.reshape(coeff.shape)
         G,Gz,_=te_basis(z,h,jets.potential_order)
         # derivative of enthalpy wrt electric field is -D; E=-grad(phi),
         # hence electrical first variation is +D dot grad(delta phi).
