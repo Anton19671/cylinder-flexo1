@@ -613,7 +613,10 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
                    "mass_damping_rate_per_s":dyn.mass_damping_rate_per_s},
         "convergence_meaning":"full admissible effective Newmark residual"}
     summary["fdm_backend"]=prepared.fdm_backend
-    if prepared.mvi_settings is not None:summary["rank"]=prepared.mvi_settings.rank
+    if prepared.mvi_settings is not None:
+        from cylinder_dynamic_case_passport import dynamic_physics_sha256
+        summary["rank"]=prepared.mvi_settings.rank
+        summary["physical_case_sha256"]=dynamic_physics_sha256(case)
     q,p=prepared.mechanical,prepared.electrical
     previous_mvi_result=None
     velocity=np.zeros_like(q);acceleration=np.zeros_like(q)
