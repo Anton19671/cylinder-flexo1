@@ -12,7 +12,49 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT / "interface"))
 sys.path.insert(0,str(ROOT / "numerics"))
 from cylinder_dynamic_parameter_sweep import plan_parameter_sweep, run_parameter_sweep
-from test_dynamic_analytics import make_run
+import numpy as np
+
+def make_run(root, *, theory="CUF_TE2", amplitude=.004, steps=400,
+             dt=.01, frequency=2.):
+    """Standalone harmonic synthetic dataset used ONLY by export pipeline tests."""
+    root=Path(root);root.mkdir(parents=True,exist_ok=True)
+    modes=(int(theory[-1])+1) if theory.startswith("CUF_TE") else None
+    n=3*modes if modes else (3 if theory=="KL" else 5)
+    radial=2*modes if modes else 2
+    original=np.zeros((n,4,4))
+    electric=np.zeros((3,4,4))
+    np.savez_compressed(root/"REFERENCE_DYNAMIC_INITIAL.npz",
+        time_s=np.array(0.),mechanical=original,velocity=original,
+        acceleration=original,electrical=electric)
+    case={"solver_backend":"VARIATIONAL_REFERENCE","calculation_kind":"DYNAMIC",
+          "theory":theory,"method":"MVI","rank":4,
+          "geometry":{"L":1.2,"R":2.,"h":.2},
+          "dynamics":{"time_step_s":dt,"n_steps":steps,
+                      "time_law":{"kind":"HARMONIC","frequency_hz":frequency,
+                                  "start_time_s":0.}}}
+    summary={"theory":theory,"method":"MVI","rank":4,
+             "calculation_kind":"DYNAMIC","accepted_steps":steps,
+             "requested_steps":steps,"converged":True,"steps":[]}
+    for index in range(1,steps+1):
+        t=index*dt
+        omega=2*np.pi*frequency
+        q=original.copy();v=original.copy();a=original.copy()
+        q[radial]=amplitude*np.sin(omega*t)
+        v[radial]=amplitude*omega*np.cos(omega*t)
+        a[radial]=-amplitude*omega*omega*np.sin(omega*t)
+        p=electric.copy();p[0]=.01*np.cos(omega*t)
+        filename=f"REFERENCE_DYNAMIC_STEP_{index:04d}.npz"
+        np.savez_compressed(root/filename,time_s=np.array(t),
+            load_factor=np.array(np.sin(omega*t)),mechanical=q,velocity=v,
+            acceleration=a,electrical=p,
+            face_inner_radial_displacement_m=q[radial]-.0001,
+            face_outer_radial_displacement_m=q[radial]+.0001)
+        summary["steps"].append({"index":index,"time_s":t,"converged":True,
+                                  "state_file":filename})
+    (root/"REFERENCE_CASE.json").write_text(json.dumps(case))
+    (root/"FINAL_RUN_SUMMARY.json").write_text(json.dumps(summary))
+    return root
+
 
 
 def fixture(folder, *, values=(.002,.004), settings=None):
