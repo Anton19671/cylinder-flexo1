@@ -370,6 +370,30 @@ def prepare_reference_case(case, *, base_dir=None):
                 raise ValueError("ZERO initial conditions are not in equilibrium at start_time_s; delay the load or supply a preloaded-state route")
         if a.space.basis.shape[1]>settings.max_free_dofs:
             raise ValueError("reference free-DOF limit exceeded; use a smaller verification grid")
+    if kind=="DYNAMIC" and method=="MVI":
+        # The genuine separated Newmark solution has NO additive nodal lift.
+        # Projecting a prescribed initial electrode/support field into the
+        # affine boundary space can raise its surface rank. Detect this before
+        # creating an output directory or accepting a temporal history.
+        from cylinder_variational_mvi import _initial_profiles, reconstruct_profiles
+        scales0=state_scales(functional,q,p,settings)
+        field0=q if p is None else np.concatenate((q,p))
+        normalized=(field0.ravel()/scales0).reshape(field0.shape)
+        try:
+            xx,yy=_initial_profiles(
+                normalized,mvi_settings.rank,
+                np.linalg.norm(normalized,axis=(1,2)))
+        except ValueError as exc:
+            raise ValueError(
+                "DYNAMIC_MVI_INITIAL_STATE_EXCEEDS_FIXED_RANK: "
+                "prescribed initial mechanical/electrical traces cannot be "
+                "represented without an additive field or a rank change"
+            ) from exc
+        reconstructed=reconstruct_profiles(xx,yy)
+        if not np.allclose(reconstructed,normalized,rtol=1.e-10,atol=1.e-12):
+            raise ValueError(
+                "DYNAMIC_MVI_INITIAL_STATE_EXCEEDS_FIXED_RANK: "
+                "initial field must have the specified separation rank")
     if not isinstance(case.get("output_dir"),str) or not case["output_dir"].strip():
         raise ValueError("explicit output_dir required")
     return ReferenceCase(problem,q,p,dead,charge,factors,settings,method,mvi_settings,kind,dynamic,fdm_backend)
