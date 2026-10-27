@@ -117,8 +117,9 @@ def solve_static_mvi(problem, mechanical, electrical=None, *, dead_load=None,
     target=first.space.target
     # Constraints define admissible tests, NOT a physical additive field.
     full=affine_trace_space(c,target,np.zeros_like(scales))
-    if full.basis.shape[1]>settings.max_free_dofs:
-        raise ValueError("reference free-DOF limit exceeded")
+    # Full-space admissibility is checked for the MVI certificate, not
+    # solved as a full-nodal Newton system. Only each frozen-partner
+    # X/Y subspace must respect the dense Newton DOF safety limit.
     state=first.state/scales
     nc=q.shape[0]+(0 if p is None else p.shape[0])
     shape=(nc,*q.shape[1:])
