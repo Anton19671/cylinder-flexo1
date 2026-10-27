@@ -103,7 +103,9 @@ def _rank_factors(field, rank, tolerance, label):
             y[c] = basis[:, :rank].T
             x[c] = (z[c] @ basis[:, :rank]).T
         difference = x[c].T @ y[c] - z[c]
-        scale = max(1., float(np.max(np.abs(z[c]))))
+        # A unit-sized absolute floor silently deletes weak electric or
+        # mechanical modes: compare relative to THIS component's amplitude.
+        scale = float(np.max(np.abs(z[c])))
         if float(np.max(abs(difference), initial=0)) > tolerance * scale:
             raise ValueError(label + ': GAUSS2_MVI_FIELD_OUTSIDE_FIXED_RANK')
     return x, y
@@ -349,9 +351,18 @@ def solve_gauss2_mvi_step(initial, settings, *, mvi_settings, equations,
                 y0.shape != (nc, r, q0.shape[2]) or old.shape != shape or
                 not np.isfinite(old).all() or np.any(old <= 0)):
             raise ValueError('GAUSS2_MVI_CONTINUATION_FIXED_RANK_MISMATCH')
-        if np.max(abs(_profile_field(x0, y0)*old-u0), initial=0) > (
-                mvi_settings.endpoint_rank_tolerance *
-                max(1., float(np.max(abs(u0), initial=0)))):
+        if not np.array_equal(old, np.broadcast_to(old[:, :1, :1], shape)):
+            raise ValueError('GAUSS2_MVI_CONTINUATION_INVALID_OLD_SCALES')
+        # Preserve every physical component, not only the numerically
+        # largest one. A small electric mode must not be swallowed by a
+        # unit-sized displacement or an absolute error floor.
+        previous_field = _profile_field(x0, y0)
+        normalized_actual = u0 / old
+        per_component_amplitude = np.max(
+            np.abs(normalized_actual), axis=(1, 2), keepdims=True)
+        limit = mvi_settings.endpoint_rank_tolerance * np.maximum(
+            per_component_amplitude, np.finfo(float).tiny)
+        if np.any(np.abs(previous_field-normalized_actual)>limit):
             raise ValueError('GAUSS2_MVI_CONTINUATION_FIELD_MISMATCH')
         ratio=old[:, 0, 0]/scale[:, 0, 0]
         x0*=ratio[:, None, None]
