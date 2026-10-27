@@ -8,6 +8,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
 from cylinder_reference_case import BACKEND, prepare_reference_case
+from cylinder_time_integrator_gui import TIME_INTEGRATOR_CHOICES
 
 TEMPLATE=Path(__file__).resolve().parent.parent/'config/CASE_REFERENCE_CUF_G3D_STATIC.json'
 DYNAMIC_TEMPLATE=Path(__file__).resolve().parent.parent/'config/CASE_REFERENCE_CUF_G3D_MVI_DYNAMIC.json'
@@ -141,7 +142,7 @@ class ReferenceCaseEditor(tk.Toplevel):
         window=canvas.create_window((0,0),window=body,anchor='nw')
         body.bind('<Configure>',lambda _event:canvas.configure(scrollregion=canvas.bbox('all')))
         canvas.bind('<Configure>',lambda event:canvas.itemconfigure(window,width=event.width))
-        ttk.Label(body,text='GREEN_LAGRANGE · HOOKE · СИ. Статика и динамика Ньюмарка с МВИ/МКР.',
+        ttk.Label(body,text='GREEN_LAGRANGE · HOOKE · СИ. Динамика: Ньюмарк или экспериментальный IRK4 (только МВИ).',
                   foreground='#825400').pack(anchor='w',pady=(0,7))
         def group(title,items):
             box=ttk.LabelFrame(body,text=title,padding=7);box.pack(fill='x',pady=4)
@@ -157,6 +158,11 @@ class ReferenceCaseEditor(tk.Toplevel):
             box.columnconfigure(1,weight=1);box.columnconfigure(3,weight=1)
             return box
         c=self.case
+        ttk.Label(body,text='Интегратор времени (выбор не изменяет физический CASE)').pack(anchor='w')
+        self.time_integrator=self.parent.time_integrator
+        ttk.Combobox(body,textvariable=self.time_integrator,
+                     values=TIME_INTEGRATOR_CHOICES,state='readonly',
+                     width=42).pack(anchor='w',pady=(1,7))
         geo=c.get('geometry',{});mat=c.get('material',{});micro=c.get('micro',{})
         saved=micro.get('editor_saved_flexo',{})
         method=c.get('method','FDM');grid=c.get('mvi_grid' if method=='MVI' else 'fdm_grid',{})
