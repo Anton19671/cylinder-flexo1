@@ -222,5 +222,39 @@ def direct_strong_jet_balance(mechanical_coefficients, derivative_orders, grid,
         elec_end, tuple(range(highest, grid.nx-highest)), highest)
 
 
+def direct_strong_from_functional(functional, mechanical, electrical=None, *,
+                                  length_m, mechanical_load=None,
+                                  electrical_charge=None,
+                                  velocity=None, acceleration=None,
+                                  density_kg_m3=None, eta_s=0.,
+                                  mass_damping_rate_per_s=0.):
+    """Evaluate the existing nonlinear 7-theory constitutive jets with a
+    DIFFERENT direct-strong spatial differentiation.
+
+    This diagnostic is not dispatched as a solver. It deliberately uses the
+    same continuum constitutive coefficients but no reference weak-adjoint
+    assembly. It requires a uniform physical x-grid and ignores physical
+    boundary constraints until a validated theory-specific closure exists.
+    """
+    from cylinder_functional_assembly import MECHANICAL_DERIVATIVES
+    if not hasattr(functional, "_dynamic_g3d_weak_jet_coefficients"):
+        raise TypeError("CylinderFunctional constitutive jet producer required")
+    nx,ns=functional.ops.shape
+    grid=DirectStrongGrid(nx,ns,length_m,functional.R)
+    weights=np.asarray(functional.ops.wx,float)
+    if (weights.shape!=(nx,) or
+            not np.allclose(weights[1:-1],grid.dx,rtol=1e-9,atol=1e-14) or
+            not np.allclose(weights[[0,-1]],grid.dx/2,rtol=1e-9,atol=1e-14)):
+        raise ValueError("direct strong diagnostic requires a uniform trapezoid x-grid")
+    mc,ec=functional._dynamic_g3d_weak_jet_coefficients(
+        mechanical,electrical,velocity=velocity,acceleration=acceleration,
+        density_kg_m3=density_kg_m3,eta_s=eta_s,
+        mass_damping_rate_per_s=mass_damping_rate_per_s)
+    return direct_strong_jet_balance(
+        mc,MECHANICAL_DERIVATIVES[:functional.n_derivatives],grid,ec,
+        mechanical_load=mechanical_load,electrical_charge=electrical_charge)
+
+
 __all__ = ("DirectStrongGrid", "DirectStrongBalance",
-           "direct_coefficient_derivative", "direct_strong_jet_balance")
+           "direct_coefficient_derivative", "direct_strong_jet_balance",
+           "direct_strong_from_functional")
