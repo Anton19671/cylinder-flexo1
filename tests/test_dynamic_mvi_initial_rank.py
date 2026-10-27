@@ -30,13 +30,12 @@ class DynamicMVIInitialRankTests(TestCase):
                     ValueError,"DYNAMIC_MVI_INITIAL_STATE_EXCEEDS_FIXED_RANK"):
                 prepare_reference_case(case)
 
-    def test_static_case_does_not_invoke_dynamic_initial_preflight(self):
-        case=self.sample()
-        case["calculation_kind"]="STATIC"
-        case.pop("dynamics",None)
-        case.setdefault("load_definition",{})["load_factors"]=[0.]
+    def test_static_case_skips_dynamic_only_guard(self):
+        case=json.loads((ROOT/"config"/"CASE_REFERENCE_CUF_G3D_STATIC.json").read_text(encoding="utf-8"))
+        case["method"]="MVI"
+        case["rank"]=1
+        case["reference_mvi"]={"max_sweeps":3}
         with patch("cylinder_variational_mvi._initial_profiles",
-                   side_effect=RuntimeError("called only by static solver")):
-            # A preflight is not a static MVI solve.
+                   side_effect=RuntimeError("only relevant to solve")):
             prepared=prepare_reference_case(case)
             self.assertEqual(prepared.calculation_kind,"STATIC")
