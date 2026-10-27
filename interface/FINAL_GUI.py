@@ -246,7 +246,7 @@ class ElasticFlexoGUI(tk.Tk):
         for button in self.actions:
             button.configure(state="disabled")
         self._log(f"Проверка серии: {spec_file}\n" if preflight_only
-                  else f"Запуск бифуркационной серии: {spec_file}\\n")
+                  else f"Запуск бифуркационной серии: {spec_file}\n")
         def worker():
             try:
                 result=run_parameter_sweep(spec_file,preflight_only=preflight_only)
