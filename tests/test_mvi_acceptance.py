@@ -29,7 +29,9 @@ class MVICertificateTest(unittest.TestCase):
         c=certify_mvi_solution(**d)
         self.assertTrue(c["projected_equilibrium_satisfied"])
         self.assertFalse(c["full_equilibrium_satisfied"])
-        self.assertFalse(c["accepted"])
+        self.assertTrue(c["accepted"])
+        self.assertEqual(c["solution_status"],"CONVERGED_PROJECTED")
+        self.assertTrue(c["finite_order_control_recommended"])
         self.assertEqual(c["mechanical_residual_scaled"],1.e-3)
     def test_fails_if_reconstruction_drifts(self):
         d=fixture();d["mechanical"][0,1,2]+=1.e-3
