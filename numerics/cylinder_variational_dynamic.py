@@ -192,7 +192,9 @@ def solve_dynamic_mvi(problem, mechanical, electrical=None, *, q_predictor,
         acceleration=np.zeros_like(q),density_kg_m3=density_kg_m3)
     c=first.space.matrix*scales[None,:];target=first.space.target
     full=affine_trace_space(c,target,np.zeros_like(scales))
-    if full.basis.shape[1]>settings.max_free_dofs:raise ValueError("reference free-DOF limit exceeded")
+    # The full admissible basis is used only to evaluate/certify the MVI
+    # state. The actual dense Newton solves are the frozen-partner X/Y
+    # subspaces; solve_dynamic_subspace checks their DOF cap separately.
     # No additional 2D boundary field enters the classical X/Y ansatz.
     state=first.state/scales
     nc=q.shape[0]+(0 if p is None else p.shape[0]);shape=(nc,*q.shape[1:])
