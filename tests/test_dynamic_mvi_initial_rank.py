@@ -33,6 +33,9 @@ class DynamicMVIInitialRankTests(TestCase):
     def test_static_case_skips_dynamic_only_guard(self):
         case=json.loads((ROOT/"config"/"CASE_REFERENCE_CUF_G3D_STATIC.json").read_text(encoding="utf-8"))
         case["method"]="MVI"
+        # The static preset is an FDM case; switching method must also
+        # switch its exclusive spatial grid key.
+        case["mvi_grid"]=case.pop("fdm_grid")
         case["rank"]=1
         case["reference_mvi"]={"max_sweeps":3}
         with patch("cylinder_variational_mvi._initial_profiles",
