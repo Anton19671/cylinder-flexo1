@@ -11,7 +11,7 @@ R_m = R_G3D+flexo_bulk + R_G3D+flexo_natural_edges
       - W*f_dead + R_prescribed_end_mechanical_work
 
 R_phi = R_electric_bulk + R_electric_natural_edges
-        - W*f_charge + R_electrode_charge_work
+        + W*f_charge + R_electrode_charge_work
 
 The code groups all internally derived mechanical terms into the exact
 SBP bulk and natural-edge parts without double-counting. No artificial
