@@ -60,12 +60,14 @@ def certify_mvi_solution(*, x_profiles, y_profiles, scales,
     # Fixed-rank MVI solves the two tangent-projected variational equations.
     # The unprojected residual measures finite-rank truncation, not the
     # nonlinear iteration error. Never claim full equilibrium from Rproj.
-    accepted=bool(solver_converged and projected_ok and change_ok and bc_ok and shape_ok)
+    projected_accepted=bool(solver_converged and projected_ok and change_ok and bc_ok and shape_ok)
+    accepted=bool(projected_accepted and full_ok)
     return {
         "accepted":accepted,
-        "solution_status":("CONVERGED_FULL" if accepted and full_ok else
-                           "CONVERGED_PROJECTED" if accepted else "NOT_ACCEPTED"),
-        "finite_order_control_recommended":bool(accepted and not full_ok),
+        "solution_status":("CONVERGED_FULL" if accepted else
+                           "PROJECTED_ONLY" if projected_accepted else "NOT_ACCEPTED"),
+        "projected_accepted":bool(projected_accepted),
+        "finite_order_control_recommended":bool(projected_accepted and not full_ok),
         "field_change_relative":float(field_change_relative),
         "field_change_tolerance":float(field_change_tolerance),
         "field_change_satisfied":bool(change_ok),
