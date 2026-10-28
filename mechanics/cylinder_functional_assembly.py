@@ -407,8 +407,8 @@ class CylinderFunctional:
             relec=np.zeros_like(phi)
             for k,(_,dx,ds) in enumerate(ELECTRICAL_DERIVATIVES):
                 relec+=_assemble_adjoint(ecoef[k],self.W,self.dxp[dx],self.dsp[ds])
-            relec-=self.W[None,...]*charge
-            total-=float(np.sum(self.W[None,...]*charge*phi))
+            relec+=self.W[None,...]*charge
+            total+=float(np.sum(self.W[None,...]*charge*phi))
             moments=_basis_moments(len(phi)-1,self.R,self.h)
             gaugevec=moments[:,None,None]*self.W[None,...]
             gauge=float(np.sum(gaugevec*phi))
@@ -420,7 +420,7 @@ class CylinderFunctional:
             parts["total_internal"]=sum(parts.values())
             parts["external_dead_load"]=-float(np.sum(self.W[None,...]*f*mech))
             if self.electrical_on:
-                parts["external_charge"]=-float(np.sum(self.W[None,...]*charge*phi))
+                parts["external_charge"]=float(np.sum(self.W[None,...]*charge*phi))
             parts["total_stationary_functional"]=total
         return FunctionalResult(self.theory,total,parts,rmech,relec,gaugevec,gauge)
 
