@@ -9,7 +9,7 @@ import os
 import numpy as np
 
 from cylinder_functional_assembly import (CylinderFunctional,
-    surface_trapezoid, surface_sbp21, surface_sbp21_csr)
+    surface_trapezoid, surface_sbp21, surface_sbp21_fourier, surface_sbp21_csr)
 from cylinder_boundary_spatial import BoundarySpatialProblem
 from cylinder_variational_fdm import StaticFDMSettings, solve_static_fdm, state_scales
 from cylinder_variational_mvi import StaticMVISettings, solve_static_mvi
@@ -25,6 +25,7 @@ from cylinder_dynamic_trace import (
     effective_step_acceptance, require_zero_initial_support_motion)
 from cylinder_newmark_audit import audit_newmark_step
 from cylinder_initial_acceleration import consistent_initial_acceleration
+from cylinder_spatial_spectrum_audit import spatial_operator_diagnostics
 from flexo_gradient_g3d import G3DMaterial
 from cylinder_thickness_locking_diagnostic import thickness_locking_diagnostic
 from flexo_scale_policy import micro_material_from_case, flexoelectric_enabled
@@ -136,9 +137,12 @@ def prepare_reference_case(case, *, base_dir=None):
         raise ValueError("reference operators are selected with grid.operator_scheme, not stencil")
     operator_scheme=str(grid.get("operator_scheme","LEGACY_REFERENCE")).upper()
     if operator_scheme not in (
-            "LEGACY_REFERENCE","SBP21_PERIODIC_ODD","SBP21_PERIODIC_ODD_CSR"):
+            "LEGACY_REFERENCE","SBP21_PERIODIC_ODD","SBP21_PERIODIC_ODD_CSR",
+            "SBP21_FOURIER_ODD"):
         raise ValueError("grid.operator_scheme must be LEGACY_REFERENCE, "
-                         "SBP21_PERIODIC_ODD or SBP21_PERIODIC_ODD_CSR")
+                         "SBP21_PERIODIC_ODD, SBP21_PERIODIC_ODD_CSR or SBP21_FOURIER_ODD")
+    if operator_scheme=="SBP21_FOURIER_ODD" and matrix_free:
+        raise ValueError("SBP21_FOURIER_ODD is currently dense only; use DENSE_REFERENCE")
     if operator_scheme=="SBP21_PERIODIC_ODD_CSR" and not matrix_free:
         raise ValueError("SBP21_PERIODIC_ODD_CSR requires FDM MATRIX_FREE_GMRES")
     if matrix_free:
@@ -179,6 +183,8 @@ def prepare_reference_case(case, *, base_dir=None):
              if operator_scheme=="SBP21_PERIODIC_ODD_CSR"
              else surface_sbp21(nx,ns,length,radius)
              if operator_scheme=="SBP21_PERIODIC_ODD"
+             else surface_sbp21_fourier(nx,ns,length,radius)
+             if operator_scheme=="SBP21_FOURIER_ODD"
              else surface_trapezoid(nx,ns,length,radius))
     functional=CylinderFunctional(theory,material,radius_m=radius,thickness_m=thickness,
         surface_operators=surface,n_gauss=n_gauss)
@@ -490,6 +496,8 @@ def run_reference_case(case,case_path):
     functional=prepared.problem.functional
     postprocess=_postprocess_options(case)
     summary['thickness_locking_diagnostic']=thickness_locking_diagnostic(functional.theory,functional.material.poisson)
+    grid=case.get('mvi_grid' if prepared.method=='MVI' else 'fdm_grid') or case.get('grid') or {}
+    summary['spatial_operator_diagnostics']=spatial_operator_diagnostics(functional.ops,grid.get('operator_scheme','LEGACY_REFERENCE'))
     summary.update(scale_model=case["scale_model"],
         gradient_enabled=functional.material.ell_m>0,
         gradient_model=functional.material.gradient_model_label,
@@ -625,6 +633,8 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
                    "mass_damping_rate_per_s":dyn.mass_damping_rate_per_s},
         "convergence_meaning":"full admissible effective Newmark residual"}
     summary['thickness_locking_diagnostic']=thickness_locking_diagnostic(f.theory,f.material.poisson)
+    grid=case.get('mvi_grid' if prepared.method=='MVI' else 'fdm_grid') or case.get('grid') or {}
+    summary['spatial_operator_diagnostics']=spatial_operator_diagnostics(f.ops,grid.get('operator_scheme','LEGACY_REFERENCE'))
     summary["fdm_backend"]=prepared.fdm_backend
     if prepared.mvi_settings is not None:
         from cylinder_dynamic_case_passport import dynamic_physics_sha256
