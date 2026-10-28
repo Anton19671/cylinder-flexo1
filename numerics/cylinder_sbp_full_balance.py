@@ -213,7 +213,7 @@ def audit_full_sbp_work(problem,mechanical,electrical=None,*,time_s=None,
         ch=_validated_field(free_charge,p.shape,"distributed free charge")
         elec=_ledger(
             split.electrical.bulk,split.electrical.boundary,
-            -f.W[None,...]*ch,edge.electrical_residual_correction,
+            +f.W[None,...]*ch,edge.electrical_residual_correction,
             flat[q.size:].reshape(p.shape),rel_tol=rel_tol,
             abs_tol=etol,name="electrical")
     if not math.isfinite(float(potential)):
