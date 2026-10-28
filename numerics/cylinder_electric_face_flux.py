@@ -63,8 +63,8 @@ def dielectric_face_flux_fdm(potential_v, *, length_m, radius_m, thickness_m,
         total=float(np.sum(supplied))
         if abs(total)>1.e-12*max(1.,float(np.sum(np.abs(supplied)))):
             raise ValueError("insulated dielectric requires zero total charge")
-        residual-=supplied
-        energy-=float(np.sum(supplied*phi))
+        residual+=supplied
+        energy+=float(np.sum(supplied*phi))
     checkerboard=False
     if ns%2==0:
         checker=(-1.)**np.arange(ns)
