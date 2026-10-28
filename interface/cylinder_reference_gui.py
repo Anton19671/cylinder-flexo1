@@ -9,6 +9,7 @@ from tkinter import ttk, filedialog, messagebox
 
 from cylinder_reference_case import BACKEND, prepare_reference_case
 from cylinder_time_integrator_gui import TIME_INTEGRATOR_CHOICES
+from cylinder_thickness_locking_diagnostic import thickness_locking_diagnostic
 
 TEMPLATE=Path(__file__).resolve().parent.parent/'config/CASE_REFERENCE_CUF_G3D_STATIC.json'
 DYNAMIC_TEMPLATE=Path(__file__).resolve().parent.parent/'config/CASE_REFERENCE_CUF_G3D_MVI_DYNAMIC.json'
@@ -118,6 +119,20 @@ def edit_reference_case(original, fields, boundary, load, newton, dynamics=None,
     case['reference_newton']=document(newton,'Настройки Ньютона')
     prepare_reference_case(case,base_dir=base_dir)
     return case
+
+
+def reference_locking_message(case):
+    """Warn on known limitations without changing physical equations."""
+    theory=str(case.get('theory','')).upper()
+    if theory=='CUF':theory='CUF_'+str(case.get('cuf_model','')).upper()
+    info=thickness_locking_diagnostic(theory,case['material']['nu0'])
+    if info['thickness_locking']!='YES':return None
+    return ('Внимание: полная 3D-упругость и данная кинематика ограничивают '
+            'деформацию по толщине при изгибе. В плоском пределе чистого '
+            'изгиба отношение энергий: '
+            f"{info['flat_limit_pure_bending_energy_ratio']:.5g}. "
+            'Для количественного расчёта нужна независимая проверка. '
+            'Материальный закон автоматически не заменяется.')
 
 
 class ReferenceCaseEditor(tk.Toplevel):
@@ -238,8 +253,10 @@ class ReferenceCaseEditor(tk.Toplevel):
 
     def validate(self):
         try:
-            self.collect()
-            messagebox.showinfo('Проверка CASE','Параметры, нагрузка и ГУ приняты проверочным решателем.',parent=self)
+            case=self.collect()
+            warning=reference_locking_message(case)
+            if warning:messagebox.showwarning('Ограничение изгибной модели',warning,parent=self)
+            else:messagebox.showinfo('Проверка CASE','Параметры, нагрузка и ГУ приняты проверочным решателем.',parent=self)
         except Exception as exc:messagebox.showerror('Ошибка CASE',str(exc),parent=self)
 
     def save(self):
@@ -262,6 +279,8 @@ class ReferenceCaseEditor(tk.Toplevel):
     def run(self,series=False):
         path=self.save()
         if path is None:return
+        warning=reference_locking_message(self.case)
+        if warning:messagebox.showwarning('Ограничение изгибной модели',warning,parent=self)
         try:self.parent._launch_reference_case(path,self.case,series=series)
         except Exception as exc:messagebox.showerror('Запуск CASE',str(exc),parent=self)
 
