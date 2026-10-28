@@ -640,7 +640,7 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
     monitor_class=(SparseMechanicalTraceNewmark if sparse_trace
                    else MechanicalTraceNewmark)
     trace_c,trace_d=trace_matrix(initial_edge.constraints,q.size)
-    trace_monitor=monitor_class(trace_c,trace_d,q,velocity,acceleration,
+    trace_monitor=monitor_class(trace_c,trace_d,q.ravel(),velocity.ravel(),acceleration.ravel(),
         t=newmark.t_start_s,dt=newmark.dt_s,beta=newmark.beta,gamma=newmark.gamma)
     initial=out/"REFERENCE_DYNAMIC_INITIAL.npz"
     arrays={"time_s":np.array(newmark.t_start_s),"mechanical":q,
@@ -703,7 +703,7 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
                         result.mechanical,result.velocity,result.acceleration,
                         dt_s=newmark.dt_s,beta=newmark.beta,gamma=newmark.gamma).as_dict()
                     trace_defects=trace_monitor.accept(expected_trace,
-                        result.mechanical,result.velocity,result.acceleration)
+                        result.mechanical.ravel(),result.velocity.ravel(),result.acceleration.ravel())
                 except ValueError as exc:
                     accepted=False
                     gate_status=("NEWMARK_KINEMATICS_DRIFT"
