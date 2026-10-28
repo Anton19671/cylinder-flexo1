@@ -26,6 +26,8 @@ from cylinder_dynamic_trace import (
 from cylinder_newmark_audit import audit_newmark_step
 from cylinder_initial_acceleration import consistent_initial_acceleration
 from cylinder_spatial_spectrum_audit import spatial_operator_diagnostics
+from cylinder_director_rotation_audit import director_rotation_diagnostic
+from cylinder_mvi_essential_trace_guard import require_homogeneous_mvi_traces
 from flexo_gradient_g3d import G3DMaterial
 from cylinder_thickness_locking_diagnostic import thickness_locking_diagnostic
 from flexo_scale_policy import micro_material_from_case, flexoelectric_enabled
@@ -324,6 +326,9 @@ def prepare_reference_case(case, *, base_dir=None):
     # CASE valid; dry-run validation must not generate any output files.
     # Create the problem only after CASE-local time tables were resolved above.
     problem=BoundarySpatialProblem(functional,bc_spec=spec,calculation_kind=kind)
+    if method=="MVI":
+        require_homogeneous_mvi_traces(spec,theory=theory,
+                                       n_mechanical=functional.n_mechanical)
     if matrix_free:
         from cylinder_matrixfree_fdm import SparseTraceProjector
         scales=state_scales(functional,q,p,settings)
@@ -423,7 +428,7 @@ def _write_json(path,data):
 
 def _write_dynamic_history(path,steps):
     temp=path.with_name(path.name+".tmp")
-    columns=("index","time_s","load_factor","w_middle_abs_max_m",
+    columns=("index","time_s","load_factor","status","converged","w_middle_abs_max_m",
              "velocity_abs_max_m_per_s","acceleration_abs_max_m_per_s2",
              "max_potential_coefficient_abs","admissible_residual_scaled")
     with temp.open("w",encoding="utf-8",newline="") as stream:
@@ -496,6 +501,7 @@ def run_reference_case(case,case_path):
     functional=prepared.problem.functional
     postprocess=_postprocess_options(case)
     summary['thickness_locking_diagnostic']=thickness_locking_diagnostic(functional.theory,functional.material.poisson)
+    summary['director_kinematics_diagnostic']=director_rotation_diagnostic(functional.theory)
     grid=case.get('mvi_grid' if prepared.method=='MVI' else 'fdm_grid') or case.get('grid') or {}
     summary['spatial_operator_diagnostics']=spatial_operator_diagnostics(functional.ops,grid.get('operator_scheme','LEGACY_REFERENCE'))
     summary.update(scale_model=case["scale_model"],
@@ -569,6 +575,8 @@ def run_reference_case(case,case_path):
                   "max_potential_coefficient_abs":None if result.electrical is None else float(np.max(abs(result.electrical))),
                   "state_file":state_name,"history_file":history_name,
                   "face_conditions":face_summary,
+                  "director_kinematics_diagnostic":director_rotation_diagnostic(
+                      functional.theory,result.mechanical),
                   "radial_face_displacement_inner_abs_max_m":float(
                       np.max(np.abs(arrays["face_inner_radial_displacement_m"]))),
                   "radial_face_displacement_outer_abs_max_m":float(
@@ -633,6 +641,7 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
                    "mass_damping_rate_per_s":dyn.mass_damping_rate_per_s},
         "convergence_meaning":"full admissible effective Newmark residual"}
     summary['thickness_locking_diagnostic']=thickness_locking_diagnostic(f.theory,f.material.poisson)
+    summary['director_kinematics_diagnostic']=director_rotation_diagnostic(f.theory)
     grid=case.get('mvi_grid' if prepared.method=='MVI' else 'fdm_grid') or case.get('grid') or {}
     summary['spatial_operator_diagnostics']=spatial_operator_diagnostics(f.ops,grid.get('operator_scheme','LEGACY_REFERENCE'))
     summary["fdm_backend"]=prepared.fdm_backend
@@ -792,6 +801,8 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
                 "full_equilibrium_satisfied":accepted,
                 "full_newmark_residual_tolerance":newmark.residual_tolerance_relative,
                 "face_conditions":face_summary,
+                "director_kinematics_diagnostic":director_rotation_diagnostic(
+                    f.theory,result.mechanical),
                 "radial_face_displacement_inner_abs_max_m":float(
                     np.max(np.abs(arrays["face_inner_radial_displacement_m"]))),
                 "radial_face_displacement_outer_abs_max_m":float(
