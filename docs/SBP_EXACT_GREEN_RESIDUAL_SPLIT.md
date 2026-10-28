@@ -30,6 +30,8 @@ The end virtual work is
 with B0=A10-Dx A20-Ds A11+Dx^2 A30+Dx Ds A21+Ds^2 A12,
 B1=A20-Dx A30-Ds A21, B2=A30, outward normal n_x=-1/+1,
 t=n_x B0, m_n=B1, h_nn=n_x B2, Q_n=n_x A_electric,x.
+For a CHARGE input sigma_free on an electrode, the natural boundary
+condition is Q_n + sigma_free = 0; Q_n alone denotes outward induction.
 The matrices transpose-contribute at the actual boundary rows,
 including d_n q=n_x Dx q and d_nn q=Dx^2 q.
 The mixed derivative appears exactly once in the independent-jet
