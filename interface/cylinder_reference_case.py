@@ -483,6 +483,7 @@ def run_reference_case(case,case_path):
              "method":prepared.method,"theory":prepared.problem.functional.theory,
              "geometry_model":"GREEN_LAGRANGE","material_model":"HOOKE",
              "field_order":"component,x,s","thickness_basis":"(2*z/h)**k",
+             "electric_charge_convention":"PLUS_FREE_CHARGE_IN_ENTHALPY_D_N_EQUALS_MINUS_SIGMA",
              "units":{"system":"SI_N_M_PA"},"output_dir":str(out),
              "status":"NOT_STARTED","converged":False,"accepted_steps":0,
              "steps":[],"mesh_convergence_verified":False}
@@ -606,7 +607,9 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
     summary={"solver_backend":BACKEND,"experimental":True,"calculation_kind":"DYNAMIC",
         "method":prepared.method,"theory":f.theory,"geometry_model":"GREEN_LAGRANGE",
         "material_model":"HOOKE","field_order":"component,x,s",
-        "thickness_basis":"(2*z/h)**k","units":{"system":"SI_N_M_PA"},
+        "thickness_basis":"(2*z/h)**k",
+        "electric_charge_convention":"PLUS_FREE_CHARGE_IN_ENTHALPY_D_N_EQUALS_MINUS_SIGMA",
+        "units":{"system":"SI_N_M_PA"},
         "output_dir":str(out),"status":"NOT_STARTED","converged":False,
         "accepted_steps":0,"requested_steps":newmark.n_steps,"steps":[],
         "mesh_convergence_verified":False,"time_step_convergence_verified":False,
