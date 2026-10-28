@@ -34,6 +34,7 @@ from cylinder_formal_strong_balance import formal_coupled_balance
 from cylinder_sbp_green_reduction import split_coupled_sbp_residual
 from cylinder_sbp_derivatives import (
     SBP_OPERATOR_SCHEME, axial_sbp21_gradient, periodic_sbp_odd_gradient,
+    periodic_sbp_odd_fourier_gradient,
     require_green_identity, axial_sbp21_gradient_sparse,
     periodic_sbp_odd_gradient_sparse,
 )
@@ -119,6 +120,20 @@ def surface_sbp21(n_axial,n_circumference,length_m,radius_m):
     Ds,ws=periodic_sbp_odd_gradient(n_circumference,2*math.pi*R)
     require_green_identity(Dx,Ds,wx,ws)
     return SurfaceOperators(Dx,Ds,wx,ws)
+
+def surface_sbp21_fourier(n_axial,n_circumference,length_m,radius_m):
+    """Optional dense SBP21 in x, exact odd-periodic Fourier derivative in s.
+
+    The axial higher-derivative boundary closure is not thereby certified.
+    """
+    R=float(radius_m)
+    if not math.isfinite(R) or R<=0:
+        raise ValueError("R must be finite positive")
+    Dx,wx=axial_sbp21_gradient(n_axial,length_m)
+    Ds,ws=periodic_sbp_odd_fourier_gradient(n_circumference,2*math.pi*R)
+    require_green_identity(Dx,Ds,wx,ws)
+    return SurfaceOperators(Dx,Ds,wx,ws)
+
 
 def surface_sbp21_csr(n_axial,n_circumference,length_m,radius_m):
     """O(nx+ns) CSR SBP21/odd-periodic reference operators.
