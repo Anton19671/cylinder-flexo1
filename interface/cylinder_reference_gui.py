@@ -10,6 +10,7 @@ from tkinter import ttk, filedialog, messagebox
 from cylinder_reference_case import BACKEND, prepare_reference_case
 from cylinder_time_integrator_gui import TIME_INTEGRATOR_CHOICES
 from cylinder_thickness_locking_diagnostic import thickness_locking_diagnostic
+from cylinder_director_rotation_audit import director_rotation_diagnostic
 
 TEMPLATE=Path(__file__).resolve().parent.parent/'config/CASE_REFERENCE_CUF_G3D_STATIC.json'
 DYNAMIC_TEMPLATE=Path(__file__).resolve().parent.parent/'config/CASE_REFERENCE_CUF_G3D_MVI_DYNAMIC.json'
@@ -122,17 +123,21 @@ def edit_reference_case(original, fields, boundary, load, newton, dynamics=None,
 
 
 def reference_locking_message(case):
-    """Warn on known limitations without changing physical equations."""
+    """Display both bending and finite-rotation limitations without changing physics."""
     theory=str(case.get('theory','')).upper()
     if theory=='CUF':theory='CUF_'+str(case.get('cuf_model','')).upper()
     info=thickness_locking_diagnostic(theory,case['material']['nu0'])
-    if info['thickness_locking']!='YES':return None
-    return ('Внимание: полная 3D-упругость и данная кинематика ограничивают '
-            'деформацию по толщине при изгибе. В плоском пределе чистого '
-            'изгиба отношение энергий: '
+    warnings=[]
+    if info['thickness_locking']=='YES':
+        warnings.append('Полная 3D-упругость и данная кинематика могут завышать '
+            'энергию чистого изгиба: коэффициент плоского предела '
             f"{info['flat_limit_pure_bending_energy_ratio']:.5g}. "
-            'Для количественного расчёта нужна независимая проверка. '
-            'Материальный закон автоматически не заменяется.')
+            'Автоматическая редукция материала не выполняется.')
+    if theory in ('FSDT','REDDY'):
+        warnings.append('V-4: линейный директор НЕ инвариантен к конечным '
+            'поворотам; Ezz=0.5*(theta_x**2+theta_s**2). '
+            '0.1 рад — ориентир для предупреждения, а не гарантия точности.')
+    return ' '.join(warnings) if warnings else None
 
 
 class ReferenceCaseEditor(tk.Toplevel):
