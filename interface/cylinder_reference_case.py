@@ -24,6 +24,7 @@ from cylinder_dynamic_trace import (
     SparseMechanicalTraceNewmark, sparse_mechanical_trace_matrix,
     effective_step_acceptance, require_zero_initial_support_motion)
 from cylinder_newmark_audit import audit_newmark_step
+from cylinder_initial_acceleration import consistent_initial_acceleration
 from flexo_gradient_g3d import G3DMaterial
 from cylinder_thickness_locking_diagnostic import thickness_locking_diagnostic
 from flexo_scale_policy import micro_material_from_case, flexoelectric_enabled
@@ -76,6 +77,7 @@ class ReferenceCase:
     calculation_kind: str
     dynamics: object | None
     fdm_backend: str = "DENSE_REFERENCE"
+    initial_acceleration: np.ndarray | None = None
 
 
 @dataclass(frozen=True)
@@ -339,19 +341,11 @@ def prepare_reference_case(case, *, base_dir=None):
             u=scales*projector.project_affine(initial/scales)
             q=u[:q.size].reshape(q.shape)
             p=None if p is None else u[q.size:].reshape(p.shape)
-            _,r,_=problem.evaluate_effective_residual(
+            _,initial_force,initial_edge=problem.evaluate_effective_residual(
                 q,p,dead_load=loaded,free_charge=loaded_charge,time_s=time0,
                 acceleration=np.zeros_like(q),
                 density_kg_m3=dynamic.density_kg_m3)
-            # The initial state must be in equilibrium in every admissible
-            # (including electric saddle) direction. A small projected
-            # full residual is necessary before ZERO Newmark predictors.
-            g=projector.project_null(scales*r)
-            floor=1.e-10*max(1.,float(np.max(scales)))
-            if np.max(np.abs(g),initial=0)>floor:
-                raise ValueError(
-                    "ZERO initial conditions are not in equilibrium at "
-                    "start_time_s; delay the load or supply a preloaded-state route")
+            initial_assembly=None
     else:
         # Original dense reference route remains bit-for-bit unchanged.
         if kind=="STATIC":
@@ -367,14 +361,23 @@ def prepare_reference_case(case, *, base_dir=None):
             a=problem.assemble(q,p,dead_load=factor0*dead,
                 free_charge=None if charge is None else factor0*charge,time_s=t0,
                 acceleration=np.zeros_like(q),density_kg_m3=dynamic.density_kg_m3)
-            if np.max(abs(a.projected_residual),initial=0)>1.e-10:
-                raise ValueError("ZERO initial conditions are not in equilibrium at start_time_s; delay the load or supply a preloaded-state route")
+            initial_force=a.full_residual
+            initial_edge=a.edge
+            initial_assembly=a
         # The full admissible grid space certifies an MVI result, but its
         # dimension is NOT the number of unknowns solved in an X/Y half-step.
         # The dense FDM cap applies only to the full-nodal FDM Newton solve.
         # Every frozen-partner MVI subspace independently enforces this cap.
         if method == "FDM" and a.space.basis.shape[1]>settings.max_free_dofs:
             raise ValueError("reference free-DOF limit exceeded; use a smaller verification grid")
+    initial_acceleration=None
+    if kind=="DYNAMIC":
+        initial_acceleration=consistent_initial_acceleration(
+            problem,q,p,initial_residual=initial_force,
+            initial_edge=initial_edge,settings=settings,
+            density_kg_m3=dynamic.density_kg_m3,
+            backend=fdm_backend,full_assembly=initial_assembly,
+            sparse_projector=projector if matrix_free else None)
     if kind=="DYNAMIC" and method=="MVI":
         # The genuine separated Newmark solution has NO additive nodal lift.
         # Projecting a prescribed initial electrode/support field into the
@@ -401,7 +404,7 @@ def prepare_reference_case(case, *, base_dir=None):
                 "initial field must have the specified separation rank")
     if not isinstance(case.get("output_dir"),str) or not case["output_dir"].strip():
         raise ValueError("explicit output_dir required")
-    return ReferenceCase(problem,q,p,dead,charge,factors,settings,method,mvi_settings,kind,dynamic,fdm_backend)
+    return ReferenceCase(problem,q,p,dead,charge,factors,settings,method,mvi_settings,kind,dynamic,fdm_backend,initial_acceleration)
 
 
 def _write_json(path,data):
@@ -626,7 +629,14 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
         summary["physical_case_sha256"]=dynamic_physics_sha256(case)
     q,p=prepared.mechanical,prepared.electrical
     previous_mvi_result=None
-    velocity=np.zeros_like(q);acceleration=np.zeros_like(q)
+    velocity=np.zeros_like(q)
+    if prepared.initial_acceleration is None:
+        raise ValueError("DYNAMIC_CONSISTENT_INITIAL_ACCELERATION_MISSING")
+    acceleration=np.asarray(prepared.initial_acceleration,float).copy()
+    summary["initial_acceleration"]={
+        "method":"CONSISTENT_CONSTRAINED_MASS",
+        "max_abs_m_per_s2":float(np.max(np.abs(acceleration),initial=0)),
+        "initial_velocity_type":"ZERO"}
     if prepared.fdm_backend=="MATRIX_FREE_GMRES":
         from cylinder_variational_boundary import compile_boundary_program
         initial_edge=compile_boundary_program(
