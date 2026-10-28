@@ -9,10 +9,12 @@ For G3D and reduced Gz, physical induction D is evaluated at the two
 reference faces z=-h/2 and z=+h/2 from the constitutive law. At each face:
 
     D_outward = n_z * D_z,  n_z=-1 (inner), +1 (outer).
-    residual = D_outward - prescribed_outward_induction.
+    residual = D_outward + prescribed_free_charge.
+    At CHARGE: prescribed_outward_induction = -prescribed_free_charge.
 
-The variational boundary input CHARGE means prescribed outward induction
-because its work is minus charge times potential on the physical face.
+The variational boundary input CHARGE means physical free charge sigma on
+the adjacent electrode; its work is PLUS charge times potential, which
+implies D_outward = -sigma on the dielectric face.
 INSULATED is a zero-flux natural condition. POTENTIAL imposes an
 essential voltage: its D_outward is a reaction and has no natural
 electrical flux residual.
