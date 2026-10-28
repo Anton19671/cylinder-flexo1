@@ -84,6 +84,29 @@ def periodic_sbp_odd_gradient(n,perimeter_m):
     return Ds,np.full(n,h)
 
 
+def periodic_sbp_odd_fourier_gradient(n, perimeter_m):
+    """Exact trigonometric derivative on the odd periodic nodal space.
+
+    A dense reference operator, NOT a sparse SBP or a higher-order axial
+    closure. It uses all supported Fourier harmonics without the near-Nyquist
+    weakness of the centered periodic difference. For uniform weights it is
+    real, skew-adjoint and annihilates constants to roundoff.
+    """
+    _positive_dimension(n, "periodic node count", 5)
+    if n % 2 == 0:
+        raise ValueError("Fourier periodic derivative requires odd ns >= 5")
+    L = _positive_length(perimeter_m, "periodic perimeter")
+    frequency = 2. * np.pi * np.fft.fftfreq(n, d=L/n)
+    identity = np.eye(n)
+    derivative = np.fft.ifft(
+        (1j * frequency)[:, None] * np.fft.fft(identity, axis=0),
+        axis=0).real
+    # Remove only floating-point antisymmetry noise; this is an exact
+    # coordinate identity for odd-n trigonometric interpolation.
+    derivative = .5 * (derivative - derivative.T)
+    return derivative, np.full(n, L/n)
+
+
 def axial_sbp21_gradient_sparse(n,length_m):
     """CSR SBP(2,1) axial derivative with O(n) nonzeros and diagonal norm."""
     _positive_dimension(n,"axial node count",4)
