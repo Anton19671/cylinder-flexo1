@@ -377,8 +377,8 @@ def compile_boundary_program(functional,mechanical,electrical=None,*,spec=None,
                 moments=np.array([np.sum(w*(1+z/R)*(2*z/h)**k) for k in range(p)])
                 for j,wj in enumerate(ops.ws):
                     charge=wj*value*moments
-                    energy-=float(charge@phi[:,loc,j])
-                    result_e[:,loc,j]-=charge
+                    energy+=float(charge@phi[:,loc,j])
+                    result_e[:,loc,j]+=charge
                     total_charge+=float(charge[0])
                     absolute_charge+=abs(float(charge[0]))
             else:
@@ -388,8 +388,8 @@ def compile_boundary_program(functional,mechanical,electrical=None,*,spec=None,
                 for i in range(nx):
                     for j in range(ns):
                         charge=ops.wx[i]*ops.ws[j]*H*value*basis
-                        energy-=float(charge@phi[:,i,j])
-                        result_e[:,i,j]-=charge
+                        energy+=float(charge@phi[:,i,j])
+                        result_e[:,i,j]+=charge
                         total_charge+=float(charge[0])
                         absolute_charge+=abs(float(charge[0]))
         if check_charge_balance and not has_electrode and abs(total_charge)>1e-10*max(
