@@ -4,8 +4,9 @@ This is a diagnostic derived from the constitutive induction in the SAME
 G3D/Gz mechanical/electric state solved by MVI or variational FDM. It is
 not a substitute for the thickness-integrated electrical equilibrium.
 
-For CHARGE the input follows the boundary-program variational work term
-- integral(value * potential dA_face): value is OUTWARD prescribed D dot n.
+For CHARGE the input is the physical free charge of the exterior electrode.
+The variational work adds +integral(sigma * potential dA_face), and the
+natural condition is D dot n_out + sigma = 0.
 The inner face uses n_z=-1; the outer face uses n_z=+1.
 """
 from __future__ import annotations
@@ -117,12 +118,13 @@ def face_conditions_from_recovery(functional, recovered, boundary_spec, *,
             prescribed=(0. if mode=="INSULATED"
                         else _number(site.get("value"),side+" prescribed charge")
                         *_time_factor(site,kind,time_s))
-            residual=outward-prescribed
+            residual=outward+prescribed
             output["face_"+side+"_electric_outward_residual_c_per_m2"]=residual.copy()
             rms=float(np.sqrt(np.sum(face_weight*residual*residual)/area))
             values.update(
                 status="DIAGNOSTIC_ONLY_NOT_EQUILIBRIUM_ACCEPTANCE_GATE",
-                prescribed_outward_induction_c_per_m2=float(prescribed),
+                prescribed_free_charge_c_per_m2=float(prescribed),
+                prescribed_outward_induction_c_per_m2=float(-prescribed),
                 normal_residual_rms_c_per_m2=rms,
                 normal_residual_abs_max_c_per_m2=float(
                     np.max(np.abs(residual),initial=0)),
