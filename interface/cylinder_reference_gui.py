@@ -50,7 +50,7 @@ def edit_reference_case(original, fields, boundary, load, newton, dynamics=None,
                                str(grid.get('operator_scheme','')).upper()=='SBP21_PERIODIC_ODD_CSR'):
         raise ValueError('Для смены метода в matrix-free CASE сначала создайте отдельный CASE')
     scheme=str(fields.get('operator_scheme',grid.get('operator_scheme','LEGACY_REFERENCE'))).upper()
-    if scheme not in ('LEGACY_REFERENCE','SBP21_PERIODIC_ODD','SBP21_PERIODIC_ODD_CSR'):
+    if scheme not in ('LEGACY_REFERENCE','SBP21_PERIODIC_ODD','SBP21_PERIODIC_ODD_CSR','SBP21_FOURIER_ODD'):
         raise ValueError('Неизвестная схема пространственных операторов')
     fdm_backend=str(fields.get('fdm_backend',case.get('fdm_backend','DENSE_REFERENCE'))).upper()
     if fdm_backend not in ('DENSE_REFERENCE','MATRIX_FREE_GMRES'):
@@ -187,7 +187,7 @@ class ReferenceCaseEditor(tk.Toplevel):
             ('Порядок CUF','cuf_model',c.get('cuf_model','TE1'),('TE1','TE2','TE3','TE4')),
             ('Пространственный метод','method',method,('FDM','MVI')),
             ('Схема операторов','operator_scheme',grid.get('operator_scheme','LEGACY_REFERENCE'),
-             ('LEGACY_REFERENCE','SBP21_PERIODIC_ODD','SBP21_PERIODIC_ODD_CSR')),
+             ('LEGACY_REFERENCE','SBP21_PERIODIC_ODD','SBP21_PERIODIC_ODD_CSR','SBP21_FOURIER_ODD')),
             ('Вариант МКР','fdm_backend',c.get('fdm_backend','DENSE_REFERENCE'),
              ('DENSE_REFERENCE','MATRIX_FREE_GMRES')),
             ('Ранг МВИ (1–8)','rank',c.get('rank',1),None),
