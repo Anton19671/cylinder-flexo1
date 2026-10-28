@@ -25,6 +25,7 @@ from cylinder_dynamic_trace import (
     effective_step_acceptance, require_zero_initial_support_motion)
 from cylinder_newmark_audit import audit_newmark_step
 from flexo_gradient_g3d import G3DMaterial
+from cylinder_thickness_locking_diagnostic import thickness_locking_diagnostic
 from flexo_scale_policy import micro_material_from_case, flexoelectric_enabled
 import final_progress as progress
 
@@ -484,6 +485,7 @@ def run_reference_case(case,case_path):
              "steps":[],"mesh_convergence_verified":False}
     functional=prepared.problem.functional
     postprocess=_postprocess_options(case)
+    summary['thickness_locking_diagnostic']=thickness_locking_diagnostic(functional.theory,functional.material.poisson)
     summary.update(scale_model=case["scale_model"],
         gradient_enabled=functional.material.ell_m>0,
         gradient_model=functional.material.gradient_model_label,
@@ -616,6 +618,7 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
         "damping":{"kind":"MASS_PROPORTIONAL" if dyn.mass_damping_rate_per_s else "NONE",
                    "mass_damping_rate_per_s":dyn.mass_damping_rate_per_s},
         "convergence_meaning":"full admissible effective Newmark residual"}
+    summary['thickness_locking_diagnostic']=thickness_locking_diagnostic(f.theory,f.material.poisson)
     summary["fdm_backend"]=prepared.fdm_backend
     if prepared.mvi_settings is not None:
         from cylinder_dynamic_case_passport import dynamic_physics_sha256
