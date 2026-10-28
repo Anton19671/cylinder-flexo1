@@ -6735,6 +6735,33 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self._set_top_running_state(True)
         threading.Thread(target=self._read_process_output,daemon=True).start()
 
+    def _on_process_done(self, rc):
+        """Never mark a reference run complete merely because the child exited."""
+        reference = self.run_kind in ("REFERENCE_CASE", "REFERENCE_SERIES")
+        completion = None
+        if reference:
+            from restored_gui_runner import reference_completion_on_disk
+            completion = reference_completion_on_disk(
+                self.run_output_dir, series=self.run_kind == "REFERENCE_SERIES")
+            if rc == 0 and not completion["success"]:
+                rc = 2
+                self._log("=== REFERENCE SUMMARY NOT ACCEPTED; forcing failure ===\\n")
+        super()._on_process_done(rc)
+        if reference and completion is not None:
+            accepted = completion["accepted"]
+            requested = completion["requested"] or self.expected_steps
+            if requested:
+                self._progress_update(accepted, requested,
+                    label_prefix=("Завершено" if completion["success"] else "Не завершено"))
+            if not completion["success"]:
+                code = completion["detail"] or completion["status"]
+                self._log(f"=== REFERENCE FAILED: {code}; accepted={accepted} ===\\n")
+                if hasattr(self, "progress_status_label"):
+                    self.progress_status_label.configure(text=f"Ошибка: {code}")
+            else:
+                if hasattr(self, "progress_status_label"):
+                    self.progress_status_label.configure(text="Завершено: результат принят")
+
     def load_case(self):
         """Restore a saved FINAL_CASE without changing its physical meaning."""
         p=filedialog.askopenfilename(title="Загрузить CASE",filetypes=[("JSON","*.json"),("All files","*.*")])
