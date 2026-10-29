@@ -6551,10 +6551,21 @@ class FinalSolverGUI(EnhancedSolverGUI):
         if active is not None:
             self._sync_reference_case()
             active=self._active_reference_case()
-            path,_=active
+            path,cfg=active
             try:
-                result=validate_final_case(path)
-                messagebox.showinfo("Проверка CASE",f"Вариационный {result['method']} принят; сеточная сходимость не проверена.")
+                pending=getattr(self,"_pending_reference_case",None)
+                if pending is not None and pending[0]==path.resolve():
+                    from cylinder_modal_reference import prepare_modal_case
+                    from cylinder_reference_case import prepare_reference_case
+                    draft=pending[1]
+                    if str(draft.get("calculation_kind","")).upper()=="MODAL":
+                        result=prepare_modal_case(draft,base_dir=path.parent)
+                    else:
+                        checked=prepare_reference_case(draft,base_dir=path.parent)
+                        result={"method":checked.method}
+                else:
+                    result=validate_final_case(path)
+                messagebox.showinfo("Проверка CASE",f"Вариационный {result['method']} принят для выбранной модели.")
             except Exception as exc:messagebox.showerror("Проверка CASE",str(exc))
             return
         messagebox.showerror("Проверка CASE","Создайте или загрузите вариационный CASE. Текущий решатель не принимает старый формат параметров.")
