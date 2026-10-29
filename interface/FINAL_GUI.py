@@ -5780,8 +5780,15 @@ class FinalSolverGUI(EnhancedSolverGUI):
             self.fdm_stencil_combo.grid(row=2,column=1,sticky="w",padx=6,pady=3)
 
     def _edit_variational_bc(self):
+        """Edit BC through the active physical reference CASE."""
+        active=self._active_reference_case()
+        if active is None:
+            messagebox.showinfo("Граничные условия","Создайте вариационный CASE: ГУ сохраняются вместе с ним.")
+            self.open_reference_case()
+            return
         from cylinder_boundary_editor import open_boundary_editor
-        open_boundary_editor(self)
+        path,case=active
+        open_boundary_editor(self,reference_case=case,reference_path=path)
 
     def _build_numeric_tab(self):
         super()._build_numeric_tab()
