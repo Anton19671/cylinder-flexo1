@@ -279,7 +279,21 @@ class ReferenceCaseEditor(tk.Toplevel):
         """Use the SAME boundary dialog as the main interface."""
         try:
             from cylinder_boundary_editor import open_boundary_editor
-            case=self.collect()
+            case=copy.deepcopy(self.case)
+            case['theory']=self.fields['theory'].get().upper()
+            if case['theory']=='CUF':
+                case['cuf_model']=self.fields['cuf_model'].get().upper()
+            else:
+                case.pop('cuf_model',None)
+            case['calculation_kind']=self.fields['calculation_kind'].get().upper()
+            case['scale_model']=self.fields['scale_model'].get().upper()
+            case.setdefault('micro',{})['enable_flexoelectric']=bool(self.flexo.get())
+            case['micro']['gradient_model']=self.fields['gradient_model'].get()
+            # A theory change can invalidate old vectors before the BC editor
+            # is opened. Build a draft without running the solver preflight.
+            # The final collect() still validates the completed CASE.
+            case.setdefault('boundary_conditions',{})['variational']=json.loads(
+                self.bc_text.get('1.0','end-1c'))
             def apply_changes(boundary, gradient):
                 self.bc_text.delete('1.0','end')
                 self.bc_text.insert('1.0',json.dumps(boundary,ensure_ascii=False,indent=2))
