@@ -4,3 +4,4 @@ matplotlib
 XlsxWriter
 imageio-ffmpeg
 pytest>=8
+PyYAML>=6.0
