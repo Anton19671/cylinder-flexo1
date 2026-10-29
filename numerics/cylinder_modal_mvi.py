@@ -15,7 +15,7 @@ This is a small-grid verification implementation, not a certified benchmark.
 from __future__ import annotations
 
 import numpy as np
-from scipy.linalg import cholesky, eigh, qr, solve
+from scipy.linalg import cholesky, eigh, qr, solve, solve_triangular
 
 from cylinder_boundary_spatial import affine_trace_space, separated_profile_directions
 from cylinder_variational_fdm import state_scales
@@ -38,6 +38,17 @@ def _mass_orthogonal_null(matrix):
     return q[:, rank:]
 
 
+def _significant_modal_constraints(constraints, mass_factor):
+    """Keep rows which can exceed the mass-overlap tolerance in this space."""
+    if not len(constraints):
+        return constraints
+    max_overlaps = np.linalg.norm(solve_triangular(
+        mass_factor, constraints.T, lower=True, check_finite=False), axis=0)
+    # Final independently checked orthogonality tolerance is 1e-6. A row
+    # bounded below this stricter limit cannot violate it for any unit mode.
+    return constraints[max_overlaps > 2.e-7]
+
+
 def _initial_factors(components, rank, nx, ns, mode):
     """Reproducible factors, not precomputed FDM mode shapes."""
     rng = np.random.default_rng(94031 + 101 * mode + 37 * rank)
@@ -47,6 +58,46 @@ def _initial_factors(components, rank, nx, ns, mode):
         x[c] = np.linalg.qr(rng.normal(size=(nx, rank)), mode="reduced")[0].T
         y[c] = np.linalg.qr(rng.normal(size=(ns, rank)), mode="reduced")[0].T
     return x, y
+
+
+class _LocalMechanicalTangent:
+    """Cache local linearized weak coefficients, not a full-grid matrix."""
+    def __init__(self, problem, functional, step):
+        from cylinder_functional_assembly import MECHANICAL_DERIVATIVES
+        self.problem, self.f, self.step = problem, functional, step
+        self.spec = MECHANICAL_DERIVATIVES[:functional.n_derivatives]
+        nc, nd = functional.n_mechanical, len(self.spec)
+        mechanical = [np.zeros((nc, 1, 1)) for _ in range(nd)]
+        electrical = [np.zeros((1, 1, 1)) for _ in range(3)]
+        self.local = np.empty((nc * nd, nc * nd))
+        for j in range(nc * nd):
+            c, d = divmod(j, nd)
+            mechanical[d][c, 0, 0] = step
+            plus = functional._local(functional._make_jets(mechanical, electrical, 0, 0)).mechanical.ravel()
+            mechanical[d][c, 0, 0] = -step
+            minus = functional._local(functional._make_jets(mechanical, electrical, 0, 0)).mechanical.ravel()
+            mechanical[d][c, 0, 0] = 0.
+            self.local[:, j] = (plus - minus) / (2. * step)
+        if not np.isfinite(self.local).all():
+            raise ValueError("MODAL MVI local tangent is nonfinite")
+
+    def action(self, field):
+        from cylinder_functional_assembly import _assemble_adjoint
+        from cylinder_variational_boundary import compile_boundary_program
+        f, step = self.f, self.step
+        jets = f._field_derivatives(field, self.spec)
+        values = np.stack(jets, axis=1).reshape(len(self.local), -1)
+        weak = (self.local @ values).reshape(f.n_mechanical, len(self.spec), *f.ops.shape)
+        result = np.zeros_like(field)
+        for d, (_, dx, ds) in enumerate(self.spec):
+            result += _assemble_adjoint(weak[:, d], f.W, f.dxp[dx], f.dsp[ds])
+        def boundary(sign):
+            edge = compile_boundary_program(f, sign * step * field, None,
+                spec=self.problem.spec, calculation_kind=self.problem.kind,
+                check_charge_balance=False)
+            return edge.mechanical_residual_correction
+        result += (boundary(1.) - boundary(-1.)) / (2. * step)
+        return result.ravel()
 
 
 class _SeparatedModalProblem:
@@ -85,6 +136,8 @@ class _SeparatedModalProblem:
         # A completed mode never changes. Reuse its physical mass action
         # across all X/Y sweeps and orthogonality projections.
         self._previous_mass_cache = {}
+        self._local_tangent = (None if self.ne else
+                               _LocalMechanicalTangent(prepared.problem, self.f, self.step))
 
     def previous_mass(self, direction):
         key = id(direction)
@@ -105,6 +158,8 @@ class _SeparatedModalProblem:
         direction = np.asarray(direction, float)
         if direction.shape != (self.nm + self.ne,):
             raise ValueError("MODAL MVI tangent vector shape")
+        if self._local_tangent is not None:
+            return self._local_tangent.action(direction.reshape(self.shape))
         def force(sign):
             state = sign * self.step * direction
             q = state[:self.nm].reshape(self.shape)
@@ -202,7 +257,7 @@ class _SeparatedModalProblem:
                 1.e-9 * max(float(np.linalg.norm(m, ord=np.inf)), 1.e-30)):
             raise ValueError("MODAL MVI mass matrix is not symmetric")
         m = 0.5 * (m + m.T)
-        cholesky(m, lower=True, check_finite=True)
+        mass_factor = cholesky(m, lower=True, check_finite=True)
         keff = k[:nm, :nm].copy()
         electric_recovery = None
         if ne:
@@ -212,6 +267,13 @@ class _SeparatedModalProblem:
             keff = 0.5 * (keff + keff.T)
         constraints = (np.stack([bm.T @ self.previous_mass(q) for q in previous])
                        if previous else np.zeros((0, nm)))
+        if len(constraints):
+            # A previous mode can already be orthogonal to the entire frozen
+            # partner space. A tiny nonzero row then reflects roundoff; forcing
+            # its nullspace removes an arbitrary physical direction. Measure
+            # the largest possible mass overlap for a unit-mass vector in
+            # this space before deciding whether the row can constrain it.
+            constraints = _significant_modal_constraints(constraints, mass_factor)
         z = _mass_orthogonal_null(constraints)
         if not z.shape[1]:
             raise ValueError("MODAL MVI rank insufficient for additional orthogonal modes")
@@ -493,3 +555,4 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
 
 
 __all__ = ("MAX_PROJECTED_DIRECTIONS", "solve_modal_mvi")
+
