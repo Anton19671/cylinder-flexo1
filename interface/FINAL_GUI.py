@@ -6949,8 +6949,12 @@ class FinalSolverGUI(EnhancedSolverGUI):
                 case["rank"]=rank
                 case["reference_mvi"]={"max_sweeps":30}
                 case["mvi_grid"]=copy.deepcopy(case.pop("fdm_grid"))
-                case["mvi_grid"]["nx"]=max(rank,case["mvi_grid"]["nx"])
-                case["mvi_grid"]["ns"]=max(rank,case["mvi_grid"]["ns"])
+                case["mvi_grid"]["nx"]=max(rank,int(case["mvi_grid"]["nx"]))
+                ns=max(rank,int(case["mvi_grid"]["ns"]))
+                if str(case["mvi_grid"].get("operator_scheme","")).upper() in (
+                        "SBP21_PERIODIC_ODD","SBP21_FOURIER_ODD","SBP21_PERIODIC_ODD_CSR"):
+                    if ns%2==0:ns+=1
+                case["mvi_grid"]["ns"]=ns
             case["output_dir"]="../OUTPUT_REFERENCE_MODAL_"+(
                 "CUF_"+model if theory=="CUF" else theory)+"_"+(
                 "MVI"+str(case["rank"]) if case["method"]=="MVI" else "FDM")
