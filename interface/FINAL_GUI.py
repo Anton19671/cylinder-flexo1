@@ -1547,8 +1547,17 @@ class EnhancedSolverGUI(SolverGUI):
         )
         self.scale_combo.pack(anchor="w")
         self.scale_combo.bind("<<ComboboxSelected>>",lambda _e:self._refresh_visibility())
-        ttk.Label(scale_box,text="MACRO — классическая упругость; MICRO — градиентная упругость G3D.",
+        ttk.Label(scale_box,text="MACRO — классическая упругость; MICRO — G3D (полная) или Gz (усечённая).",
                   wraplength=465).pack(anchor="w",pady=(4,2))
+        grad_row=ttk.Frame(scale_box)
+        grad_row.pack(fill="x",pady=(4,5))
+        ttk.Label(grad_row,text="Градиентная модель MICRO:").pack(side="left",padx=(0,8))
+        self.gradient_model_combo=ttk.Combobox(
+            grad_row,textvariable=self._v("gradient_model","G3D"),
+            values=("G3D","Gz"),width=19,state="readonly")
+        self.gradient_model_combo.pack(side="left")
+        self.gradient_model_combo.bind(
+            "<<ComboboxSelected>>",lambda _e:self._on_gradient_model_choice())
         flexo_options=ttk.LabelFrame(scale_box,text="Флексоэлектрический эффект — выбрать состояние",padding=6)
         flexo_options.pack(fill="x",pady=(5,4))
         self.micro_flexo_radios=[]
@@ -1564,7 +1573,7 @@ class EnhancedSolverGUI(SolverGUI):
         self.scale_note=ttk.Label(scale_box,wraplength=470,justify="left",
              text="MACRO: G3D ВЫКЛ, флексоэффект ВЫКЛ.")
         self.scale_note.pack(fill="x",pady=(4,0))
-        micro=ttk.LabelFrame(left,text="MICRO · G3D, параметры СИ",padding=8)
+        micro=ttk.LabelFrame(left,text="MICRO · G3D / Gz, параметры СИ",padding=8)
         self.micro_parameters_frame=micro
         micro.pack(fill="x",pady=(0,8))
         self.micro_electric_entries=[]
@@ -1580,7 +1589,7 @@ class EnhancedSolverGUI(SolverGUI):
             _label,entry=self._labeled_entry(micro,j,caption,key)
             if key in ("micro_mu1","micro_mu2","micro_kappa","micro_potential_order"):
                 self.micro_electric_entries.append(entry)
-        ttk.Label(micro,text="Без автоматических физических значений. Gz не подменяет G3D. Микроветка не запускается до реализации связанной системы.",
+        ttk.Label(micro,text="G3D и Gz — разные постановки. Выбор сохраняется в CASE, без автоматической подмены физики.",
             wraplength=460).grid(row=7,column=0,columnspan=2,sticky="w")
         mat=ttk.LabelFrame(left,text="Материал",padding=8); self.micro_material_frame=mat; mat.pack(fill="x",pady=(0,8))
         ttk.Label(mat,text="Источник").grid(row=0,column=0,sticky="w",pady=3)
@@ -6710,6 +6719,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         for key in ("L","R","h"):put(key,geo.get(key))
         for key in ("E0","nu0"):put(key,material.get(key))
         micro=cfg.get("micro") or {}
+        put("gradient_model","Gz" if str(micro.get("gradient_model","G3D")).upper()=="GZ" else "G3D")
         put("micro_flexoelectric","ON" if micro.get("enable_flexoelectric",False) else "OFF")
         for key,source in (("micro_ell_m","ell_m"),("micro_mu1","mu1_c_per_m"),
             ("micro_mu2","mu2_c_per_m"),("micro_kappa","kappa_f_per_m"),
@@ -6766,7 +6776,9 @@ class FinalSolverGUI(EnhancedSolverGUI):
             try:stack.extend(widget.winfo_children())
             except tk.TclError:continue
             if widget in (getattr(self,"time_integrator_combo",None),
-                          getattr(self,"modal_case_btn",None)):continue
+                          getattr(self,"modal_case_btn",None),
+                          getattr(self,"method_combo",None),
+                          getattr(self,"gradient_model_combo",None)):continue
             if isinstance(widget,(ttk.Entry,ttk.Combobox,ttk.Button,ttk.Radiobutton,ttk.Checkbutton,tk.Entry,tk.Text,tk.Button,tk.Checkbutton,tk.Radiobutton)):
                 yield widget
 
@@ -6779,6 +6791,11 @@ class FinalSolverGUI(EnhancedSolverGUI):
                 widget.configure(state="disabled")
             except tk.TclError:pass
         self._reference_widget_states=saved
+        for name in ("method_combo","gradient_model_combo"):
+            widget=getattr(self,name,None)
+            if widget is not None:
+                try:widget.configure(state="readonly")
+                except tk.TclError:pass
 
     def _release_reference_locks(self):
         for widget,state in getattr(self,"_reference_widget_states",{}).items():
@@ -7263,7 +7280,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         # are deliberately not invented.
         "theory":"CUF", "cuf_model":"TE1", "method":"MVI",
         "mode":"NONLINEAR_ELASTIC", "geometry_model":"VON_KARMAN",
-        "material_model":"HOOKE", "scale_model":"MACRO", "micro_flexoelectric":"OFF", "dyn_law":"HARMONIC", "unit_system":"N_MM_MPA",
+        "material_model":"HOOKE", "scale_model":"MACRO", "gradient_model":"G3D", "micro_flexoelectric":"OFF", "dyn_law":"HARMONIC", "unit_system":"N_MM_MPA",
         "material_source":"USER", "bc_mode":"SIMPLE",
         "load_type":"UNIFORM_RADIAL_FACE", "load_coord":"THETA",
         "load_face":"OUTER", "curve_mode":"TABLE", "curve_extrap":"ERROR",
@@ -7421,7 +7438,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self.material_model_combo.pack(fill="x",pady=(3,0))
         self.material_model_combo.bind("<<ComboboxSelected>>",lambda _e:self._on_geometry_material_change())
 
-        self.method_combo=self._selector(model,0,"Численный метод","method",25,self._refresh_visibility,row=1)
+        self.method_combo=self._selector(model,0,"Численный метод","method",25,self._on_method_choice,row=1)
 
         rankbox=ttk.Frame(model);rankbox.grid(row=1,column=1,sticky="ew",padx=(0,10),pady=(0,6))
         self.rank_selector_box=rankbox
@@ -8570,18 +8587,19 @@ class FinalSolverGUI(EnhancedSolverGUI):
             for entry in getattr(self,"micro_electric_entries",()):
                 entry.configure(state="normal" if flexo_on else "disabled")
             if not micro_pending:
-                status="MACRO · КЛАССИЧЕСКАЯ УПРУГОСТЬ: G3D ВЫКЛ; ФЛЕКСО ВЫКЛ."
+                status="MACRO · КЛАССИЧЕСКАЯ УПРУГОСТЬ: градиентная теория ВЫКЛ; флексо ВЫКЛ."
             elif flexo_on:
-                status=("MICRO · G3D ВКЛ; ФЛЕКСО ВКЛ (mu1, mu2, kappa учитываются). "
+                status=(f"MICRO · {self._v('gradient_model','G3D').get()} ВКЛ; ФЛЕКСО ВКЛ (mu1, mu2, kappa учитываются). "
                         "Численный микрорасчёт пока недоступен.")
             else:
-                status=("MICRO · G3D ВКЛ; ФЛЕКСО ВЫКЛ (mu1=mu2=kappa=0, "
+                status=(f"MICRO · {self._v('gradient_model','G3D').get()} ВКЛ; ФЛЕКСО ВЫКЛ (mu1=mu2=kappa=0, "
                         "электрический потенциал не решается). "
                         "Численный микрорасчёт пока недоступен.")
             if reference:
                 micro=reference[1].get("micro") or {}
                 effect="ВКЛ" if micro.get("enable_flexoelectric",False) else "ВЫКЛ"
-                status=f"Вариационный CASE · {reference[1].get('scale_model')} · флексо {effect}. Параметры — в редакторе CASE."
+                model="Gz" if str(micro.get("gradient_model","G3D")).upper()=="GZ" else "G3D"
+                status=f"Вариационный CASE · {reference[1].get('scale_model')} · {model} · флексо {effect}. Параметры — в редакторе CASE."
             self.scale_note.configure(text=status)
             if hasattr(self,"model_info"):self._update_grid_info()
         retired=self._v("material_model","HOOKE").get()!="HOOKE"
@@ -8748,12 +8766,12 @@ class FinalSolverGUI(EnhancedSolverGUI):
                 }[capability.status]
                 if self._v("scale_model","MACRO").get()=="MICRO":
                     flexo_on=self._v("micro_flexoelectric","OFF").get()=="ON"
-                    status_text=("G3D: ВКЛ; ФЛЕКСО: "+("ВКЛ" if flexo_on else "ВЫКЛ")+
+                    status_text=(self._v("gradient_model","G3D").get()+": ВКЛ; ФЛЕКСО: "+("ВКЛ" if flexo_on else "ВЫКЛ")+
                                  "; численный микрорасчёт пока недоступен")
                     status_color="#b42318"
                     capability_message="Подмена микрорасчёта классической моделью запрещена."
                 else:
-                    status_text="MACRO: G3D ВЫКЛ; ФЛЕКСО ВЫКЛ. "+status_text
+                    status_text="MACRO: градиентная теория ВЫКЛ; ФЛЕКСО ВЫКЛ. "+status_text
                     capability_message=capability.message_ru
                 self.model_info.configure(
                     text=f"{theory}{model} · {matname} · {method}{rank}. {status_text}: {capability_message}",
@@ -8766,7 +8784,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
             micro=cfg.get("micro") or {}
             flag="ВКЛ" if micro.get("enable_flexoelectric",False) and cfg.get("scale_model")=="MICRO" else "ВЫКЛ"
             self.model_info.configure(text=f"Вариационный CASE · {cfg.get('theory')} "
-                f"{cfg.get('cuf_model','')} · {cfg.get('method')} · флексо {flag}. "
+                f"{cfg.get('cuf_model','')} · {cfg.get('method')} · {('Gz' if str(micro.get('gradient_model','G3D')).upper()=='GZ' else 'G3D')} · флексо {flag}. "
                 "Параметры загружены из сохранённого CASE.",foreground="#9a6700")
         elif hasattr(self,"model_info"):
             self.model_info.configure(text="Для проверки и расчёта создайте или загрузите вариационный CASE.",foreground="#9a6700")
