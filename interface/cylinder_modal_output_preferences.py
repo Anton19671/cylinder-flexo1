@@ -68,4 +68,43 @@ def save_modal_folder(folder: str, case_path=None) -> bool:
     return True
 
 
-__all__ = ('load_modal_folder', 'save_modal_folder')
+def save_folder_in_modal_case(case_path, folder: str) -> bool:
+    """Save only output_dir in an existing MODAL CASE, with atomic replacement.
+
+    Selecting an output directory is an explicit edit. Persist it in the
+    authoritative case so the main Run button cannot silently use an old path.
+    No AUTO CASE is created here and physical settings remain untouched.
+    """
+    if case_path is None:
+        return False
+    source = Path(case_path).expanduser().resolve()
+    if not source.is_file():
+        return False
+    from cylinder_case_io import load_case_file, save_case_file
+    case = load_case_file(source)
+    if (case.get('solver_backend') != 'VARIATIONAL_REFERENCE'
+            or str(case.get('calculation_kind', '')).upper() != 'MODAL'):
+        return False
+    folder = str(folder).strip()
+    if not folder:
+        raise ValueError('Modal result folder must not be empty')
+    if str(case.get('output_dir', '')).strip() == folder:
+        return False
+    case['output_dir'] = folder
+    # A temporary file with the same suffix supports both JSON and YAML;
+    # the original file is never truncated before a full replacement exists.
+    import tempfile
+    fd, temp = tempfile.mkstemp(
+        dir=str(source.parent), prefix=source.stem + '.folder-',
+        suffix=source.suffix)
+    os.close(fd)
+    temporary = Path(temp)
+    try:
+        save_case_file(temporary, case)
+        os.replace(temporary, source)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return True
+
+
+__all__ = ('load_modal_folder', 'save_modal_folder', 'save_folder_in_modal_case')
