@@ -15,12 +15,36 @@ from pathlib import Path
 
 import numpy as np
 
+# The GUI launches this file as a script; make all solver module folders
+# available just as in the main runner, independently of the launch cwd.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from cylinder_paths import activate
+activate()
+
 
 def _summary(root):
     path = root / "FINAL_RUN_SUMMARY.json"
     if not path.is_file():
-        raise ValueError("FINAL_RUN_SUMMARY.json not found: finish the calculation first")
-    data = json.loads(path.read_text(encoding="utf-8"))
+        archive = next((root / name for name in ("STOPPED_RUN.json", "FAILED_RUN.json")
+                        if (root / name).is_file()), None)
+        if archive is None:
+            raise ValueError("No final, stopped or failed run record found")
+        data = json.loads(archive.read_text(encoding="utf-8"))
+        data["solver_backend"] = "VARIATIONAL_REFERENCE"
+        data["accepted_steps"] = data.get("accepted_steps_verified", 0)
+        data["n_modes"] = data.get("requested_steps_or_modes")
+        case_path = root / "REFERENCE_CASE.json"
+        if case_path.is_file():
+            case = json.loads(case_path.read_text(encoding="utf-8"))
+            theory = str(case.get("theory", ""))
+            data["theory"] = ("CUF_" + str(case.get("cuf_model", ""))
+                              if theory.upper() == "CUF" else theory)
+    else:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        for name in ("STOPPED_RUN.json", "FAILED_RUN.json"):
+            if (root / name).is_file():
+                data["status"] = json.loads((root / name).read_text(encoding="utf-8"))["status"]
+                break
     if not isinstance(data, dict) or data.get("solver_backend") != "VARIATIONAL_REFERENCE":
         raise ValueError("This exporter accepts VARIATIONAL_REFERENCE results only")
     kind = str(data.get("calculation_kind", "")).upper()
@@ -51,8 +75,8 @@ def _write_info(directory, summary, kind):
     (directory / "SUMMARY.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def _modal(root, summary, dest, mode):
-    filename = root / "REFERENCE_MODAL_MODES.npz"
+def _modal(root, summary, dest, mode, *, partial=False):
+    filename = root / ("MODAL_PARTIAL_MODES.npz" if partial else "REFERENCE_MODAL_MODES.npz")
     if not filename.is_file():
         raise ValueError("REFERENCE_MODAL_MODES.npz not found; MODAL output incomplete")
     with np.load(filename, allow_pickle=False) as file:
@@ -62,6 +86,8 @@ def _modal(root, summary, dest, mode):
         fields = np.asarray(file["mechanical_modes"], dtype=float)
         x = np.asarray(file["x_m"], dtype=float)
         s = np.asarray(file["s_m"], dtype=float)
+        electrical = (np.asarray(file["electrical_modes"], dtype=float)
+                      if "electrical_modes" in file else None)
     if (frequency.ndim != 1 or len(frequency) == 0 or
             not np.isfinite(frequency).all() or fields.ndim != 4 or
             fields.shape[0] != len(frequency) or
@@ -75,6 +101,38 @@ def _modal(root, summary, dest, mode):
         # The solver's original, self-describing Excel workbook is authoritative.
         import shutil
         shutil.copy2(workbook, dest / "00_MODAL_RESULTS.xlsx")
+    if partial:
+        from cylinder_excel_tables import LabeledWorkbook, write_labeled_table
+        theory = str(summary.get("theory", "")).upper()
+        if theory.startswith("CUF_TE") and theory[-1] in "1234":
+            partial_labels = [f"{axis}{i}" for axis in ("u", "v", "w")
+                              for i in range(int(theory[-1])+1)]
+        else:
+            partial_labels = (["u", "v", "w"] if theory == "KL" else
+                              ["u", "v", "w", "theta_x", "theta_s"])
+        if len(partial_labels) != fields.shape[1]:
+            raise ValueError("Saved MODAL mechanical components disagree with theory")
+        with LabeledWorkbook(str(dest / "MODAL_PARTIAL.xlsx")) as wb:
+            write_labeled_table(wb, "STATUS", ("code", "value"),
+                (("status", summary.get("status", "PARTIAL")),
+                 ("mode_order", "discovery"), ("saved_modes", len(frequency))))
+            write_labeled_table(wb, "FREQUENCIES",
+                ("discovery_order", "frequency_hz", "omega_rad_s", "omega_squared_rad2_s2"),
+                ((i+1, float(frequency[i]), float(omega[i]), float(eigen[i]))
+                 for i in range(len(frequency))))
+            write_labeled_table(wb, "MODE_FIELDS",
+                ("discovery_order", "component", "ix", "js", "x_m", "s_m", "value"),
+                ((i+1, partial_labels[c], ix, js, float(x[ix]), float(s[js]), float(fields[i,c,ix,js]))
+                 for i in range(len(frequency)) for c in range(fields.shape[1])
+                 for ix in range(len(x)) for js in range(len(s))))
+            if electrical is not None:
+                if electrical.ndim != 4 or electrical.shape[0] != len(frequency) or electrical.shape[2:] != (len(x), len(s)):
+                    raise ValueError("Saved MODAL electric arrays have incompatible shapes")
+                write_labeled_table(wb, "ELECTRIC_MODES",
+                    ("discovery_order", "component", "ix", "js", "value"),
+                    ((i+1, f"phi{c}", ix, js, float(electrical[i,c,ix,js]))
+                     for i in range(len(frequency)) for c in range(electrical.shape[1])
+                     for ix in range(len(x)) for js in range(len(s))))
     if mode == "FAST":
         return
     from matplotlib import pyplot as plt
@@ -200,10 +258,36 @@ def export(root, mode):
         target = root / "EXPORT" / mode
         target.mkdir(parents=True, exist_ok=True)
         _write_info(target, summary, kind)
+        if mode == "FULL":
+            import shutil
+            for source in root.rglob("*"):
+                relative = source.relative_to(root)
+                if (not source.is_file() or source.is_symlink() or
+                    relative.parts[0] == "EXPORT" or
+                    source.suffix.lower() not in (".xlsx", ".xls", ".csv", ".json", ".npz", ".txt", ".log")):
+                    continue
+                destination = target / "FILES" / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, destination)
+            from cylinder_excel_tables import LabeledWorkbook, write_labeled_table
+            with LabeledWorkbook(str(target / "RUN_STATUS.xlsx")) as wb:
+                write_labeled_table(wb, "STATUS", ("code", "value"),
+                    ((key, summary.get(key, "")) for key in
+                     ("calculation_kind", "status", "method", "rank", "theory",
+                      "n_modes", "accepted_steps", "error_type", "error_detail")))
         if kind == "MODAL":
-            _modal(root, summary, target, mode)
+            complete = (root / "REFERENCE_MODAL_MODES.npz").is_file()
+            partial = (root / "MODAL_PARTIAL_MODES.npz").is_file()
+            if complete or partial:
+                _modal(root, summary, target, mode, partial=not complete)
+            elif summary.get("status") not in ("STOPPED_BY_USER", "FAILED"):
+                raise ValueError("No saved MODAL forms to export")
         else:
-            _physical(root, summary, kind, target, mode)
+            from cylinder_reference_progress_adapter import accepted_reference_steps
+            if accepted_reference_steps(root):
+                _physical(root, summary, kind, target, mode)
+            elif summary.get("status") not in ("STOPPED_BY_USER", "FAILED"):
+                raise ValueError("No accepted reference STEP NPZ files to export")
     else:
         raise ValueError(f"Unknown export mode: {mode}")
     print(f"REFERENCE EXPORT {kind} {mode} SAVED: {target}", flush=True)
