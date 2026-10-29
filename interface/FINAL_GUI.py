@@ -6886,7 +6886,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         selected_modal_folder=(
             self._modal_results_folder(self._v("case_path").get().strip() or None)
             if str(cfg.get("calculation_kind","")).upper()=="MODAL" else None)
-        put("output_dir",selected_modal_folder or cfg.get("output_dir"))
+        put("output_dir",cfg.get("output_dir") or selected_modal_folder)
         self._sync_display_selectors();self._update_units();self._update_grid_info()
         self._schedule_problem_scheme_redraw(20)
 
@@ -6956,6 +6956,8 @@ class FinalSolverGUI(EnhancedSolverGUI):
             self._log(f"Не удалось сохранить настройку папки: {exc}\n")
         self._v("output_dir").set(folder)
         if path is None:return
+        from cylinder_modal_output_preferences import save_folder_in_modal_case
+        save_folder_in_modal_case(path,folder)
         active=self._active_reference_case()
         if active is None or self._modal_folder_key(active[0])!=key:return
         if str(active[1].get("calculation_kind","")).upper()!="MODAL":return
