@@ -9,8 +9,8 @@ import numpy as np
 import pytest
 
 from cylinder_reference_export import export
-from cylinder_modal_full_export import (
-    CHARACTERISTICS_XLSX, FIELDS_XLSX, PLOTS_DIR)
+from cylinder_modal_full_export import CHARACTERISTICS_XLSX, FIELDS_XLSX
+from cylinder_modal_student_export import EXTRA_WORKBOOKS
 
 
 def test_saved_modal_full_export_creates_tables_and_figures(tmp_path, monkeypatch):
@@ -49,9 +49,9 @@ def test_saved_modal_full_export_creates_tables_and_figures(tmp_path, monkeypatc
     target = export(tmp_path,"FULL")
     assert (tmp_path/CHARACTERISTICS_XLSX).is_file()
     assert (tmp_path/FIELDS_XLSX).is_file()
-    assert (target/PLOTS_DIR/"ФОРМА_01"/"01_3D_ФОРМА.png").is_file()
-    assert (target/PLOTS_DIR/"ФОРМА_01"/"02_ВНУТРЕННЯЯ_U.png").is_file()
-    assert (target/PLOTS_DIR/"ФОРМА_01"/"03_УЗЛОВЫЕ_ЛИНИИ.png").is_file()
+    for filename in EXTRA_WORKBOOKS:
+        assert (tmp_path/filename).is_file(), filename
+    assert not list(target.rglob("*.png"))
 
 
 def test_export_missing_modal_npz_fails_explicitly(tmp_path):
