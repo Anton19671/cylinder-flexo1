@@ -495,6 +495,10 @@ class ReferenceCaseEditor(tk.Toplevel):
                 remember=getattr(self.parent,'_remember_modal_results_folder',None)
                 if callable(remember):
                     remember(folder,self.path)
+                if self.path is not None:
+                    from cylinder_modal_output_preferences import save_folder_in_modal_case
+                    save_folder_in_modal_case(self.path, folder)
+                    self.case['output_dir']=folder
 
     def collect(self, *, base_dir=None):
         fields={key:value.get() for key,value in self.fields.items()}
