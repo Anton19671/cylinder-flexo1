@@ -61,3 +61,19 @@ def test_modal_algorithm_does_not_change_static_solver_file():
              "cylinder_modal_mvi.py").read_text(encoding="utf-8")
     assert '"mvi_modal_algorithm": "fixed_rank_constrained_variational_YX_stationarity"' in modal
     assert "ritz_relative=" not in modal
+
+
+def test_variational_check_uses_one_projected_form():
+    source = (Path(__file__).resolve().parents[1] / "numerics" /
+              "cylinder_modal_mvi.py").read_text(encoding="utf-8")
+    assert "old_projected_value = float(reduced @ kz @ reduced / old_mass)" in source
+    assert "projected_value > old_projected + tolerance" in source
+    assert "MODAL_MVI_VARIATIONAL_INCREASE:" not in source
+    assert 'stage="MVI_VARIATIONAL_CHECK"' in source
+
+
+def test_failed_reference_run_is_archived_after_exit():
+    source = (Path(__file__).resolve().parents[1] / "interface" /
+              "FINAL_GUI.py").read_text(encoding="utf-8")
+    assert "if reference and rc != 0:" in source
+    assert "archive_failed_run(" in source
