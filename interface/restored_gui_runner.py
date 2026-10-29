@@ -21,7 +21,7 @@ def result_succeeded(result, *, integrator="NEWMARK", series=False):
         return (result.get("status") == "CONVERGED"
                 and type(requested) is int and requested > 0
                 and type(accepted) is int and accepted == requested)
-    if integrator in ("NEWMARK", "STATIC"):
+    if integrator in ("NEWMARK", "STATIC", "MODAL"):
         return result.get("converged") is True
     return False
 
@@ -43,7 +43,7 @@ def reference_completion_on_disk(output_dir, *, series=False):
     except (OSError, ValueError, TypeError) as exc:
         return {'success': False, 'accepted': 0, 'requested': None,
                 'status': 'SUMMARY_MISSING_OR_INVALID', 'detail': str(exc)}
-    mode = 'GAUSS2_IRK4' if irk else 'NEWMARK'
+    mode = 'GAUSS2_IRK4' if irk else ('MODAL' if data.get("calculation_kind")=="MODAL" else 'NEWMARK')
     successful = result_succeeded(data, integrator=mode, series=series)
     if series:
         rows = data.get('results')
@@ -58,7 +58,11 @@ def reference_completion_on_disk(output_dir, *, series=False):
         requested = data.get('n_steps_requested')
     else:
         accepted = data.get('accepted_steps', 0)
-        requested = None
+        requested = data.get("n_modes") if mode=="MODAL" else None
+        if mode=="MODAL":
+            successful = (successful and data.get("status")=="MODAL_COMPLETED"
+                          and (out / "REFERENCE_MODAL_MODES.npz").is_file()
+                          and accepted==requested)
     if type(accepted) is not int or accepted < 0:
         accepted, successful = 0, False
     if requested is not None and (type(requested) is not int or requested < 1):
