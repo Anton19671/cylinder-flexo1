@@ -81,6 +81,21 @@ def _finite_positive(v,label):
     return x
 
 
+def _cuf_thickness_penalty(young_pa, thickness_m, order):
+    """Auxiliary CUF diagonal stiffness for a nonconstant thickness mode.
+
+    The dimensionless thickness coordinate is xi=2*z/h and the k-th mode
+    is xi**k. Its positive z-derivative energy has scaling E/h and factor
+    4*k*k/(2*k-1) for the derivative integral. The expression is solely
+    a preconditioning symbol, not a physical constitutive stiffness.
+    """
+    if isinstance(order, bool) or not isinstance(order, (int, np.integer)) or order < 0:
+        raise ValueError("CUF thickness order must be a nonnegative integer")
+    e=_finite_positive(young_pa, "young_pa")
+    h=_finite_positive(thickness_m, "shell thickness")
+    return (4. * int(order)**2 / (2*int(order)-1) * e/h) if order else 0.
+
+
 class PhysicsBlockILU:
     """Block-diagonal positive sparse ILU approximate inverse in scaled DOFs."""
 
@@ -160,9 +175,12 @@ class PhysicsBlockILU:
                     thickness_shear=(1./h**2 if k else 0.)
                 # Approximate a positive shell/strain-gradient symbol.
                 stiffness=mechanical_base*mech_rate*thickness_mass
+                thickness_diagonal=(
+                    _cuf_thickness_penalty(E,h,k) if te_order is not None
+                    else mechanical_base*thickness_shear*.06)
                 zeroth=(.02*mechanical_base*length_scale
                         +mass_shift*thickness_mass
-                        +mechanical_base*thickness_shear*.06)
+                        +thickness_diagonal)
                 # The 2nd derivative block is deliberately approximate:
                 # it preconditions (not replaces) exact covariant G3D.
                 operator=(stiffness*grad
@@ -224,4 +242,4 @@ class PhysicsBlockILU:
         return sla.LinearOperator((n,n),matvec=self.apply,dtype=float)
 
 
-__all__=("PhysicsBlockILU","KrylovPreconditionerDiagnostics")
+__all__=("PhysicsBlockILU","KrylovPreconditionerDiagnostics","_cuf_thickness_penalty")
