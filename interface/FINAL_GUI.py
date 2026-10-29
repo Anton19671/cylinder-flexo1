@@ -7089,6 +7089,28 @@ class FinalSolverGUI(EnhancedSolverGUI):
                 self._log(f"STOP archive FAILED: {type(exc).__name__}: {exc}\\n")
                 messagebox.showerror("Сохранение остановленного расчёта",str(exc))
             return
+        if reference and rc != 0:
+            try:
+                from cylinder_stop_archive import archive_failed_run
+                journal=Path(self._live_journal_path) if getattr(self,"_live_journal_path",None) else None
+                tail=journal.read_text(encoding="utf-8",errors="replace")[-25000:] if journal and journal.is_file() else ""
+                archived=archive_failed_run(
+                    self.run_output_dir,
+                    case_path=getattr(self,"_reference_launched_case_path",None),
+                    journal_path=journal,
+                    calculation_kind=getattr(self,"_reference_launched_kind",None),
+                    method=getattr(self,"_reference_launched_method",None),
+                    rank=getattr(self,"_reference_launched_rank",None),
+                    expected_steps=self.expected_steps,
+                    run_kind=self.run_kind,
+                    last_modal_event=getattr(self,"_reference_last_modal_event",None),
+                    exit_code=rc,
+                    error_detail=(completion or {}).get("detail"),
+                    traceback_text=tail,
+                )
+                self._log(f"FAILED archive saved: {self.run_output_dir / 'FAILED_RUN.json'}\\n")
+            except Exception as exc:
+                self._log(f"FAILED archive FAILED: {type(exc).__name__}: {exc}\\n")
         if reference and completion is not None:
             accepted = completion["accepted"]
             requested = completion["requested"] or self.expected_steps
