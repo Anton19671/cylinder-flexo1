@@ -33,6 +33,21 @@ def test_modal_mass_constraint_nullspace():
     np.testing.assert_allclose(z.T @ z, np.eye(1), atol=1e-14)
 
 
+@pytest.mark.parametrize("scale", [1.e-200, 1.e-12, 1.e12, 1.e200])
+def test_modal_orthogonality_rank_does_not_depend_on_row_scale(scale):
+    # Both equations exclude a different preceding mode. An unscaled QR
+    # drops one row when their magnitudes differ by more than its cutoff.
+    constraints = np.array([[scale, 0., 0.], [0., 1., 0.], [0., 0., 0.]])
+    z = _mass_orthogonal_null(constraints)
+    assert z.shape == (3, 1)
+    np.testing.assert_allclose(z[:2], 0., atol=1.e-14)
+    np.testing.assert_allclose(z.T @ z, np.eye(1), atol=1.e-14)
+
+
+def test_modal_zero_orthogonality_rows_leave_all_directions():
+    np.testing.assert_array_equal(_mass_orthogonal_null(np.zeros((2, 3))), np.eye(3))
+
+
 def test_admissible_start_does_not_request_full_grid_modal_eigenvectors():
     """The seed is obtained from admissible separated X directions only."""
     operator = object.__new__(_SeparatedModalProblem)

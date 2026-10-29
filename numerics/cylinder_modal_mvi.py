@@ -27,10 +27,21 @@ MAX_PROJECTED_DIRECTIONS = 1600
 def _mass_orthogonal_null(matrix):
     """QR null basis of preceding modal mass constraints, without SVD."""
     c = np.asarray(matrix, float)
-    if c.ndim != 2:
+    if c.ndim != 2 or not np.isfinite(c).all():
         raise ValueError("invalid modal orthogonality matrix")
     if not c.shape[0]:
         return np.eye(c.shape[1])
+    # Each row is a homogeneous orthogonality equation. Its units or
+    # magnitude must not decide whether an independent mode is excluded.
+    # First scale by the largest entry to avoid overflow/underflow, then
+    # give every nonzero row unit norm before the relative QR rank test.
+    # Negligible physical overlaps are filtered in the mass norm by the
+    # caller, never by comparing the sizes of different constraint rows.
+    row_scale = np.max(np.abs(c), axis=1, initial=0.)
+    c = c[row_scale > 0.] / row_scale[row_scale > 0., None]
+    if not c.shape[0]:
+        return np.eye(c.shape[1])
+    c = c / np.linalg.norm(c, axis=1)[:, None]
     q, r, _ = qr(c.T, mode="full", pivoting=True, check_finite=False)
     diagonal = np.abs(np.diag(r))
     cutoff = 1.e-11 * max(float(np.max(diagonal, initial=0.)), 1.e-30)
