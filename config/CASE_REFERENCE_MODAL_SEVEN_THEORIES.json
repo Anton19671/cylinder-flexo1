@@ -1,0 +1,56 @@
+{
+  "solver_backend": "VARIATIONAL_REFERENCE",
+  "theory": "CUF",
+  "cuf_model": "TE4",
+  "method": "FDM",
+  "calculation_kind": "MODAL",
+  "scale_model": "MACRO",
+  "mode": "LINEAR_ELASTIC",
+  "geometry_model": "GREEN_LAGRANGE",
+  "material_model": "HOOKE",
+  "units": {
+    "system": "SI_N_M_PA"
+  },
+  "geometry": {
+    "L": 2,
+    "R": 1,
+    "h": 0.05
+  },
+  "material": {
+    "E0": 210000000000,
+    "nu0": 0.3
+  },
+  "fdm_grid": {
+    "nx": 5,
+    "ns": 5,
+    "operator_scheme": "SBP21_PERIODIC_ODD"
+  },
+  "quadrature": {
+    "type": "GAUSS",
+    "n_gauss": 9
+  },
+  "boundary_conditions": {
+    "variational": {
+      "mechanical": {
+        "left": {
+          "support": "CLAMPED",
+          "higher": "NATURAL"
+        },
+        "right": {
+          "support": "CLAMPED",
+          "higher": "NATURAL"
+        }
+      },
+      "electrical": {}
+    }
+  },
+  "modal": {
+    "density_kg_m3": 7800,
+    "n_modes": 6
+  },
+  "reference_newton": {
+    "tangent_step_scaled": 0.000002,
+    "max_free_dofs": 512
+  },
+  "output_dir": "../OUTPUT_REFERENCE_MODAL_CUF_TE4"
+}
