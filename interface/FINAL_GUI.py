@@ -7099,6 +7099,43 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self._set_top_running_state(True)
         threading.Thread(target=self._read_process_output,daemon=True).start()
 
+    def _cleanup_reference_auto_case(self, outcome):
+        """Remove a temporary launch CASE only after its durable output copy exists."""
+        if self.run_kind not in ("REFERENCE_CASE", "REFERENCE_SERIES"):
+            return
+        source=getattr(self,"_reference_launched_case_path",None)
+        root=getattr(self,"run_output_dir",None)
+        if source is None or root is None:
+            return
+        source=Path(source)
+        if "__AUTO_" not in source.stem or not source.is_file():
+            return
+        root=Path(root)
+        if outcome=="SUCCESS":
+            backup=root/"REFERENCE_CASE.json"
+        elif outcome=="STOPPED":
+            backup=root/"INPUT"/("STOPPED_CASE"+source.suffix.lower())
+            if not (root/"STOPPED_RUN.json").is_file():
+                return
+        elif outcome=="FAILED":
+            backup=root/"INPUT"/("FAILED_CASE"+source.suffix.lower())
+            if not (root/"FAILED_RUN.json").is_file():
+                return
+        else:
+            return
+        if not backup.is_file():
+            return
+        try:
+            original=source.read_bytes()
+            archived=backup.read_bytes()
+            if original!=archived:
+                self._log("AUTO CASE оставлен: архивная копия отличается от исходной\\n")
+                return
+            source.unlink()
+            self._log(f"Временный AUTO CASE очищен после сохранения: {source.name}\\n")
+        except OSError as exc:
+            self._log(f"AUTO CASE оставлен: {exc}\\n")
+
     def _on_process_done(self, rc):
         """Never mark a reference run complete merely because the child exited."""
         reference = self.run_kind in ("REFERENCE_CASE", "REFERENCE_SERIES")
@@ -7133,6 +7170,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
             except Exception as exc:
                 self._log(f"STOP archive FAILED: {type(exc).__name__}: {exc}\\n")
                 messagebox.showerror("Сохранение остановленного расчёта",str(exc))
+            self._cleanup_reference_auto_case("STOPPED")
             return
         if reference and rc != 0:
             try:
@@ -7170,6 +7208,9 @@ class FinalSolverGUI(EnhancedSolverGUI):
             else:
                 if hasattr(self, "progress_status_label"):
                     self.progress_status_label.configure(text="Завершено: результат принят")
+        if reference:
+            self._cleanup_reference_auto_case(
+                "SUCCESS" if completion is not None and completion["success"] else "FAILED")
 
     def load_case(self):
         """Restore a saved FINAL_CASE without changing its physical meaning."""
