@@ -5988,7 +5988,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         ttk.Label(f,text="Корневая папка результатов").grid(row=3,column=0,sticky="w",pady=3)
         self.output_dir_entry=ttk.Entry(f,textvariable=self._v("output_dir"),width=72,state="readonly")
         self.output_dir_entry.grid(row=3,column=1,sticky="ew",padx=6,pady=3)
-        self.output_dir_choose_btn=ttk.Button(f,text="Выбрать папку...",command=lambda:self._choose_dir("output_dir"))
+        self.output_dir_choose_btn=ttk.Button(f,text="Обзор папок…",command=self._choose_results_folder)
         self.output_dir_choose_btn.grid(row=3,column=2,sticky="ew",padx=(0,4),pady=3)
 
         ttk.Label(f,text="Название расчёта (опционально)").grid(row=4,column=0,sticky="w",pady=3)
@@ -6838,7 +6838,8 @@ class FinalSolverGUI(EnhancedSolverGUI):
             if widget in (getattr(self,"time_integrator_combo",None),
                           getattr(self,"modal_case_btn",None),
                           getattr(self,"method_combo",None),
-                          getattr(self,"gradient_model_combo",None)):continue
+                          getattr(self,"gradient_model_combo",None),
+                          getattr(self,"output_dir_choose_btn",None)):continue
             if isinstance(widget,(ttk.Entry,ttk.Combobox,ttk.Button,ttk.Radiobutton,ttk.Checkbutton,tk.Entry,tk.Text,tk.Button,tk.Checkbutton,tk.Radiobutton)):
                 yield widget
 
@@ -6856,6 +6857,24 @@ class FinalSolverGUI(EnhancedSolverGUI):
             if widget is not None:
                 try:widget.configure(state="readonly")
                 except tk.TclError:pass
+
+    def _choose_results_folder(self):
+        """Select a real local output folder; edit saved CASE without silent changes."""
+        current=self._v("output_dir").get().strip()
+        initial=Path(current).expanduser() if current else Path.home()
+        if not initial.is_dir():initial=Path.home()
+        chosen=filedialog.askdirectory(parent=self,
+            title="Выбрать папку результатов",initialdir=str(initial),mustexist=True)
+        if not chosen:return
+        active=self._active_reference_case()
+        if active:
+            path,cfg=active
+            draft=copy.deepcopy(cfg)
+            draft["output_dir"]=str(Path(chosen).resolve())
+            self.open_reference_case(draft,path)
+        else:
+            self._v("output_dir").set(str(Path(chosen).resolve()))
+            self._log(f"Выбрана папка результатов: {chosen}\n")
 
     def _release_reference_locks(self):
         for widget,state in getattr(self,"_reference_widget_states",{}).items():
