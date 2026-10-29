@@ -259,7 +259,11 @@ def _reduced_newton(origins, bases, equation, settings):
             trial = z + 2.**(-halvings) * step
             try:
                 new_g = evaluate(trial)
-            except (ValueError, FloatingPointError, OverflowError):
+            except ValueError as exc:
+                if "INVALID_" not in str(exc):
+                    raise
+                continue
+            except (FloatingPointError, OverflowError):
                 continue
             next_norm = float(np.max(abs(new_g), initial=0))
             if next_norm < norm or next_norm <= tolerance:
