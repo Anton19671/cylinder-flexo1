@@ -2,6 +2,8 @@
 from pathlib import Path
 import json
 import sys
+import time
+from datetime import datetime, timezone
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from cylinder_paths import activate
@@ -81,11 +83,28 @@ def main():
         raise SystemExit('Unknown option')
     series = len(sys.argv) == 4
     plan = plan_time_integrator_run(sys.argv[1], sys.argv[2], series=series)
-    result = execute_time_integrator_plan(plan)
+    started = time.monotonic()
+    def event(stage, **fields):
+        timestamp = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+        values = " ".join(f"{key}={value}" for key, value in fields.items())
+        print(f"[{timestamp}] {plan.calculation_kind} {stage} {values}".rstrip(), flush=True)
+
+    event("START", method=plan.spatial_method,
+          rank=plan.mvi_rank if plan.mvi_rank is not None else "-",
+          integrator=plan.integrator, series=series,
+          case=plan.case_path, output=plan.output_dir)
+    try:
+        result = execute_time_integrator_plan(plan)
+    except BaseException as exc:
+        event("FAILED", elapsed_s=f"{time.monotonic()-started:.3f}",
+              error_type=type(exc).__name__, detail=str(exc))
+        raise
     ok = result_succeeded(result, integrator=plan.integrator, series=series)
-    print('RESULT: status=%s converged=%s accepted_steps=%s success=%s' % (
-        result.get('status'), result.get('converged', result.get('all_converged')),
-        result.get('accepted_steps', result.get('n_steps_accepted')), ok), flush=True)
+    event("FINISHED", elapsed_s=f"{time.monotonic()-started:.3f}",
+          status=result.get("status"),
+          converged=result.get("converged", result.get("all_converged")),
+          accepted_steps=result.get("accepted_steps", result.get("n_steps_accepted")),
+          success=ok)
     return 0 if ok else 2
 
 
