@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
+from cylinder_case_io import CASE_FILETYPES, save_case_file
 
 from cylinder_reference_case import BACKEND, prepare_reference_case
 from cylinder_time_integrator_gui import TIME_INTEGRATOR_CHOICES
@@ -454,14 +455,14 @@ class ReferenceCaseEditor(tk.Toplevel):
         path=filedialog.asksaveasfilename(parent=self,title='Сохранить вариационный CASE',
             initialfile=self.path.name if self.path else 'CASE_REFERENCE.json',
             initialdir=str(self.path.parent) if self.path else None,
-            defaultextension='.json',filetypes=[('JSON','*.json')])
+            defaultextension='.json',filetypes=CASE_FILETYPES)
         if not path:return None
         target=Path(path)
         try:case=self.collect(base_dir=target.parent)
         except Exception as exc:
             messagebox.showerror('Ошибка CASE',str(exc),parent=self);return None
         target.parent.mkdir(parents=True,exist_ok=True)
-        target.write_text(json.dumps(case,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
+        save_case_file(target,case)
         self.path=target;self.case=case
         self.parent.adopt(case,target)
         self.parent._log(f'Вариационный CASE сохранён: {target}\n')
