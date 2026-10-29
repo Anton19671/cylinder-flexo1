@@ -245,9 +245,20 @@ class _SeparatedModalProblem:
         # the first LAPACK vector makes the shape jump between sweeps, even
         # if the physical eigenspace is unchanged. Rotate WITHIN the first
         # eigenvalue cluster to maximize mass overlap with the old iterate.
-        eigenvalues, eigvec = eigh(kz, mz, check_finite=True)
-        value = float(eigenvalues[0])
-        cluster_tol = 1.e-9 * max(1., abs(value))
+        # Fetch just the lowest cluster, not the full projected spectrum.
+        # Extend the window only when its last eigenvalue is still degenerate.
+        dimension = kz.shape[0]
+        last = min(dimension - 1, 1)
+        while True:
+            eigenvalues, eigvec = eigh(
+                kz, mz, subset_by_index=(0, last),
+                driver="gvx", check_finite=True)
+            value = float(eigenvalues[0])
+            cluster_tol = 1.e-9 * max(1., abs(value))
+            if last == dimension - 1 or (
+                    eigenvalues[-1] - value > cluster_tol):
+                break
+            last = min(dimension - 1, max(last + 1, 2 * last + 1))
         multiplicity = int(np.count_nonzero(
             np.abs(eigenvalues - value) <= cluster_tol))
         if on_stage is not None:on_stage("EIGEN_DONE",multiplicity,multiplicity)
