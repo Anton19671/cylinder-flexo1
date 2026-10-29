@@ -2070,6 +2070,66 @@ class EnhancedSolverGUI(SolverGUI):
         buttons=ttk.Frame(f); buttons.grid(row=5,column=0,columnspan=3,sticky="w",pady=10)
         ttk.Button(buttons,text="Сохранить CASE",command=self.save_case).pack(side="left",padx=(0,6)); ttk.Button(buttons,text="Загрузить CASE",command=self.load_case).pack(side="left")
 
+
+    def _on_method_choice(self):
+        """Handle the top MVI/FDM chooser without silently changing a saved CASE."""
+        selected=self._v("method","FDM").get().upper()
+        active=self._active_reference_case()
+        if active is None:
+            self._refresh_visibility()
+            return
+        path,cfg=active
+        original=str(cfg.get("method","FDM")).upper()
+        if selected==original:
+            self._refresh_visibility()
+            return
+        # On-disk CASE is authoritative. The choice is proposed in the editor;
+        # the original selection is restored if the editor is cancelled.
+        self._v("method").set(original)
+        self._sync_display_selectors()
+        if str(cfg.get("calculation_kind","")).upper()=="MODAL":
+            messagebox.showinfo("МВИ / МКР",
+                "Модальный опорный расчёт использует FDM. МВИ выбирается для статики и динамики.")
+            return
+        draft=copy.deepcopy(cfg)
+        draft["method"]=selected
+        source_grid=draft.pop("mvi_grid" if original=="MVI" else "fdm_grid",None)
+        if source_grid is None:source_grid=draft.pop("grid",{})
+        draft.pop("grid",None)
+        draft.pop("mvi_grid",None)
+        draft.pop("fdm_grid",None)
+        draft["mvi_grid" if selected=="MVI" else "fdm_grid"]=copy.deepcopy(source_grid)
+        if selected=="MVI":
+            try:rank=int(self._v("rank","1").get())
+            except (TypeError,ValueError):rank=1
+            draft["rank"]=max(1,min(8,rank))
+            draft["reference_mvi"]=draft.get("reference_mvi") or {"max_sweeps":30}
+        else:
+            draft.pop("rank",None)
+            draft.pop("reference_mvi",None)
+        self.open_reference_case(draft,path)
+
+    def _on_gradient_model_choice(self):
+        """Switch G3D/Gz through the CASE editor when a physical CASE is active."""
+        selected=self._v("gradient_model","G3D").get()
+        if selected not in ("G3D","Gz"):
+            messagebox.showerror("Градиентная теория","Нужно выбрать G3D или Gz.")
+            return
+        active=self._active_reference_case()
+        if active is None:
+            self._refresh_visibility()
+            return
+        path,cfg=active
+        current="Gz" if str((cfg.get("micro") or {}).get(
+            "gradient_model","G3D")).upper()=="GZ" else "G3D"
+        if selected==current:
+            self._refresh_visibility()
+            return
+        self._v("gradient_model").set(current)
+        draft=copy.deepcopy(cfg)
+        draft.setdefault("micro",{})["gradient_model"]=selected
+        self.open_reference_case(draft,path)
+
     def _on_theory_change(self):
         self.advanced_bc=None
         self.engineering_bc=None
