@@ -52,7 +52,7 @@ if errorlevel 1 (
 
 echo.
 echo Checking NumPy, Matplotlib, XlsxWriter and VIDEO encoder...
-%PYEXE% -c "import numpy, scipy, matplotlib, xlsxwriter, imageio_ffmpeg; print('numpy',numpy.__version__); print('matplotlib',matplotlib.__version__); print('xlsxwriter',xlsxwriter.__version__); print('imageio_ffmpeg OK')" >>"%LOG%" 2>&1
+%PYEXE% -c "import numpy, scipy, matplotlib, xlsxwriter, imageio_ffmpeg, yaml; print('numpy',numpy.__version__); print('matplotlib',matplotlib.__version__); print('xlsxwriter',xlsxwriter.__version__); print('imageio_ffmpeg OK')" >>"%LOG%" 2>&1
 if not errorlevel 1 goto :packages_ok
 
 echo Required Python packages are missing.
