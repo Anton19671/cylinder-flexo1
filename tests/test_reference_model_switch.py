@@ -17,6 +17,7 @@ def fixture():
         "units": {"system": "SI_N_M_PA"},
         "geometry": {"L": 2.0, "R": 1.0, "h": 0.05},
         "material": {"E0": 210e9, "nu0": 0.3},
+        "modal": {"density_kg_m3": 7800.0, "n_modes": 6},
         "boundary_conditions": {"variational": {"mechanical": {"left": {"support": "CLAMPED"}}}},
     }
 
@@ -61,3 +62,34 @@ def test_can_restore_cuf_after_switch_to_other_theory():
     chosen = selected_model_case(fixture(), theory="KL")
     chosen = selected_model_case(chosen, theory="CUF", cuf_model="TE3")
     assert chosen["cuf_model"] == "TE3"
+
+
+def test_modal_preflight_uses_exact_gl_zero_state_tangent(monkeypatch):
+    """All three modal labels must reach the same unloaded tangent contract."""
+    from types import SimpleNamespace
+    import cylinder_modal_reference as modal
+
+    seen=[]
+    class DummyPrepared:
+        pass
+    def fake_prepare(surrogate, *, base_dir=None):
+        seen.append(copy.deepcopy(surrogate))
+        assert surrogate["geometry_model"] == "GREEN_LAGRANGE"
+        assert surrogate["mode"] == "NONLINEAR_ELASTIC"
+        assert surrogate["reference_loads"]["load_factors"] == [0.0]
+        return DummyPrepared()
+
+    monkeypatch.setattr(modal, "prepare_reference_case", fake_prepare)
+    for theory in ("KL", "FSDT", "REDDY", "CUF"):
+        for geometry in ("LINEAR", "VON_KARMAN", "GREEN_LAGRANGE"):
+            cfg=fixture()
+            cfg["theory"]=theory
+            if theory != "CUF":
+                cfg.pop("cuf_model")
+            cfg["geometry_model"]=geometry
+            original=copy.deepcopy(cfg)
+            prepared,density,modes=modal._modal_spec(cfg)
+            assert isinstance(prepared,DummyPrepared)
+            assert density == 7800.0 and modes == 6
+            assert cfg == original
+    assert len(seen)==12
