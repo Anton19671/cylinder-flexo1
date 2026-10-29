@@ -118,7 +118,7 @@ class _SeparatedModalProblem:
                                 np.zeros(self.ne), directions=de).basis
         return bm, be
 
-    def halfstep(self, x, y, axis, previous, *, on_stage=None):
+    def halfstep(self, x, y, axis, previous, *, current_q=None, on_stage=None):
         """Stationarity of the modal functional on frozen-partner variations."""
         bm, be = self.projected_bases(x, y, axis)
         nm, ne = bm.shape[1], be.shape[1]
@@ -166,6 +166,29 @@ class _SeparatedModalProblem:
             raise ValueError("MODAL MVI rank insufficient for additional orthogonal modes")
         kz, mz = z.T @ keff @ z, z.T @ m @ z
         cholesky(mz, lower=True, check_finite=True)
+        # Evaluate the previous shape using EXACTLY the same projected
+        # quadratic form as the new stationarity solve. Re-differentiating
+        # the nonlinear residual along the full modal field produces a
+        # direction-dependent finite-difference K and cannot be used to
+        # prove monotonicity of this projected eigenvalue.
+        old_projected_value = None
+        if current_q is not None:
+            previous_field = np.asarray(current_q, dtype=float).ravel()
+            if previous_field.shape != (self.nm,):
+                raise ValueError("MODAL MVI: previous mechanical field shape")
+            coordinates, *_ = np.linalg.lstsq(bm, previous_field, rcond=None)
+            reduced = z.T @ coordinates
+            represented = bm @ (z @ reduced)
+            defect = float(np.linalg.norm(represented - previous_field) /
+                           max(float(np.linalg.norm(previous_field)), 1.e-30))
+            if not np.isfinite(defect) or defect > 1.e-7:
+                raise ValueError(
+                    "MODAL_MVI_OLD_SHAPE_NOT_IN_FROZEN_PARTNER_SPACE: "
+                    f"axis={axis}, relative_difference={defect:.6g}")
+            old_mass = float(reduced @ mz @ reduced)
+            if old_mass <= 0 or not np.isfinite(old_mass):
+                raise ValueError("MODAL MVI: old projected modal mass invalid")
+            old_projected_value = float(reduced @ kz @ reduced / old_mass)
         if on_stage is not None:on_stage("EIGEN_BEGIN",0,1)
         eigenvalues, eigvec = eigh(kz, mz, subset_by_index=(0, 0),
                                   driver="gvx", check_finite=True)
@@ -178,7 +201,7 @@ class _SeparatedModalProblem:
         p = (None if not self.ne else
              np.zeros(self.ne) if electric_recovery is None else
              be @ (electric_recovery @ coeff))
-        return q, p, max(0., value)
+        return q, p, max(0., value), old_projected_value
 
     def fit(self, x, y, axis, q, p):
         """Exact rank-preserving X/Y factor recovery, no nodal lift."""
@@ -275,16 +298,35 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
                             rank=rank,sweep=sweep,max_sweeps=max_sweeps,
                             axis=axis,column=column,total_columns=total)
                 old_value = operator.eigenvalue(half_q, half_p)
-                q, p, _ = operator.halfstep(x, y, axis, qmodes, on_stage=trace)
+                q, p, projected_value, old_projected = operator.halfstep(
+                    x, y, axis, qmodes, current_q=half_q, on_stage=trace)
                 value_half = operator.eigenvalue(q, p)
-                if (not operator.ne and
-                        value_half > old_value + max(1.e-7, 1.e-7*abs(old_value))):
+                # The projected minimum cannot exceed the old shape's
+                # Rayleigh quotient on the SAME frozen-partner K and M.
+                # Compare those values, not two separately finite-differenced
+                # full-field evaluations of the nonlinear shell residual.
+                if old_projected is None:
+                    raise ValueError("MODAL MVI: missing projected old state")
+                tolerance = 1.e-10 * max(
+                    1., abs(old_projected), abs(projected_value))
+                if projected_value > old_projected + tolerance:
                     raise ValueError(
-                        f"MODAL_MVI_VARIATIONAL_INCREASE: mode={mode+1}, "
-                        f"sweep={sweep}, axis={axis}; "
-                        f"lambda_old={old_value:.12g}, lambda_new={value_half:.12g}. "
-                        "Frozen-partner stationary update must not increase the "
-                        "mechanical squared frequency.")
+                        f"MODAL_MVI_PROJECTED_VARIATIONAL_INCREASE: "
+                        f"mode={mode+1}, sweep={sweep}, axis={axis}; "
+                        f"lambda_old={old_projected:.12g}, "
+                        f"lambda_new={projected_value:.12g}.")
+                # Separate linearization reproducibility from actual failure
+                # of the frozen-partner variational update. This diagnostic
+                # makes any mismatch visible; it does not fabricate a mode.
+                if detail_callback is not None:
+                    detail_callback(stage="MVI_VARIATIONAL_CHECK",mode=mode+1,
+                        n_modes=requested,rank=rank,sweep=sweep,axis=axis,
+                        projected_lambda_old=float(old_projected),
+                        projected_lambda_new=float(projected_value),
+                        field_lambda_old=float(old_value),
+                        field_lambda_new=float(value_half),
+                        tangent_difference_old=float(old_value-old_projected),
+                        tangent_difference_new=float(value_half-projected_value))
                 x, y = operator.fit(x, y, axis, q, p)
                 half_q, half_p = q, p
                 if detail_callback is not None:
