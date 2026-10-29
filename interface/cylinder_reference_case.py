@@ -584,7 +584,7 @@ def run_reference_case(case,case_path):
             if prepared.method=="MVI":
                 step.update(sweeps=result.sweeps,projected_residual_scaled=result.projected_residual_scaled,
                             projected_equilibrium_satisfied=result.projected_equilibrium_satisfied,
-                            full_equilibrium_satisfied=result.converged,
+                            full_equilibrium_satisfied=bool(result.mvi_certificate["full_equilibrium_satisfied"]),
                             mvi_certificate=result.mvi_certificate,
                             mvi_initialization=("CONTINUATION" if previous_mvi_result is not None
                                                 else "COLD_START"))
@@ -798,7 +798,9 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
                 "acceleration_abs_max_m_per_s2":float(np.max(abs(result.acceleration))),
                 "max_potential_coefficient_abs":None if result.electrical is None else float(np.max(abs(result.electrical))),
                 "state_file":state_name,"history_file":history_name,
-                "full_equilibrium_satisfied":accepted,
+                "full_equilibrium_satisfied":(bool(result.mvi_certificate["full_equilibrium_satisfied"])
+                                               if prepared.method=="MVI" and result.mvi_certificate is not None
+                                               else bool(accepted)),
                 "full_newmark_residual_tolerance":newmark.residual_tolerance_relative,
                 "face_conditions":face_summary,
                 "director_kinematics_diagnostic":director_rotation_diagnostic(
