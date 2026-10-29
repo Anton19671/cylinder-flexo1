@@ -8358,7 +8358,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
                 if event.get("sweep") is not None:
                     self._online_set("mvi",f"rank {event.get('rank')} | {event['sweep']} | {event.get('axis','XY')}")
                 if hasattr(self,"progress_status_label"):self.progress_status_label.configure(text=label[:100])
-                message=label+"\\n"
+                message=label+"\n"
             except (ValueError,TypeError,KeyError):pass
         for name in ("log","online_log","online_log_detached"):
             w=getattr(self,name,None)
