@@ -161,8 +161,13 @@ def case_capability(case: Dict[str, Any]) -> Capability:
     try:
         backend=selected_backend(case)
         if backend==BACKEND:
+            if str(case.get("calculation_kind","")).upper()=="MODAL":
+                from cylinder_modal_reference import prepare_modal_case
+                prepare_modal_case(case)
+                return Capability(LIMITED,"REFERENCE_MODAL",
+                    "Проверочные собственные частоты: семь теорий, малая сетка.",False)
             reference=prepare_reference_case(case)
-            return Capability(LIMITED,"REFERENCE_STATIC_"+reference.method,
+            return Capability(LIMITED,"REFERENCE_"+reference.calculation_kind+"_"+reference.method,
                               "Проверочный вариационный расчёт на малой сетке; сходимость по сетке не подтверждена.",False)
     except (ValueError,TypeError,KeyError) as exc:
         return Capability(UNAVAILABLE,"REFERENCE_CASE_INVALID",str(exc),False)
