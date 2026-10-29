@@ -32,7 +32,9 @@ class PhysicsBlockILUTests(unittest.TestCase):
                     self.assertEqual(result.shape,v.shape)
                     self.assertTrue(np.isfinite(result).all())
                     self.assertEqual(pre.diagnostics.variable_count,len(s))
-                    self.assertLess(np.linalg.norm(p.c@result),1.e-9)
+                    # Preconditioner is identity on constrained-normal space;
+                    # only its tangent contribution is projected out.
+                    np.testing.assert_allclose(p.c@result,p.c@v,atol=1.e-9)
 
     def test_dynamic_mass_shift_and_scaling(self):
         f,s,p=self.make()
