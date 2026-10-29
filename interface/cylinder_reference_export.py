@@ -72,7 +72,7 @@ def _modal(root, summary, dest, mode):
     _write_csv(dest / "FREQUENCIES.csv",
                ("mode", "frequency_hz", "omega_rad_s", "omega_squared_rad2_s2"),
                ((i+1, frequency[i], omega[i], eigen[i]) for i in range(len(frequency))))
-    workbook = root / "00_MODAL_RESULTS.xlsx"
+    workbook = root / "00_МОДАЛЬНЫЙ_АНАЛИЗ_ЧАСТОТЫ_ФОРМЫ.xlsx"
     if workbook.is_file():
         # The solver's original, self-describing Excel workbook is authoritative.
         import shutil
