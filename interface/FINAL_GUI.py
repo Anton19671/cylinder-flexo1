@@ -6944,7 +6944,8 @@ class FinalSolverGUI(EnhancedSolverGUI):
                 widget.configure(state="disabled")
             except tk.TclError:pass
         self._reference_widget_states=saved
-        for name in ("method_combo","gradient_model_combo"):
+        for name in ("method_combo","theory_combo","cuf_model_combo",
+                     "geometry_combo","material_model_combo","gradient_model_combo"):
             widget=getattr(self,name,None)
             if widget is not None:
                 try:widget.configure(state="readonly")
@@ -9461,7 +9462,40 @@ class FinalSolverGUI(EnhancedSolverGUI):
             self.series_btn.configure(state="normal" if available and not running and not (dynamic and irk) else "disabled")
         if hasattr(self,"reference_bar"):self._apply_reference_locks()
 
+    def _draft_reference_model(self):
+        """Apply main-window model selectors to a copy, not the loaded JSON."""
+        active=self._active_reference_case()
+        if active is None:return True
+        path,cfg=active
+        pending=getattr(self,"_pending_reference_case",None)
+        base=(pending[1] if pending is not None and pending[0]==path.resolve() else cfg)
+        from cylinder_reference_model_switch import selected_model_case
+        try:
+            if self.proc is not None and self.proc.poll() is None:
+                raise ValueError("Остановите расчёт перед сменой модели.")
+            draft=selected_model_case(
+                base,theory=self._v("theory").get(),
+                cuf_model=self._v("cuf_model","TE1").get(),
+                geometry_model=self._v("geometry_model").get())
+            self._pending_reference_case=(path.resolve(),draft) if draft!=cfg else None
+            self._log("Изменена модель в черновике CASE; исходный JSON не изменён.\\n")
+            return True
+        except (ValueError,TypeError) as exc:
+            messagebox.showerror("Выбор модели",str(exc))
+            self._v("theory").set(base.get("theory","CUF"))
+            self._v("cuf_model").set(base.get("cuf_model","TE1"))
+            self._v("geometry_model").set(base.get("geometry_model","GREEN_LAGRANGE"))
+            self._update_kinematics_labels()
+            self._sync_display_selectors()
+            return False
+
+    def _on_model_change(self):
+        if not self._draft_reference_model():return
+        self._update_kinematics_labels()
+        self._refresh_visibility()
+
     def _on_theory_change(self):
+        if not self._draft_reference_model():return
         self.advanced_bc=None
         self.engineering_bc=None
         self._v("bc_mode","SIMPLE").set("SIMPLE")
@@ -9486,6 +9520,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self._v("material_model","HOOKE").set("HOOKE")
         mode=("NONLINEAR" if nonlinear else "LINEAR")+"_ELASTIC"
         self._v("mode","LINEAR_ELASTIC").set(mode)
+        if not self._draft_reference_model():return
         self._refresh_visibility()
         # Refresh the compact model caption immediately.  Previously the
         # selector already held the new mode while the line below it still
