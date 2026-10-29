@@ -136,43 +136,9 @@ def _modal(root, summary, dest, mode):
         from cylinder_modal_full_export import export_modal_full
         export_modal_full(root, dest, summary, frequency, fields, electric,
                           x, s, diagnostic)
-    if mode == "FAST":
-        return
-    from matplotlib import pyplot as plt
-    fig, ax = plt.subplots(figsize=(9, 5))
-    ax.plot(np.arange(1, len(frequency)+1), frequency, "o-")
-    ax.set(xlabel="Mode number", ylabel="Natural frequency [Hz]",
-           title="Cylinder: natural frequencies of the saved MODAL result")
-    ax.grid(True, alpha=0.3)
-    fig.tight_layout()
-    fig.savefig(dest / "FREQUENCIES.png", dpi=170)
-    plt.close(fig)
-    theory = str(summary.get("theory", "")).upper()
-    if theory.startswith("CUF_TE") and theory[-1] in "1234":
-        labels = [f"{axis}{i}" for axis in ("u", "v", "w")
-                  for i in range(int(theory[-1])+1)]
-        radial = 2 * (int(theory[-1])+1)
-    else:
-        labels = (["u", "v", "w"] if theory == "KL" else
-                  ["u", "v", "w", "theta_x", "theta_s"])
-        radial = 2
-    if len(labels) != fields.shape[1] or radial >= fields.shape[1]:
-        raise ValueError("Saved MODAL mechanical components disagree with theory")
-    # A mode is mass-normalized; its plot is a mode SHAPE, not a measured deflection.
-    components = range(fields.shape[1]) if mode == "FULL" else (radial,)
-    for i in range(len(frequency)):
-        for c in components:
-            fig, ax = plt.subplots(figsize=(8, 5))
-            data = fields[i, c].T
-            extent = (float(x[0]), float(x[-1]), float(s[0]),
-                      float(s[-1]) if len(s) > 1 else 0.0)
-            image = ax.imshow(data, origin="lower", aspect="auto", extent=extent)
-            fig.colorbar(image, ax=ax, label="Mass-normalized modal coefficient")
-            ax.set(xlabel="x [m]", ylabel="s [m]",
-                   title=f"Mode {i+1}, f={frequency[i]:.6g} Hz: {labels[c]}")
-            fig.tight_layout()
-            fig.savefig(dest / f"MODE_{i+1:02d}_{labels[c]}.png", dpi=160)
-            plt.close(fig)
+    # MODAL exports are deliberately numeric-only: the saved XLSX files
+    # contain all data needed for plotting in external tools.
+    return
 
 
 def _physical(root, summary, kind, dest, mode):
@@ -269,11 +235,10 @@ def export(root, mode):
         raise ValueError(f"Unknown export mode: {mode}")
     # Never announce success unless the promised files actually exist.
     if kind == "MODAL" and mode == "FULL":
-        from cylinder_modal_full_export import (
-            CHARACTERISTICS_XLSX, FIELDS_XLSX, PLOTS_DIR)
-        required = (root / CHARACTERISTICS_XLSX,
-                    root / FIELDS_XLSX,
-                    target / PLOTS_DIR / "ФОРМА_01" / "01_3D_ФОРМА.png")
+        from cylinder_modal_full_export import CHARACTERISTICS_XLSX, FIELDS_XLSX
+        from cylinder_modal_student_export import EXTRA_WORKBOOKS
+        required = (root / CHARACTERISTICS_XLSX, root / FIELDS_XLSX,
+                    *(root / item for item in EXTRA_WORKBOOKS))
         missing = [str(p) for p in required if not p.is_file()]
         if missing:
             raise RuntimeError("MODAL_FULL_EXPORT_INCOMPLETE: " + "; ".join(missing))
