@@ -70,6 +70,9 @@ def plan_time_integrator_run(case_path, selection="NEWMARK", *, series=False):
     method=info["method"]
     rank=case.get("rank") if method=="MVI" else None
     output=_output(case,path)
+    if kind=="MODAL":
+        if series:raise ValueError("MODAL does not support MVI rank series")
+        if code!="NEWMARK":raise ValueError("MODAL has no time integrator")
     if code=="GAUSS2_IRK4":
         if series:
             raise ValueError("IRK4 не поддерживает серию МВИ 1–8; выберите Ньюмарк")
@@ -86,7 +89,7 @@ def plan_time_integrator_run(case_path, selection="NEWMARK", *, series=False):
         raise ValueError("Серия МВИ 1–8 требует метод МВИ")
     return TimeIntegratorPlan(
         path,sha256(raw).hexdigest(),
-        code if kind=="DYNAMIC" else "STATIC",
+        code if kind=="DYNAMIC" else "MODAL" if kind=="MODAL" else "STATIC",
         output,kind,method,rank,series)
 
 
@@ -104,7 +107,7 @@ def execute_time_integrator_plan(plan):
         return {**result.summary,
                 "output_dir":str(result.output_dir),
                 "time_integrator":"GAUSS2_IRK4"}
-    if plan.integrator not in ("NEWMARK","STATIC"):
+    if plan.integrator not in ("NEWMARK","STATIC","MODAL"):
         raise ValueError("INVALID_TIME_INTEGRATOR_PLAN")
     if plan.series:
         from cylinder_final_stage11a_dispatcher import run_mvi_rank_series
