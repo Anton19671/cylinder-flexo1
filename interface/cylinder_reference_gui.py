@@ -166,6 +166,13 @@ class ReferenceCaseEditor(tk.Toplevel):
         else:
             dynamic=str(parent._v('calculation_kind','STATIC').get()).upper()=='DYNAMIC'
             self.case=json.loads((DYNAMIC_TEMPLATE if dynamic else TEMPLATE).read_text(encoding='utf-8'))
+        # Restore an unsaved MODAL folder draft for this editor/CASE.
+        # The on-disk CASE remains immutable until explicit Save or Run.
+        if str(self.case.get('calculation_kind','')).upper()=='MODAL':
+            restore=getattr(parent,'_modal_results_folder',None)
+            selected=restore(self.path) if callable(restore) else None
+            if selected:
+                self.case['output_dir']=selected
         self.title('Вариационный CASE: G3D / Gz / флексо / МВИ / МКР')
         self.geometry('930x780')
         self.transient(parent)
@@ -453,6 +460,22 @@ class ReferenceCaseEditor(tk.Toplevel):
         actions=ttk.Frame(outer);actions.pack(fill='x',pady=6)
         ttk.Button(actions,text='Применить к CASE',command=apply).pack(side='left')
         ttk.Button(actions,text='Отмена',command=win.destroy).pack(side='right')
+
+    def destroy(self):
+        # Both the Close button and the title-bar X must retain an unsaved
+        # MODAL output folder without creating another JSON on disk.
+        try:
+            fields=getattr(self,'fields',{})
+            kind=fields.get('calculation_kind')
+            folder=fields.get('output_dir')
+            if (kind is not None and folder is not None and
+                    kind.get().upper()=='MODAL' and folder.get().strip()):
+                remember=getattr(self.parent,'_remember_modal_results_folder',None)
+                if callable(remember):
+                    remember(folder.get().strip(),self.path)
+        except (tk.TclError,AttributeError,ValueError,OSError):
+            pass  # Closing must never fail because a GUI preference failed.
+        super().destroy()
 
     def choose_output_dir(self):
         """Select any existing output folder in the user's local file system."""
