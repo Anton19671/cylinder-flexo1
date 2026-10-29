@@ -117,11 +117,12 @@ def open_boundary_editor(gui, *, reference_case=None, reference_path=None):
         try:
             data=merge_boundary_controls(json.loads(editor.get("1.0","end")),
                                          *selections(),previous=previous)
-            theory=gui._v("theory","CUF").get().upper()
-            if theory=="CUF":theory="CUF_"+gui._v("cuf_model","TE1").get().upper()
-            enabled=gui._v("scale_model","MACRO").get()=="MICRO" and gui._v("micro_flexoelectric","OFF").get()=="ON"
+            theory=str(reference_case["theory"]).upper()
+            if theory=="CUF":theory="CUF_"+str(reference_case["cuf_model"]).upper()
+            enabled=(str(reference_case.get("scale_model","")).upper()=="MICRO"
+                     and bool(reference_case.get("micro",{}).get("enable_flexoelectric")))
             validate_boundary_passport(data,electrical_enabled=enabled,
-                                       calculation_kind=gui._v("calculation_kind","STATIC").get(),
+                                       calculation_kind=reference_case["calculation_kind"],
                                        theory=theory)
             from cylinder_reference_case import prepare_reference_case
             import os
