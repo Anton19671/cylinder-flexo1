@@ -75,6 +75,55 @@ def _modal(root, summary, dest, mode):
         # The solver's original, self-describing Excel workbook is authoritative.
         import shutil
         shutil.copy2(workbook, dest / "00_MODAL_RESULTS.xlsx")
+    # Independent shape inspection is read-only: no modal solve or rerun.
+    from cylinder_modal_diagnostics import (
+        inspect_modal_shapes, recover_modal_displacements)
+    scheme = str(summary.get("operator_scheme", "UNKNOWN"))
+    if scheme == "UNKNOWN":
+        case_file = root / "REFERENCE_CASE.json"
+        if case_file.is_file():
+            source_case = json.loads(case_file.read_text(encoding="utf-8"))
+            grid = source_case.get("mvi_grid" if summary.get("method") == "MVI"
+                                   else "fdm_grid", {})
+            scheme = str(grid.get("operator_scheme", "UNKNOWN"))
+    diagnostic = inspect_modal_shapes(fields, frequency, summary.get("theory"),
+                                      operator_scheme=scheme)
+    _write_csv(dest / "MODE_CLASSIFICATION.csv",
+               ("mode", "frequency_hz", "harmonic", "angular_phase_deg",
+                "dominant_component", "mode_type", "u_energy_fraction",
+                "v_energy_fraction", "w_energy_fraction"),
+               ([item.get(key, "") for key in
+                 ("mode", "frequency_hz", "harmonic", "angular_phase_deg",
+                  "dominant_component", "mode_type", "u_energy_fraction",
+                  "v_energy_fraction", "w_energy_fraction")]
+                for item in diagnostic["modes"]))
+    _write_csv(dest / "FREQUENCY_DOUBLETS.csv",
+               ("mode_i", "mode_j", "frequency_gap_hz", "euclidean_mac",
+                "phase_difference_deg", "classification"),
+               ([item.get(key, "") for key in
+                 ("mode_i", "mode_j", "frequency_gap_hz", "euclidean_mac",
+                  "phase_difference_deg", "classification")]
+                for item in diagnostic["pairs"]))
+    _write_csv(dest / "MODE_MAC_EUCLIDEAN.csv",
+               ("mode", *(f"mode_{i+1}" for i in range(len(frequency)))),
+               ((i+1, *map(float, diagnostic["euclidean_mac"][i]))
+                for i in range(len(frequency))))
+    if mode == "FULL":
+        case_file = root / "REFERENCE_CASE.json"
+        if not case_file.is_file():
+            raise ValueError("FULL MODAL export needs saved REFERENCE_CASE.json")
+        case_data = json.loads(case_file.read_text(encoding="utf-8"))
+        z, displacement = recover_modal_displacements(
+            fields, summary["theory"], float(case_data["geometry"]["h"]))
+        _write_csv(dest / "MODE_DISPLACEMENTS_THROUGH_THICKNESS.csv",
+                   ("mode", "ix", "js", "x_m", "s_m", "theta_rad",
+                    "z_m", "u_shape", "v_shape", "w_shape"),
+                   ((k+1, ix, js, float(x[ix]), float(s[js]),
+                     float(s[js]/float(case_data["geometry"]["R"])),
+                     float(z[iz]), *map(float, displacement[k, iz, :, ix, js]))
+                    for k in range(len(frequency))
+                    for iz in range(len(z))
+                    for ix in range(len(x)) for js in range(len(s))))
     if mode == "FAST":
         return
     from matplotlib import pyplot as plt
