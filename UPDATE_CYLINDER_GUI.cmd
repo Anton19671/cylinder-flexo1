@@ -1,31 +1,58 @@
 @echo off
-setlocal EnableExtensions
-cd /d "%~dp0"
-set "CYL_GUI_ROOT=%~dp0"
-rem This updates only interface/FINAL_GUI.py in the running program folder.
-rem The solver, physical CASE files, and previous results are not changed.
-if not exist "%CYL_GUI_ROOT%FINAL_GUI.py" goto :wrongfolder
-if not exist "%CYL_GUI_ROOT%interface\FINAL_GUI.py" goto :wrongfolder
-set "CYL_GUI_SOURCE=https://raw.githubusercontent.com/Anton19671/cylinder-flexo1/cc7d3871de079f29a3abace42eb6a1e8aeaeff7a/interface/FINAL_GUI.py"
+setlocal EnableExtensions DisableDelayedExpansion
+cd /d "%~dp0" || exit /b 2
+set "SCRIPT_ROOT=%CD%"
+rem V-11: NEVER replace interface/FINAL_GUI.py from an old pinned revision.
+rem GUI, solver, config and tests must come from the SAME repository commit.
+where git.exe >nul 2>&1
+if errorlevel 1 goto :no_git
+for /f "delims=" %%R in ('git rev-parse --show-toplevel 2^>nul') do set "GIT_ROOT=%%R"
+if not defined GIT_ROOT goto :not_checkout
+pushd "%GIT_ROOT%" || exit /b 2
+if /I not "%SCRIPT_ROOT%"=="%CD%" goto :wrong_root
+if not exist "interface\FINAL_GUI.py" goto :wrong_root
+if not exist "interface\cylinder_reference_case.py" goto :wrong_root
+for /f "delims=" %%B in ('git branch --show-current 2^>nul') do set "CURRENT_BRANCH=%%B"
+if /I not "%CURRENT_BRANCH%"=="main" goto :not_main
+git remote get-url origin 2>nul | findstr /i /c:"github.com/Anton19671/cylinder-flexo1" >nul
+if errorlevel 1 goto :wrong_remote
+git diff --quiet --exit-code
+if errorlevel 1 goto :dirty
+git diff --cached --quiet --exit-code
+if errorlevel 1 goto :dirty
 echo.
-echo Cylinder-Flexo1: restore the complete 8-tab GUI.
-echo Please close the running GUI before continuing.
-pause
-powershell.exe -NoProfile -Command "$ErrorActionPreference='Stop'; $dest=Join-Path $env:CYL_GUI_ROOT 'interface\FINAL_GUI.py'; $temp=$dest+'.download'; try { Invoke-WebRequest -Uri $env:CYL_GUI_SOURCE -OutFile $temp -UseBasicParsing; $text=[IO.File]::ReadAllText($temp,[Text.Encoding]::UTF8); if (!$text.Contains('class ElasticFlexoGUI') -or !$text.Contains('self.tab_online=self._tab')) { throw 'Wrong downloaded file' }; $backup=$dest+'.before_gui_restore_'+(Get-Date -Format 'yyyyMMdd_HHmmss')+'.bak'; Copy-Item -LiteralPath $dest -Destination $backup -ErrorAction Stop; Move-Item -LiteralPath $temp -Destination $dest -Force; Write-Host 'UPDATED:' $dest; Write-Host 'BACKUP:' $backup } catch { Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue; Write-Host 'UPDATE FAILED:' $_.Exception.Message -ForegroundColor Red; exit 1 }"
-if errorlevel 1 goto :failed
+echo Cylinder-Flexo1: updating the COMPLETE repository, including GUI and solver.
+echo Close the running program before continuing.
+echo CASE inputs and previous results are not deleted.
+git pull --ff-only origin main
+if errorlevel 1 goto :pull_failed
 echo.
-echo GUI updated. Start START_PROGRAM.bat from this same folder.
-echo The title must contain: G3D / Gz - full interface.
-pause
+echo Repository updated. Launch START_PROGRAM.bat again.
+popd
 exit /b 0
-:wrongfolder
-echo.
-echo WRONG FOLDER: put this CMD file alongside START_PROGRAM.bat.
-echo No files were changed.
-pause
+
+:not_checkout
+echo ERROR: not a Git checkout. Single-file GUI update has been disabled.
+echo Download the COMPLETE current repository from:
+echo https://github.com/Anton19671/cylinder-flexo1
 exit /b 2
-:failed
-echo.
-echo Update failed. Your old GUI remains available as a backup.
-pause
-exit /b 1
+:no_git
+echo ERROR: git.exe unavailable. Download the COMPLETE repository archive.
+exit /b 2
+:not_main
+echo ERROR: expected branch main, found %CURRENT_BRANCH%. No files changed.
+goto :fail_pop
+:wrong_remote
+echo ERROR: origin is not Anton19671/cylinder-flexo1. No files changed.
+goto :fail_pop
+:dirty
+echo ERROR: local tracked changes exist. Commit or back them up first.
+goto :fail_pop
+:wrong_root
+echo ERROR: expected the cylinder-flexo1 repository root.
+goto :fail_pop
+:pull_failed
+echo ERROR: git pull failed; no forced replacement attempted.
+:fail_pop
+popd
+exit /b 2
