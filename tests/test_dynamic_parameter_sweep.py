@@ -130,7 +130,7 @@ class ParameterSweepTests(unittest.TestCase):
             self.assertEqual(result["completed_runs"],2)
             self.assertEqual(result["bifurcation"]["runs"],2)
             root=Path(temp)/"SWEEP_RESULTS"
-            self.assertTrue((root/"BIFURCATION_ANALYTICS"/"06_BIFURCATION.xlsx").is_file())
+            self.assertTrue((root/"BIFURCATION_ANALYTICS"/"06_ДИНАМИКА_БИФУРКАЦИИ.xlsx").is_file())
             self.assertTrue((root/"BIFURCATION_RUNS.csv").is_file())
             values=[]
             for i in (1,2):
