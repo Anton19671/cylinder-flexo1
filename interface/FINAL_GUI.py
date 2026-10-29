@@ -7126,6 +7126,24 @@ class FinalSolverGUI(EnhancedSolverGUI):
         except (OSError,ValueError,KeyError,TypeError) as exc:
             messagebox.showerror("Модальный анализ",str(exc))
 
+    def _save_selected_reference_case(self):
+        """Save current modal/static/dynamic editor state, never launch a solve."""
+        editor=getattr(self,"_reference_editor",None)
+        if editor is not None:
+            try:
+                if editor.winfo_exists():
+                    return editor.save()
+            except tk.TclError:
+                pass
+        active=self._active_reference_case()
+        if active is not None:
+            path,case=active
+            pending=getattr(self,"_pending_reference_case",None)
+            if pending is not None and pending[0]==path.resolve():
+                case=copy.deepcopy(pending[1])
+            return self.open_reference_case(case,path).save()
+        return self.open_reference_case().save()
+
     def save_case(self):
         active=self._active_reference_case()
         if active is not None:
@@ -7927,7 +7945,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         ttk.Radiobutton(timebar,text="Статика",value="STATIC",
                         variable=self._v("calculation_kind","STATIC"),
                         command=self._on_calculation_kind_change).pack(side="left",padx=(0,12))
-        ttk.Radiobutton(timebar,text="Динамика · МВИ/МКР",
+        ttk.Radiobutton(timebar,text="Динамика во времени · МВИ/МКР",
                         value="DYNAMIC",
                         variable=self._v("calculation_kind","STATIC"),
                         command=self._on_calculation_kind_change).pack(side="left",padx=(0,12))
@@ -7954,6 +7972,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         ttk.Button(actions,text="Открыть параметры",command=self.open_parameters).pack(side="left",padx=(0,5))
         ttk.Button(actions,text="Сохранить параметры в папку…",command=self.save_parameters_to_folder).pack(side="left",padx=5)
         ttk.Button(actions,text="Новый CASE…",command=self.open_reference_case).pack(side="left",padx=5)
+        ttk.Button(actions,text="Сохранить выбранный CASE…",command=self._save_selected_reference_case).pack(side="left",padx=5)
         self.top_load_case_btn=ttk.Button(actions,text="Загрузить CASE…",command=self.load_case)
         self.top_load_case_btn.pack(side="left",padx=5)
         ttk.Button(actions,text="Проверить",command=self.validate_case).pack(side="left",padx=(14,5))
