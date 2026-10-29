@@ -103,6 +103,11 @@ def _describe(code):
     found = COLUMN_INFO.get(name)
     if found is not None:
         return found
+    electric_match = re.fullmatch(r"phi([0-4])_v", name)
+    if electric_match:
+        k = electric_match.group(1)
+        return (f"Коэффициент электрического потенциала {k}", f"phi_{k}", "В",
+                f"Коэффициент phi_{k} аппроксимации потенциала по толщине xi=2z/h.")
     match = re.fullmatch(r"([uvw])([0-4])_m", name)
     if match:
         symbol, k = match.groups()
