@@ -22,9 +22,24 @@ with LOG.open("a", encoding="utf-8", buffering=1) as stream:
     sys.stderr = stream
     try:
         runpy.run_path(str(BASE / "FINAL_GUI.py"), run_name="__main__")
-    except BaseException:
+    except BaseException as exc:
         traceback.print_exc(file=stream)
         stream.flush()
+        # pythonw has no console. Always show a real error instead of
+        # silently disappearing when an import or Tk constructor fails.
+        try:
+            import tkinter as tk
+            from tkinter import messagebox
+            root=tk.Tk()
+            root.withdraw()
+            messagebox.showerror(
+                "CYL_SOLVER — ошибка запуска",
+                f"Программа не открылась: {type(exc).__name__}: {exc}\n\n"
+                f"Подробности: {LOG}",
+                parent=root)
+            root.destroy()
+        except BaseException:
+            pass
         raise
     finally:
         sys.stdout = old_out
