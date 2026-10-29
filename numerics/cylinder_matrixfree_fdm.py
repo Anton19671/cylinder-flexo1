@@ -38,6 +38,7 @@ except ImportError as exc:
 
 from cylinder_functional_assembly import _basis_moments
 from cylinder_variational_boundary import compile_boundary_program
+from cylinder_constraint_row import combined_constraint_entries
 from cylinder_variational_fdm import StaticFDMResult, state_scales
 
 
@@ -142,13 +143,11 @@ class SparseTraceProjector:
         triplet_i=[];triplet_j=[];triplet_v=[];targets=[]
         for row in edge.constraints:
             offset=0 if row.field=="mechanical" else np.size(q)
-            if len(row.indices)!=len(row.weights):
-                raise ValueError("SPARSE_TRACE_CONSTRAINT_ROW_MALFORMED")
-            for index,weight in zip(row.indices,row.weights):
-                j=offset+int(index)
-                if j<0 or j>=n:raise ValueError("SPARSE_TRACE_INDEX_OUT_OF_RANGE")
+            size=np.size(q) if row.field=="mechanical" else np.size(p)
+            indexes,weights=combined_constraint_entries(row.indices,row.weights,size,offset=offset)
+            for j,weight in zip(indexes,weights):
                 triplet_i.append(len(targets))
-                triplet_j.append(j)
+                triplet_j.append(int(j))
                 triplet_v.append(float(weight)*float(scales[j]))
             targets.append(float(row.prescribed))
         if edge.gauge_required:
