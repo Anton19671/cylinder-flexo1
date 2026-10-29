@@ -26,6 +26,10 @@ def _load_case(case_json):
     return path,case
 def validate_final_case(case_json,*,dry_run=True):
     path,case=_load_case(case_json)
+    if str(case.get("calculation_kind","")).upper()=="MODAL":
+        from cylinder_modal_reference import prepare_modal_case
+        return dict(valid=True,solver_backend=BACKEND,case=str(path),
+            **prepare_modal_case(case,base_dir=path.parent),material_model="HOOKE")
     validated=prepare_reference_case(case,base_dir=path.parent)
     f=validated.problem.functional
     return dict(valid=True,solver_backend=BACKEND,case=str(path),
@@ -34,6 +38,9 @@ def validate_final_case(case_json,*,dry_run=True):
         gradient_model=f.material.gradient_model_label,material_model="HOOKE")
 def run_final_case(case_json):
     path,case=_load_case(case_json)
+    if str(case.get("calculation_kind","")).upper()=="MODAL":
+        from cylinder_modal_reference import run_modal_case
+        return run_modal_case(case,path)
     return run_reference_case(case,path)
 def run_mvi_rank_series(case_json,ranks=range(1,9)):
     path,case=_load_case(case_json)
