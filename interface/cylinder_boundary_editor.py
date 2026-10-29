@@ -37,8 +37,12 @@ def merge_boundary_controls(spec, mechanical, electrical, previous=None):
     return data
 
 
-def open_boundary_editor(gui):
-    spec=copy.deepcopy(getattr(gui,"variational_bc",None) or boundary_passport())
+def open_boundary_editor(gui, *, reference_case=None, reference_path=None):
+    if reference_case is None or reference_path is None:
+        raise ValueError('V-10: сохранённый вариационный CASE обязателен')
+    from pathlib import Path
+    path=Path(reference_path)
+    spec=copy.deepcopy(reference_case['boundary_conditions']['variational'])
     win=tk.Toplevel(gui)
     win.title("Механические, G3D и электрические граничные условия")
     win.geometry("790x680")
@@ -119,7 +123,18 @@ def open_boundary_editor(gui):
             validate_boundary_passport(data,electrical_enabled=enabled,
                                        calculation_kind=gui._v("calculation_kind","STATIC").get(),
                                        theory=theory)
-            gui.variational_bc=copy.deepcopy(data)
+            from cylinder_reference_case import prepare_reference_case
+            import os
+            updated=copy.deepcopy(reference_case)
+            updated.setdefault('boundary_conditions',{})['variational']=copy.deepcopy(data)
+            prepare_reference_case(updated,base_dir=path.parent)
+            tmp=path.with_name(path.name+'.bc.tmp')
+            try:
+                tmp.write_text(json.dumps(updated,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+                os.replace(tmp,path)
+            finally:
+                if tmp.exists():tmp.unlink()
+            gui.adopt(updated,path)
             win.destroy()
         except Exception as exc:
             messagebox.showerror("Некорректные ГУ",str(exc),parent=win)
@@ -128,7 +143,6 @@ def open_boundary_editor(gui):
     buttons.grid(row=1,column=0,sticky="ew")
     ttk.Button(buttons,text="Перенести выбор в JSON",command=sync).pack(side="left",padx=4)
     ttk.Button(buttons,text="Применить",command=apply).pack(side="left",padx=4)
-    ttk.Button(buttons,text="Убрать дополнительный паспорт",
-               command=lambda:(setattr(gui,"variational_bc",None),win.destroy())).pack(side="left",padx=4)
+    ttk.Label(buttons,text="ГУ сохраняются непосредственно в вариационном CASE").pack(side="left",padx=4)
     ttk.Button(buttons,text="Отмена",command=win.destroy).pack(side="right")
 
