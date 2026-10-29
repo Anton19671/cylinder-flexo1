@@ -62,6 +62,7 @@ def edit_reference_case(original, fields, boundary, load, newton, dynamics=None,
     kind=str(fields.get('calculation_kind',case.get('calculation_kind','STATIC'))).upper()
     if kind not in ('STATIC','DYNAMIC','MODAL'):raise ValueError('Тип задачи: STATIC / DYNAMIC / MODAL')
     case['calculation_kind']=kind
+    if kind=='MODAL':method='FDM';fdm_backend='DENSE_REFERENCE';case['fdm_backend']=fdm_backend;case['method']=method
     case.pop('fdm_grid',None);case.pop('mvi_grid',None);case.pop('grid',None)
     grid.update(nx=integer('nx'),ns=integer('ns'),operator_scheme=scheme)
     case['mvi_grid' if method=='MVI' else 'fdm_grid']=grid
@@ -108,11 +109,12 @@ def edit_reference_case(original, fields, boundary, load, newton, dynamics=None,
     load_data=document(load,'Нагрузка')
     if kind=='MODAL':
         case['mode']='LINEAR_ELASTIC'
-        case['method']='FDM'
         case.pop('rank',None);case.pop('reference_mvi',None)
         case.pop('load_definition',None);case.pop('reference_loads',None)
         case.pop('dynamics',None)
-        case['modal']=document(dynamics if dynamics is not None else json.dumps(case.get('modal',{})),'Модальные настройки')
+        options=document(dynamics if dynamics is not None else json.dumps(case.get('modal',{})),'Модальные настройки')
+        case['modal']=(options if 'density_kg_m3' in options and 'n_modes' in options
+                       else {'density_kg_m3':numeric('rho_kg_m3'), 'n_modes':6})
         from cylinder_modal_reference import prepare_modal_case
         prepare_modal_case(case,base_dir=base_dir)
         return case
