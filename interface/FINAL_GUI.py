@@ -3993,6 +3993,24 @@ class FinalSolverGUI(EnhancedSolverGUI):
             txt=self.vars.get("output_dir",tk.StringVar()).get().strip(); base=Path(txt) if txt else None
         if base is None:return None
         out=Path(base).resolve()
+        if self.run_kind=="REFERENCE_CASE":
+            from cylinder_reference_progress_adapter import accepted_reference_steps
+            accepted={int(row["index"]):row for row in accepted_reference_steps(out)}
+            record=accepted.get(int(step))
+            if record is None:return None
+            candidate=out/record["state_file"]
+            with np.load(candidate,allow_pickle=False) as raw:
+                q=np.asarray(raw["mechanical"],float)
+                if q.ndim!=3:return None
+                comp=q.shape[0]
+                theory=str((json.loads((out/"FINAL_RUN_SUMMARY.json").read_text(encoding="utf-8"))).get("theory",""))
+                radial=(2*(int(theory[-1])+1) if theory.startswith("CUF_TE") else 2)
+                if radial>=comp:return None
+                u,v,w=q[0].T,q[1].T,q[radial].T
+                data={k:np.asarray(raw[k]) for k in raw.files}
+            return {"path":candidate,"raw":data,"u":u,"v":v,"w":w,
+                    "GB":None,"epsilon_i":None,"sigma_i":None,
+                    "detF":data.get("det_F"),"unloading_mask":None}
         candidates=[out/f"STEP_{int(step):04d}_STATE.npz",out/f"STEP_{int(step):04d}.npz"]
         p=next((x for x in candidates if x.exists()),None)
         if p is None:return None
