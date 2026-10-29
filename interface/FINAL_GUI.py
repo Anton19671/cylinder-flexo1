@@ -20,6 +20,7 @@ import time
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import ttk, filedialog, messagebox
+from cylinder_case_io import CASE_FILETYPES, load_case_file, save_case_file
 
 # Historical GUI helpers are kept separate from the current solver modules.
 _GUI_ROOT=Path(__file__).resolve().parent.parent
@@ -6727,7 +6728,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         """Distinguish the opt-in reference file from the ordinary GUI fields."""
         path=Path(self._v("case_path").get().strip())
         if not path.is_file():return None
-        try:cfg=json.loads(path.read_text(encoding="utf-8"))
+        try:cfg=load_case_file(path)
         except (OSError,ValueError):return None
         return (path,cfg) if isinstance(cfg,dict) and cfg.get("solver_backend")=="VARIATIONAL_REFERENCE" else None
 
@@ -7004,11 +7005,11 @@ class FinalSolverGUI(EnhancedSolverGUI):
 
     def load_case(self):
         """Restore a saved FINAL_CASE without changing its physical meaning."""
-        p=filedialog.askopenfilename(title="Загрузить CASE",filetypes=[("JSON","*.json"),("All files","*.*")])
+        p=filedialog.askopenfilename(title="Загрузить CASE (JSON / YAML)",filetypes=CASE_FILETYPES)
         if not p:return
         try:
-            cfg=json.loads(Path(p).read_text(encoding="utf-8"))
-            if not isinstance(cfg,dict):raise ValueError("CASE должен содержать JSON-объект")
+            cfg=load_case_file(p)
+            if not isinstance(cfg,dict):raise ValueError("CASE должен содержать объект")
             from cylinder_reference_case import selected_backend, BACKEND
             if selected_backend(cfg)==BACKEND:
                 if str(cfg.get("calculation_kind","")).upper()=="MODAL":
@@ -7634,6 +7635,8 @@ class FinalSolverGUI(EnhancedSolverGUI):
         ttk.Button(actions,text="Открыть параметры",command=self.open_parameters).pack(side="left",padx=(0,5))
         ttk.Button(actions,text="Сохранить параметры в папку…",command=self.save_parameters_to_folder).pack(side="left",padx=5)
         ttk.Button(actions,text="Новый CASE…",command=self.open_reference_case).pack(side="left",padx=5)
+        self.top_load_case_btn=ttk.Button(actions,text="Загрузить CASE…",command=self.load_case)
+        self.top_load_case_btn.pack(side="left",padx=5)
         ttk.Button(actions,text="Проверить",command=self.validate_case).pack(side="left",padx=(14,5))
         self.series_btn=ttk.Button(actions,text="МВИ 1–8",command=self.run_mvi_series)
         self.series_btn.pack(side="left",padx=5)
