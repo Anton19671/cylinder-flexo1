@@ -113,7 +113,10 @@ def cuf_kinds(code):
         "ELASTIC_ENGINEERING": ("ELASTIC","ELASTIC","ELASTIC"),
     }
     if p=="SIMPLY_SUPPORTED":
-        return ("GEOMETRIC","GEOMETRIC","GEOMETRIC")
+        raise ValueError(
+            "CUF SIMPLY_SUPPORTED depends on thickness index tau; "
+            "call cuf_kinds_tau(code, tau)"
+        )
     return patterns[p]
 
 
