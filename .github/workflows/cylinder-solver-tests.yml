@@ -2,6 +2,9 @@ name: Cylinder Flexoelectric G3D/Gz
 # Manual until runner quota permits scheduled/push verification.
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - "docs/AUDIT_TEST_TRIGGER_20261029.txt"
 permissions:
   contents: read
 jobs:
@@ -30,5 +33,13 @@ jobs:
         run: |
           python -c 'from cylinder_paths import activate; activate(); import pytest; raise SystemExit(pytest.main(["-q","tests/test_repository_integrity.py","tests/test_elastic_only_entrypoints.py"]))'
       - name: Coupled G3D/Gz and numerical regression
+        if: success() || failure()
         run: |
-          python -c 'from cylinder_paths import activate; activate(); import pytest; raise SystemExit(pytest.main(["-q","tests"]))'
+          python -c 'from cylinder_paths import activate; activate(); import pytest; raise SystemExit(pytest.main(["-q","tests","--junitxml=audit-full-tests.xml"]))'
+      - name: Upload full-suite report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cylinder-full-audit-py311
+          path: audit-full-tests.xml
+          if-no-files-found: ignore
