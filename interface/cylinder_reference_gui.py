@@ -186,8 +186,8 @@ class ReferenceCaseEditor(tk.Toplevel):
         window=canvas.create_window((0,0),window=body,anchor='nw')
         body.bind('<Configure>',lambda _event:canvas.configure(scrollregion=canvas.bbox('all')))
         canvas.bind('<Configure>',lambda event:canvas.itemconfigure(window,width=event.width))
-        ttk.Label(body,text='GREEN_LAGRANGE · HOOKE · СИ. Динамика: Ньюмарк или экспериментальный IRK4 (только МВИ).',
-                  foreground='#825400').pack(anchor='w',pady=(0,7))
+        self.task_kind_note=ttk.Label(body,text='',foreground='#825400')
+        self.task_kind_note.pack(anchor='w',pady=(0,7))
         def group(title,items):
             box=ttk.LabelFrame(body,text=title,padding=7);box.pack(fill='x',pady=4)
             for index,(label,key,value,choices) in enumerate(items):
@@ -202,15 +202,18 @@ class ReferenceCaseEditor(tk.Toplevel):
             box.columnconfigure(1,weight=1);box.columnconfigure(3,weight=1)
             return box
         c=self.case
-        ttk.Label(body,text='Интегратор времени (выбор не изменяет физический CASE)').pack(anchor='w')
+        self.time_integrator_row=ttk.Frame(body)
+        ttk.Label(self.time_integrator_row,
+                  text='Интегратор по времени (не изменяет физический CASE)').pack(anchor='w')
         self.time_integrator=self.parent.time_integrator
-        ttk.Combobox(body,textvariable=self.time_integrator,
+        ttk.Combobox(self.time_integrator_row,textvariable=self.time_integrator,
                      values=TIME_INTEGRATOR_CHOICES,state='readonly',
                      width=42).pack(anchor='w',pady=(1,7))
+        self.time_integrator_row.pack(anchor='w',fill='x')
         geo=c.get('geometry',{});mat=c.get('material',{});micro=c.get('micro',{})
         saved=micro.get('editor_saved_flexo',{})
         method=c.get('method','FDM');grid=c.get('mvi_grid' if method=='MVI' else 'fdm_grid',{})
-        group('Теория и метод',[
+        self.theory_settings_group=group('Теория и метод',[
             ('Тип задачи','calculation_kind',c.get('calculation_kind','STATIC'),('STATIC','DYNAMIC','MODAL')),
             ('Теория','theory',c.get('theory','CUF'),('KL','FSDT','REDDY','CUF')),
             ('Порядок CUF','cuf_model',c.get('cuf_model','TE1'),('TE1','TE2','TE3','TE4')),
@@ -278,19 +281,39 @@ class ReferenceCaseEditor(tk.Toplevel):
         self.load_text=json_box('Нагрузка и коэффициенты шагов (JSON)',
                                 c.get('reference_loads',c.get('load_definition',{})))
         self.newton_text=json_box('Параметры связанного Ньютона (JSON)',c.get('reference_newton',{}))
-        self.dynamics_text=json_box('Динамика / MODAL: плотность и n_modes (JSON)',
+        self.dynamics_text=json_box('Динамические параметры (JSON)',
             c.get('modal',c.get('dynamics',c.get('editor_saved_dynamics',{
                 'time_step_s':0.01,'n_steps':20,'density_kg_m3':1300.0,
                 'newmark_beta':0.25,'newmark_gamma':0.5,'start_time_s':0.0,
                 'damping':'NONE','initial_conditions':{'type':'ZERO'},
                 'time_law':{'kind':'HARMONIC','amplitude':1.0,'frequency_hz':1.0,
                             'phase_rad':0.0,'start_time_s':0.0}}))))
+        self.fields['calculation_kind'].trace_add('write',self._update_task_kind_ui)
+        self._update_task_kind_ui()
         buttons=ttk.Frame(self,padding=8);buttons.pack(fill='x')
         ttk.Button(buttons,text='Проверить',command=self.validate).pack(side='left',padx=4)
         ttk.Button(buttons,text='Сохранить CASE…',command=self.save).pack(side='left',padx=4)
         ttk.Button(buttons,text='Рассчитать',command=self.run).pack(side='left',padx=4)
         ttk.Button(buttons,text='МВИ 1–8',command=lambda:self.run(series=True)).pack(side='left',padx=4)
         ttk.Button(buttons,text='Закрыть',command=self.destroy).pack(side='right',padx=4)
+
+    def _update_task_kind_ui(self,*_):
+        kind=self.fields['calculation_kind'].get().upper()
+        if kind=='DYNAMIC':
+            self.task_kind_note.configure(text='ДИНАМИКА ВО ВРЕМЕНИ: Ньюмарк или IRK4.')
+            self.time_integrator_row.pack(anchor='w',fill='x',before=self.theory_settings_group)
+            self.dynamics_text.master.configure(text='Динамика: шаги времени и плотность (JSON)')
+            self.load_text.master.pack(fill='both',expand=True,pady=4,before=self.newton_text.master)
+        elif kind=='MODAL':
+            self.task_kind_note.configure(text='МОДАЛЬНЫЙ АНАЛИЗ: свободные колебания; шаги по времени не нужны.')
+            self.time_integrator_row.pack_forget()
+            self.dynamics_text.master.configure(text='Модальный анализ: density_kg_m3 и n_modes (JSON)')
+            self.load_text.master.pack_forget()
+        else:
+            self.task_kind_note.configure(text='СТАТИКА: временной интегратор не используется.')
+            self.time_integrator_row.pack_forget()
+            self.dynamics_text.master.configure(text='Параметры динамики для будущего CASE (JSON)')
+            self.load_text.master.pack(fill='both',expand=True,pady=4,before=self.newton_text.master)
 
     def apply_method_selection(self,method,rank=None):
         """Main selector -> editor; updating Tk variables must not echo back."""
