@@ -8331,6 +8331,35 @@ class FinalSolverGUI(EnhancedSolverGUI):
 
     def _log(self,text):
         message=str(text)
+        if message.startswith("MODAL_EVENT "):
+            try:
+                event=json.loads(message[len("MODAL_EVENT "):])
+                stage=str(event.get("stage","MODAL"))
+                mode=event.get("mode")
+                column=event.get("column")
+                total=event.get("total_columns")
+                elapsed=event.get("elapsed_s")
+                label="MODAL "+stage
+                if mode is not None:label+=f" | форма {mode}/{event.get('n_modes','?')}"
+                if event.get("rank") is not None:label+=f" | МВИ-{event['rank']}"
+                if event.get("sweep") is not None:label+=f" | цикл {event['sweep']}"
+                if event.get("axis"):label+=f" | {event['axis']}"
+                if column is not None:label+=f" | столбец {column}/{total}"
+                if event.get("frequency_hz") is not None:
+                    label+=f" | f={float(event['frequency_hz']):.8g} Гц"
+                if event.get("modal_amplitude_max") is not None:
+                    label+=f" | max|форма|={float(event['modal_amplitude_max']):.6g}"
+                if event.get("ritz_relative") is not None:
+                    label+=f" | Ritz={float(event['ritz_relative']):.3e}"
+                if elapsed is not None:label+=f" | t={float(elapsed):.2f} с"
+                self._online_set("stage",label[:150])
+                if mode is not None:self._online_set("step",f"{mode}/{event.get('n_modes','?')}")
+                if elapsed is not None:self._online_set("elapsed",f"{float(elapsed):.1f} s")
+                if event.get("sweep") is not None:
+                    self._online_set("mvi",f"rank {event.get('rank')} | {event['sweep']} | {event.get('axis','XY')}")
+                if hasattr(self,"progress_status_label"):self.progress_status_label.configure(text=label[:100])
+                message=label+"\\n"
+            except (ValueError,TypeError,KeyError):pass
         for name in ("log","online_log","online_log_detached"):
             w=getattr(self,name,None)
             if w is None:continue
