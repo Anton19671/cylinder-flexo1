@@ -283,6 +283,7 @@ def run_modal_case(case, case_path):
         "mechanical_free_dofs": int(result["n_mechanical_free_dofs"]),
         "electric_free_dofs": int(result["n_electric_free_dofs"]),
         "modes_file": "REFERENCE_MODAL_MODES.npz",
+        "excel_file": "00_MODAL_RESULTS.xlsx",
         "output_dir": str(out), "reference_only": True,
         "mesh_convergence_verified": False,
         "benchmark_validation_verified": False,
@@ -293,6 +294,57 @@ def run_modal_case(case, case_path):
         "units": {"frequency": "Hz", "omega": "rad/s", "geometry": "m",
                   "density": "kg/m3", "material": "Pa"},
     }
+    # Human-readable tables for frequencies, parameters and all modal fields.
+    from cylinder_excel_tables import LabeledWorkbook, write_labeled_table
+    with LabeledWorkbook(str(out / "00_MODAL_RESULTS.xlsx")) as wb:
+        write_labeled_table(wb,"FREQUENCIES",
+            ("mode","frequency_hz","omega_rad_s","omega_squared_rad2_s2"),
+            ((i+1,float(result["frequencies_hz"][i]),
+              float(result["omega_rad_s"][i]),
+              float(result["omega_squared_rad2_s2"][i]))
+             for i in range(len(result["frequencies_hz"]))))
+        geo=case["geometry"];mat=case["material"]
+        grid=case.get("fdm_grid",case.get("grid",{}))
+        mech_bc=case["boundary_conditions"]["variational"].get("mechanical",{})
+        parameters=[("theory",result["theory"]),("density_kg_m3",result["density_kg_m3"]),
+            ("L_m",geo["L"]),("R_m",geo["R"]),("h_m",geo["h"]),
+            ("E0_Pa",mat["E0"]),("nu0",mat["nu0"]),
+            ("nx",grid["nx"]),("ns",grid["ns"]),
+            ("n_gauss",case["quadrature"]["n_gauss"]),
+            ("n_modes",len(result["frequencies_hz"])),
+            ("support_left",mech_bc.get("left",{}).get("support","FREE")),
+            ("support_right",mech_bc.get("right",{}).get("support","FREE"))]
+        write_labeled_table(wb,"PARAMETERS",("code","value"),parameters)
+        order=result["theory"]
+        n=result["mechanical_modes"].shape[1]
+        if order=="KL":components=("u_m","v_m","w_m")
+        elif order in ("FSDT","REDDY"):
+            components=("u_m","v_m","w_m","theta_x_rad","theta_s_rad")
+        else:
+            degree=int(order[-1])+1
+            components=tuple(f"{axis}{i}_m" for axis in ("u","v","w") for i in range(degree))
+        if len(components)!=n:raise ValueError("MODAL exported component order mismatch")
+        nx,ns=result["mechanical_modes"].shape[2:]
+        length=float(geo["L"]);radius=float(geo["R"])
+        def mechanical_rows():
+            for k in range(len(result["frequencies_hz"])):
+                for ix in range(nx):
+                    for js in range(ns):
+                        yield (k+1,ix,js,length*ix/(nx-1),
+                               2*np.pi*radius*js/ns,2*np.pi*js/ns,
+                               *(float(result["mechanical_modes"][k,c,ix,js])
+                                 for c in range(n)))
+        write_labeled_table(wb,"MODE_FIELDS",
+            ("mode","ix","js","x_m","s_m","theta_rad",*components),mechanical_rows())
+        if result["electrical_modes"] is not None:
+            npot=result["electrical_modes"].shape[1]
+            def electric_rows():
+                for k in range(len(result["frequencies_hz"])):
+                    for ix in range(nx):
+                        for js in range(ns):
+                            yield (k+1,ix,js,*map(float,result["electrical_modes"][k,:,ix,js]))
+            write_labeled_table(wb,"ELECTRIC_MODES",
+                ("mode","ix","js",*(f"phi{i}_v" for i in range(npot))),electric_rows())
     (out / "REFERENCE_CASE.json").write_text(
         json.dumps(case, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     (out / "FINAL_RUN_SUMMARY.json").write_text(
