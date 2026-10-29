@@ -1142,6 +1142,12 @@ class SolverGUI(tk.Tk):
                     self._on_postprocess_done(item[1])
                 elif isinstance(item,tuple) and item and item[0]=="__SUMMARY_DONE__":
                     self._on_quick_summary_done(item[1])
+                elif isinstance(item,tuple) and item and item[0]=="__REFERENCE_EXPORT_DONE__":
+                    if hasattr(self,"progress_status_label"):
+                        self.progress_status_label.configure(text="Экспорт готов" if item[1]==0 else "Ошибка экспорта")
+                    if item[1]==0:
+                        try:self.refresh_results_view()
+                        except Exception:pass
                 else:
                     self._log(str(item))
         except queue.Empty:
@@ -1181,15 +1187,42 @@ class SolverGUI(tk.Tk):
         elif rc!=0:
             messagebox.showerror("Расчёт","Расчёт завершился с ошибкой. См. лог.")
 
+    def _run_reference_export(self, mode):
+        """Export saved reference results using a separate, compatible backend."""
+        try:
+            out=self._result_output_dir()
+            if out is None or not (out/"FINAL_RUN_SUMMARY.json").is_file():
+                raise ValueError("Сначала завершите вариационный расчёт: FINAL_RUN_SUMMARY.json не найден.")
+            mode=str(mode).upper()
+            if mode not in ("FAST","STANDARD","FULL","QUICK"):
+                raise ValueError("Неверный режим экспорта: "+mode)
+            if getattr(self,"_reference_export_proc",None) is not None and self._reference_export_proc.poll() is None:
+                raise ValueError("Экспорт уже выполняется")
+            script=APP_DIR/"interface"/"cylinder_reference_export.py"
+            cmd=[sys.executable,str(script),str(out),mode]
+            self._log(f"=== REFERENCE EXPORT {mode} START ===\\n")
+            proc=subprocess.Popen(cmd,cwd=str(APP_DIR),stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,text=True,bufsize=1,encoding="utf-8",errors="replace")
+            self._reference_export_proc=proc
+            def reader():
+                try:
+                    for line in proc.stdout:self.log_queue.put(line)
+                    rc=proc.wait()
+                except Exception as exc:
+                    self.log_queue.put(f"REFERENCE EXPORT ERROR: {exc}\\n")
+                    rc=2
+                self.log_queue.put(f"=== REFERENCE EXPORT {mode} DONE rc={rc} ===\\n")
+                self.log_queue.put(("__REFERENCE_EXPORT_DONE__",rc))
+            threading.Thread(target=reader,daemon=True).start()
+            if hasattr(self,"progress_status_label"):
+                self.progress_status_label.configure(text=f"Экспорт {mode}…")
+        except Exception as exc:
+            self._log(f"REFERENCE EXPORT ERROR: {exc}\\n")
+            messagebox.showerror("Экспорт вариационных результатов",str(exc))
+
     def _run_postprocess(self,mode="FAST",full=None):
         if self.run_kind in ("REFERENCE_CASE","REFERENCE_SERIES"):
-            messagebox.showinfo(
-                "Постобработка вариационного решателя",
-                "Старые FAST/STANDARD/FULL рассчитаны на другой формат STEP. "
-                "Для опорного решателя используйте REFERENCE_STEP_*.npz, "
-                "FINAL_RUN_SUMMARY.json и динамическую аналитику. "
-                "Смешивать толщинные базисы z^k и (2z/h)^k запрещено.")
-            return
+            return self._run_reference_export(mode)
         """Run postprocessing only on explicit user request.
 
         ``full`` is retained only for compatibility with older internal calls;
@@ -1253,11 +1286,7 @@ class SolverGUI(tk.Tk):
 
     def _run_quick_summary(self):
         if self.run_kind in ("REFERENCE_CASE","REFERENCE_SERIES"):
-            messagebox.showinfo(
-                "Отчёт по вариационному решателю",
-                "Legacy QUICK SUMMARY не поддерживает формат REFERENCE. "
-                "Используйте FINAL_RUN_SUMMARY.json и сохранённые поля NPZ.")
-            return
+            return self._run_reference_export("QUICK")
         """Build a compact two-page RU/EN + English PDF from existing results."""
         try:
             if self.run_output_dir is None:
@@ -3622,7 +3651,9 @@ class FinalSolverGUI(EnhancedSolverGUI):
         try:
             out=self._result_output_dir()
             if out is None: raise ValueError("Папка текущего расчёта не определена")
-            files=sorted((Path(out)/"EXCEL").glob("*__FULL_RESULTS.xlsx"),key=lambda p:p.stat().st_mtime,reverse=True)
+            files=([Path(out)/"00_MODAL_RESULTS.xlsx"] if
+                   (Path(out)/"00_MODAL_RESULTS.xlsx").is_file() else [])
+            if not files:files=sorted((Path(out)/"EXCEL").glob("*__FULL_RESULTS.xlsx"),key=lambda p:p.stat().st_mtime,reverse=True)
             if not files:files=sorted(Path(out).rglob("*.xlsx"),key=lambda p:p.stat().st_mtime,reverse=True)
             if not files: raise ValueError("Excel ещё не создан. Дождитесь завершения автоматической постобработки.")
             p=files[0]
