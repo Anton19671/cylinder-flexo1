@@ -41,10 +41,14 @@ def test_admissible_start_does_not_request_full_grid_modal_eigenvectors():
     operator.shape = (1, 4, 3)
     operator.scales = np.ones(12)
     operator.mass = lambda q: np.asarray(q, float)
-    # Dirichlet x-end nodes must remain zero.
-    admissible = np.zeros((12, 1))
-    admissible[[3, 4, 5, 6, 7, 8], 0] = 1.
-    operator.projected_bases = MagicMock(return_value=(admissible, np.empty((0, 0))))
+    # Construct an actual rank-1 frozen-Y variation space. Arbitrary
+    # nodal fields cannot be recovered by a rank-1 separated product.
+    from cylinder_boundary_spatial import separated_profile_directions
+    def admissible_x_basis(x, y, axis):
+        assert axis == "X"
+        raw = separated_profile_directions(x, y, "X")
+        return raw[:, [1, 2]], np.empty((0, 0))
+    operator.projected_bases = MagicMock(side_effect=admissible_x_basis)
     x, y, q, p = operator.admissible_start(0, [])
     assert p is None
     np.testing.assert_allclose(q.reshape(4, 3)[[0, -1]], 0., atol=1e-14)
