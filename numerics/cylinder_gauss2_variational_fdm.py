@@ -110,8 +110,11 @@ def _electric_endpoint(problem, q, v, t, guess, *,
     if not z.size:
         return make_p(z)
     g=evaluate(z)
+    initial_norm=float(np.max(np.abs(g),initial=0))
+    tolerance=(newton.absolute_tolerance_scaled
+               +newton.relative_tolerance*initial_norm)
     for iteration in range(newton.max_iterations+1):
-        if float(np.max(np.abs(g),initial=0))<=newton.absolute_tolerance_scaled:
+        if float(np.max(np.abs(g),initial=0))<=tolerance:
             return make_p(z)
         if iteration==newton.max_iterations:
             break
@@ -129,7 +132,7 @@ def _electric_endpoint(problem, q, v, t, guess, *,
             ztry=z+2.**(-halve)*step
             new_g=evaluate(ztry)
             if (float(np.max(np.abs(new_g),initial=0))<old or
-                    float(np.max(np.abs(new_g),initial=0))<=newton.absolute_tolerance_scaled):
+                    float(np.max(np.abs(new_g),initial=0))<=tolerance):
                 z,g=ztry,new_g
                 break
         else:
