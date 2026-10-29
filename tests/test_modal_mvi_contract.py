@@ -77,3 +77,38 @@ def test_failed_reference_run_is_archived_after_exit():
               "FINAL_GUI.py").read_text(encoding="utf-8")
     assert "if reference and rc != 0:" in source
     assert "archive_failed_run(" in source
+
+
+def test_modal_already_satisfied_trace_does_not_create_false_constraints():
+    from cylinder_boundary_spatial import affine_trace_space, separated_profile_directions
+    from cylinder_variational_mvi import _normalize_partner, reconstruct_profiles
+
+    # The boundary has only roundoff left after the admissible X seed.
+    # Both frozen-partner halfsteps must retain the same rank-1 field.
+    x = np.array([[[1.e-16, 1., 2., -1.e-16]]])
+    y = np.array([[[1., 2., -1.]]])
+    constraints = np.zeros((2, 12))
+    constraints[0, 0] = 1.
+    constraints[1, 9] = 1.
+    x, y = _normalize_partner(x, y, "Y")
+    directions = separated_profile_directions(x, y, "Y")
+    space = affine_trace_space(constraints, np.zeros(2), np.zeros(12),
+                               directions=directions, constraint_rank_floor=1.e-12)
+    field = reconstruct_profiles(x, y).ravel()
+    coords, *_ = np.linalg.lstsq(space.basis, field, rcond=None)
+    np.testing.assert_allclose(space.basis @ coords, field, atol=1.e-13)
+    assert space.basis.shape[1] == 3
+
+
+def test_termination_archives_case_and_journal(tmp_path):
+    from cylinder_stop_archive import archive_failed_run, archive_stopped_run
+    case = tmp_path / "case.json"
+    journal = tmp_path / "journal.log"
+    case.write_text("{}", encoding="utf-8")
+    journal.write_text("trace", encoding="utf-8")
+    for archive, status in ((archive_failed_run, "FAILED"), (archive_stopped_run, "STOPPED")):
+        out = tmp_path / status
+        record = archive(out, case_path=case, journal_path=journal)
+        assert (out / "INPUT" / (status + "_CASE.json")).read_text() == "{}"
+        assert (out / record["files"]["journal"]).read_text() == "trace"
+        assert (out / (status + "_RUN.json")).is_file()

@@ -75,7 +75,7 @@ class AffineTraceSpace:
 
 
 def affine_trace_space(matrix, target, base, *, directions=None, labels=(),
-                       rank_tolerance=1.e-12):
+                       rank_tolerance=1.e-12, constraint_rank_floor=0.):
     """Eliminate general (including dependent) linear trace equations C u=d.
 
     With directions T this imposes C(base+T*c)=d in the selected half-step.
@@ -95,6 +95,8 @@ def affine_trace_space(matrix, target, base, *, directions=None, labels=(),
         raise ValueError("rank_tolerance must be between zero and one")
     if max(u.size, c.shape[0]) > 4096:
         raise ValueError("dense reference trace assembly limited to 4096 unknowns/rows")
+    if not np.isfinite(constraint_rank_floor) or constraint_rank_floor < 0:
+        raise ValueError("constraint_rank_floor must be finite and nonnegative")
     t = np.eye(u.size) if directions is None else np.asarray(directions, dtype=float)
     if t.ndim != 2 or t.shape[0] != u.size or not np.isfinite(t).all():
         raise ValueError("spatial directions shape/nonfinite")
@@ -129,7 +131,7 @@ def affine_trace_space(matrix, target, base, *, directions=None, labels=(),
             a.T, mode="full", pivoting=True, check_finite=False)
         diagonal = np.abs(np.diag(rr))
         if diagonal.size:
-            cutoff = rank_tolerance*float(np.max(diagonal))
+            cutoff = max(rank_tolerance*float(np.max(diagonal)), constraint_rank_floor)
             rank = int(np.count_nonzero(diagonal > cutoff))
         else:
             rank = 0

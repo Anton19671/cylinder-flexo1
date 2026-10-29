@@ -42,7 +42,7 @@ def archive_terminated_run(output_dir, *, status, case_path=None, journal_path=N
         if source.is_file():
             destdir = root / "INPUT"
             destdir.mkdir(exist_ok=True)
-            dest = destdir / ("STOPPED_CASE" if status == "STOPPED_BY_USER" else "FAILED_CASE") + (source.suffix.lower() or ".json")
+            dest = destdir / (("STOPPED_CASE" if status == "STOPPED_BY_USER" else "FAILED_CASE") + (source.suffix.lower() or ".json"))
             if source != dest:
                 shutil.copy2(source, dest)
             files["case"] = str(dest.relative_to(root))

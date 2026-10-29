@@ -104,18 +104,30 @@ class _SeparatedModalProblem:
     def projected_bases(self, x, y, axis):
         """Constrain only the actual frozen-partner X/Y test directions."""
         ncm = self.shape[0]
+        def constrained_basis(constraints, scales, directions):
+            # Work in dimensionless field coordinates. Frozen partners have
+            # unit norm after QR; an already satisfied trace can leave only
+            # roundoff in C*T. A relative rank test against that noise alone
+            # invents constraints and removes part of the current shape.
+            c = constraints * scales[None, :]
+            space = affine_trace_space(
+                c, np.zeros(len(c)), np.zeros(len(scales)),
+                directions=directions,
+                constraint_rank_floor=1.e-12 * np.max(
+                    np.linalg.norm(directions, axis=0), initial=0.))
+            # Never silently accept a basis that violates real traces.
+            if np.max(np.abs(space.matrix @ space.basis), initial=0.) > 1.e-10:
+                raise ValueError("MODAL MVI: inadmissible frozen-partner basis")
+            return scales[:, None] * space.basis
+
         dm = separated_profile_directions(x[:ncm], y[:ncm], axis)
-        dm = self.scales[:self.nm, None] * dm
-        bm = affine_trace_space(self.cm, np.zeros(len(self.cm)),
-                                np.zeros(self.nm), directions=dm).basis
+        bm = constrained_basis(self.cm, self.scales[:self.nm], dm)
         if not bm.shape[1]:
             raise ValueError("MODAL MVI: no admissible mechanical directions in " + axis)
         if not self.ne:
             return bm, np.empty((0, 0))
         de = separated_profile_directions(x[ncm:], y[ncm:], axis)
-        de = self.scales[self.nm:, None] * de
-        be = affine_trace_space(self.ce, np.zeros(len(self.ce)),
-                                np.zeros(self.ne), directions=de).basis
+        be = constrained_basis(self.ce, self.scales[self.nm:], de)
         return bm, be
 
     def halfstep(self, x, y, axis, previous, *, current_q=None, on_stage=None):
