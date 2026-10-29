@@ -26,7 +26,28 @@ class TemporalGuiRoutingTests(TestCase):
     def test_selector_labels_and_default(self):
         self.assertEqual(time_integrator_code(TIME_INTEGRATOR_CHOICES[0]),"NEWMARK")
         self.assertEqual(time_integrator_code(TIME_INTEGRATOR_CHOICES[1]),"GAUSS2_IRK4")
+        self.assertEqual(time_integrator_code("STATIC"),"STATIC")
+        self.assertEqual(time_integrator_code("MODAL"),"MODAL")
         with self.assertRaises(ValueError):time_integrator_code("RK4_EXPLICIT")
+
+    def test_static_and_modal_tokens_are_distinct(self):
+        with TemporaryDirectory() as d:
+            folder=Path(d)
+            file,case=self.fixture(folder)
+            case["calculation_kind"]="STATIC"
+            file.write_text(json.dumps(case),encoding="utf-8")
+            with patch("cylinder_final_stage11a_dispatcher.validate_final_case",
+                       return_value={"calculation_kind":"STATIC","method":"MVI"}):
+                self.assertEqual(plan_time_integrator_run(file,"STATIC").integrator,"STATIC")
+                with self.assertRaisesRegex(ValueError,"STATIC has no time integrator"):
+                    plan_time_integrator_run(file,"GAUSS2_IRK4")
+            case["calculation_kind"]="MODAL"
+            file.write_text(json.dumps(case),encoding="utf-8")
+            with patch("cylinder_final_stage11a_dispatcher.validate_final_case",
+                       return_value={"calculation_kind":"MODAL","method":"MVI"}):
+                self.assertEqual(plan_time_integrator_run(file,"MODAL").integrator,"MODAL")
+                with self.assertRaisesRegex(ValueError,"MODAL has no time integrator"):
+                    plan_time_integrator_run(file,"GAUSS2_IRK4")
 
     def test_gauss_plan_preserves_case_and_separates_outputs(self):
         with TemporaryDirectory() as d:
