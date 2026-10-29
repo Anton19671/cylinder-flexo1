@@ -6930,6 +6930,10 @@ class FinalSolverGUI(EnhancedSolverGUI):
             if widget in (getattr(self,"time_integrator_combo",None),
                           getattr(self,"modal_case_btn",None),
                           getattr(self,"method_combo",None),
+                          getattr(self,"theory_combo",None),
+                          getattr(self,"cuf_model_combo",None),
+                          getattr(self,"geometry_combo",None),
+                          getattr(self,"material_model_combo",None),
                           getattr(self,"gradient_model_combo",None),
                           getattr(self,"output_dir_choose_btn",None)):continue
             if isinstance(widget,(ttk.Entry,ttk.Combobox,ttk.Button,ttk.Radiobutton,ttk.Checkbutton,tk.Entry,tk.Text,tk.Button,tk.Checkbutton,tk.Radiobutton)):
