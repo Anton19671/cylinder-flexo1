@@ -3658,8 +3658,8 @@ class FinalSolverGUI(EnhancedSolverGUI):
         try:
             out=self._result_output_dir()
             if out is None: raise ValueError("Папка текущего расчёта не определена")
-            files=([Path(out)/"00_MODAL_RESULTS.xlsx"] if
-                   (Path(out)/"00_MODAL_RESULTS.xlsx").is_file() else [])
+            files=([Path(out)/"00_МОДАЛЬНЫЙ_АНАЛИЗ_ЧАСТОТЫ_ФОРМЫ.xlsx"] if
+                   (Path(out)/"00_МОДАЛЬНЫЙ_АНАЛИЗ_ЧАСТОТЫ_ФОРМЫ.xlsx").is_file() else [])
             if not files:files=sorted((Path(out)/"EXCEL").glob("*__FULL_RESULTS.xlsx"),key=lambda p:p.stat().st_mtime,reverse=True)
             if not files:files=sorted(Path(out).rglob("*.xlsx"),key=lambda p:p.stat().st_mtime,reverse=True)
             if not files: raise ValueError("Excel ещё не создан. Дождитесь завершения автоматической постобработки.")
@@ -8999,9 +8999,9 @@ class FinalSolverGUI(EnhancedSolverGUI):
 
     def _open_modal_excel(self):
         out=self._modal_output_dir()
-        file=out/"00_MODAL_RESULTS.xlsx" if out else None
+        file=out/"00_МОДАЛЬНЫЙ_АНАЛИЗ_ЧАСТОТЫ_ФОРМЫ.xlsx" if out else None
         if file is None or not file.is_file():
-            messagebox.showerror("Модальный анализ","Файл 00_MODAL_RESULTS.xlsx не найден.")
+            messagebox.showerror("Модальный анализ","Файл 00_МОДАЛЬНЫЙ_АНАЛИЗ_ЧАСТОТЫ_ФОРМЫ.xlsx не найден.")
             return
         try:
             if sys.platform.startswith("win"):os.startfile(file)
