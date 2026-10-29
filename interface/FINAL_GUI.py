@@ -6109,7 +6109,9 @@ class FinalSolverGUI(EnhancedSolverGUI):
             self._sync_reference_case()
             active=self._active_reference_case()
             path,cfg=active
-            try:self._launch_reference_case(path,cfg,series=True)
+            try:
+                path,cfg=self._reference_launch_selection(path,cfg)
+                self._launch_reference_case(path,cfg,series=True)
             except Exception as exc:messagebox.showerror("МВИ 1–8",str(exc))
             return
         messagebox.showerror("МВИ 1–8","Создайте или загрузите вариационный CASE. Текущий решатель не принимает старый формат параметров.")
@@ -6495,7 +6497,9 @@ class FinalSolverGUI(EnhancedSolverGUI):
             self._sync_reference_case()
             active=self._active_reference_case()
             path,cfg=active
-            try:self._launch_reference_case(path,cfg)
+            try:
+                path,cfg=self._reference_launch_selection(path,cfg)
+                self._launch_reference_case(path,cfg)
             except Exception as exc:messagebox.showerror("Запуск CASE",str(exc))
             return
         messagebox.showerror("Запуск CASE","Создайте или загрузите вариационный CASE. Текущий решатель не принимает старый формат параметров.")
@@ -6794,8 +6798,12 @@ class FinalSolverGUI(EnhancedSolverGUI):
             if getattr(self,"_reference_case_key",None)!=key:
                 self._release_reference_locks()
                 self._reference_case_key=key
+                self._pending_reference_case=None
                 self._populate_reference_view(cfg)
-            self.reference_message.configure(text="Вариационный CASE: "+path.name+". Параметры изменяются через редактор CASE.")
+            self.reference_message.configure(text="Вариационный CASE: "+path.name+
+                (" · Метод выбран для следующего запуска, исходный CASE неизменён."
+                 if getattr(self,"_pending_reference_case",None) else
+                 ". Параметры изменяются через редактор CASE."))
             if not self.reference_bar.winfo_manager():
                 self.reference_bar.pack(fill="x",before=self._reference_bar_before,padx=0)
             self._refresh_visibility()
@@ -7001,6 +7009,18 @@ class FinalSolverGUI(EnhancedSolverGUI):
         if active is not None:
             self.open_reference_case(active[1],active[0]);return
         return super().save_case()
+
+    def _reference_launch_selection(self,path,cfg):
+        """Create a separate, automatically saved CASE only for a pending method."""
+        pending=getattr(self,"_pending_reference_case",None)
+        if pending is None:return path,cfg
+        if pending[0]!=Path(path).resolve():
+            self._pending_reference_case=None
+            return path,cfg
+        from cylinder_reference_method_switch import create_launch_case
+        launch_path,launch_cfg=create_launch_case(path,pending[1])
+        self._log(f"Автоматически сохранён CASE выбранного метода: {launch_path}\\n")
+        return launch_path,launch_cfg
 
     def _launch_reference_case(self,path,cfg,*,series=False):
         """Run the exact saved CASE with the normal GUI process controls."""
@@ -7560,35 +7580,33 @@ class FinalSolverGUI(EnhancedSolverGUI):
             return
         active=self._active_reference_case()
         if active is not None:
-            path,cfg=active
-            old_method=str(cfg.get("method","FDM")).upper()
-            old_rank=int(cfg.get("rank") or 1) if old_method=="MVI" else None
-            if old_method==method and old_rank==rank:
+            if self.proc is not None and self.proc.poll() is None:
+                messagebox.showwarning("Численный метод","Остановите текущий расчёт перед сменой метода.")
                 self._sync_ranked_method_choice()
-                self._refresh_visibility()
                 return
+            from cylinder_reference_method_switch import selected_case
+            path,cfg=active
+            try:
+                draft=selected_case(cfg,method,rank)
+                # Validate the proposed method before selecting it. No files are written.
+                from cylinder_final_stage11a_dispatcher import validate_final_case
+                from cylinder_modal_reference import prepare_modal_case
+                from cylinder_reference_case import prepare_reference_case
+                if str(draft.get("calculation_kind","")).upper()=="MODAL":
+                    prepare_modal_case(draft,base_dir=path.parent)
+                else:
+                    prepare_reference_case(draft,base_dir=path.parent)
+            except Exception as exc:
+                self._log(f"Смена метода отклонена: {exc}\\n")
+                messagebox.showerror("Численный метод",str(exc))
+                self._sync_ranked_method_choice()
+                return
+            self._pending_reference_case=(path.resolve(),draft)
+            self._v("method").set(method)
+            if rank is not None:self._v("rank").set(str(rank))
             self._sync_ranked_method_choice()
-            draft=copy.deepcopy(cfg)
-            draft["method"]=method
-            source_grid=draft.get("mvi_grid" if old_method=="MVI" else "fdm_grid",
-                                  draft.get("grid",{}))
-            draft.pop("mvi_grid",None);draft.pop("fdm_grid",None);draft.pop("grid",None)
-            draft["mvi_grid" if method=="MVI" else "fdm_grid"]=copy.deepcopy(source_grid)
-            draft["fdm_backend"]="DENSE_REFERENCE"
-            if method=="MVI":
-                grid=draft["mvi_grid"]
-                grid["nx"]=max(rank,int(grid.get("nx",5)))
-                ns=max(rank,int(grid.get("ns",5)))
-                if str(grid.get("operator_scheme","")).upper() in (
-                        "SBP21_PERIODIC_ODD","SBP21_FOURIER_ODD","SBP21_PERIODIC_ODD_CSR"):
-                    if ns % 2 == 0:ns+=1
-                grid["ns"]=ns
-                draft["rank"]=rank
-                draft["reference_mvi"]=draft.get("reference_mvi") or {"max_sweeps":30}
-            else:
-                draft.pop("rank",None)
-                draft.pop("reference_mvi",None)
-            self.open_reference_case(draft,path)
+            self._refresh_visibility()
+            self._log(f"Выбран {method + (str(rank) if rank else '')}; исходный CASE не изменён.\\n")
             return
         self._v("method").set(method)
         if rank is not None:self._v("rank").set(str(rank))
