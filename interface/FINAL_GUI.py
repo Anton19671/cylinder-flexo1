@@ -3787,6 +3787,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         ttk.Label(logbar,text="Прокрутка вверх приостанавливает автопрокрутку; возврат вниз включает её снова.").pack(side="left")
         ttk.Button(logbar,text="Очистить",command=self._clear_logs).pack(side="right")
         ttk.Button(logbar,text="Открыть большой журнал",command=self._open_detached_online_log).pack(side="right",padx=(0,6))
+        ttk.Button(logbar,text="Папка журнала",command=self._open_live_journal_folder).pack(side="right",padx=(0,6))
         self.online_autoscroll_btn=ttk.Button(logbar,text="Автопрокрутка: вкл",command=lambda:self._toggle_log_autoscroll("online_log"))
         self.online_autoscroll_btn.pack(side="right",padx=(0,6))
         logbody=ttk.Frame(self.online_plot_tabs["log"]);logbody.pack(fill="both",expand=True,padx=5,pady=(0,5))
@@ -3842,6 +3843,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         ).pack(side="left")
         ttk.Button(toolbar,text="Закрыть",command=close_window).pack(side="right")
         ttk.Button(toolbar,text="Развернуть",command=maximize_window).pack(side="right",padx=(0,6))
+        ttk.Button(toolbar,text="Открыть папку журнала",command=self._open_live_journal_folder).pack(side="right",padx=(0,6))
         ttk.Button(toolbar,text="Очистить",command=self._clear_logs).pack(side="right",padx=(0,6))
         detached_autoscroll_btn=ttk.Button(toolbar,text="Автопрокрутка: вкл",command=lambda:self._toggle_log_autoscroll("online_log_detached"))
         detached_autoscroll_btn.pack(side="right",padx=(0,6))
@@ -6062,7 +6064,8 @@ class FinalSolverGUI(EnhancedSolverGUI):
                 self.expected_steps=len(ld.get("load_factors") or [])
             self.run_kind="CASE"
             cmd=[sys.executable,str(APP_DIR/"RUN_FINAL_CASE.py"),str(p)]
-            self._log("\n=== START ===\n"+" ".join(cmd)+"\n")
+            self._start_live_run_journal("START")
+            self._log(" ".join(cmd)+"\n")
             self.run_btn.configure(state="disabled");self._progress_reset(self.expected_steps)
             self.proc=subprocess.Popen(cmd,cwd=str(APP_DIR),stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,bufsize=1,encoding="utf-8",errors="replace")
             self._set_top_running_state(True);threading.Thread(target=self._read_process_output,daemon=True).start()
@@ -6986,7 +6989,8 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self.run_kind="REFERENCE_SERIES" if series else "REFERENCE_CASE"
         self._stop_requested=False;self._paused=False;self._paused_pids=[]
         cmd=[sys.executable,str(APP_DIR/"interface"/"restored_gui_runner.py"),str(path),"NEWMARK" if plan.integrator=="STATIC" else plan.integrator]+(["--series"] if series else [])
-        self._log("\n=== REFERENCE START ===\n"+" ".join(cmd)+"\n")
+        self._start_live_run_journal("REFERENCE START")
+        self._log(" ".join(cmd)+"\n")
         self._progress_reset(self.expected_steps)
         self.proc=subprocess.Popen(cmd,cwd=str(APP_DIR),stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,text=True,bufsize=1,encoding="utf-8",errors="replace")
@@ -7688,6 +7692,8 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self.tab_menu=tk.Menu(self.tab_menu_button,tearoff=False)
         self.tab_menu_button.configure(menu=self.tab_menu)
         self.tab_menu_button.pack(side="left",padx=(0,8))
+        ttk.Button(progress_row,text="Журнал в окне…",
+                   command=self._open_detached_online_log).pack(side="left",padx=(0,8))
         self.progress=GreenStepProgressbar(progress_row,mode="determinate",length=205,height=18)
         self.progress.set_text("Принято 0/0 · 0%")
         self.progress.pack(side="left",fill="x",expand=True)
@@ -8272,21 +8278,81 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self.log.pack(fill="both",expand=True)
 
     def _clear_logs(self):
+        """Clear only the current GUI journal, never archived run logs."""
         for name in ("log","online_log","online_log_detached"):
             w=getattr(self,name,None)
             if w is not None:
                 try:w.delete("1.0","end")
                 except Exception:pass
 
+    def _open_live_journal_folder(self):
+        """Open the archive folder of the current run in the file manager."""
+        path=getattr(self,"_live_journal_path",None)
+        if path is None:
+            messagebox.showinfo("Журнал","Журнал создаётся при запуске расчёта.")
+            return
+        folder=Path(path).parent
+        try:
+            if sys.platform.startswith("win"):os.startfile(str(folder))
+            elif sys.platform=="darwin":subprocess.Popen(["open",str(folder)])
+            else:subprocess.Popen(["xdg-open",str(folder)])
+        except (OSError,ValueError) as exc:
+            messagebox.showerror("Папка журнала",str(exc))
+
+    def _start_live_run_journal(self,heading):
+        """One clean live view and a separate archived log per solver launch.
+
+        Never write into the result folder before the solver validates that it
+        is empty: MODAL intentionally rejects nonempty result destinations.
+        """
+        self._clear_logs()
+        self._reset_online_view()
+        self._online_wall_start=time.monotonic()
+        self._online_last_event_wall=self._online_wall_start
+        self._online_last_heartbeat_wall=self._online_wall_start
+        self._live_journal_path=None
+        try:
+            output=Path(self.run_output_dir).resolve()
+            folder=output.parent/"CALCULATION_JOURNALS"
+            folder.mkdir(parents=True,exist_ok=True)
+            stamp=time.strftime("%Y%m%d_%H%M%S")
+            name=f"{output.name}_{stamp}_{time.time_ns() % 1000000000:09d}.log"
+            path=folder/name
+            path.touch(exist_ok=False)
+            self._live_journal_path=path
+        except (OSError,ValueError) as exc:
+            # Logging must never prevent a legitimate solver run.
+            self._log(f"Журнал: ошибка создания файла: {exc}\\n")
+        self._log(f"=== {heading} ===\\n")
+        if self._live_journal_path is not None:
+            self._log(f"Файл живого журнала: {self._live_journal_path}\\n")
+        self._log(f"Папка результатов: {self.run_output_dir}\\n")
+        self._online_set("stage","Запуск решателя")
+
     def _log(self,text):
+        message=str(text)
         for name in ("log","online_log","online_log_detached"):
             w=getattr(self,name,None)
             if w is None:continue
             try:
-                w.insert("end",text)
+                w.insert("end",message)
                 if bool(getattr(self,"_log_autoscroll_states",{}).get(name,True)):
                     w.see("end")
-            except Exception:pass
+            except (tk.TclError,AttributeError):pass
+        current=self.proc if hasattr(self,"proc") else None
+        if current is not None and current.poll() is None and message.strip():
+            self._online_last_event_wall=time.monotonic()
+            if message.lstrip().startswith("MODAL"):
+                try:self._online_set("stage",message.strip()[:125])
+                except (tk.TclError,AttributeError):pass
+        path=getattr(self,"_live_journal_path",None)
+        if path is not None:
+            try:
+                with Path(path).open("a",encoding="utf-8") as fh:
+                    fh.write(message)
+            except OSError:
+                # Show messages live even if an archive folder becomes unavailable.
+                self._live_journal_path=None
 
     def _prepare_basic_problem_grid(self):
         if not hasattr(self,"fdm_grid_frame"):return
