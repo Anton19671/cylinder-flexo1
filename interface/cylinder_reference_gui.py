@@ -60,7 +60,7 @@ def edit_reference_case(original, fields, boundary, load, newton, dynamics=None,
     case['fdm_backend']=fdm_backend
     case['method']=method
     kind=str(fields.get('calculation_kind',case.get('calculation_kind','STATIC'))).upper()
-    if kind not in ('STATIC','DYNAMIC'):raise ValueError('Тип задачи: STATIC / DYNAMIC')
+    if kind not in ('STATIC','DYNAMIC','MODAL'):raise ValueError('Тип задачи: STATIC / DYNAMIC / MODAL')
     case['calculation_kind']=kind
     case.pop('fdm_grid',None);case.pop('mvi_grid',None);case.pop('grid',None)
     grid.update(nx=integer('nx'),ns=integer('ns'),operator_scheme=scheme)
@@ -106,6 +106,18 @@ def edit_reference_case(original, fields, boundary, load, newton, dynamics=None,
         if saved_bc:bc['electrical']=copy.deepcopy(saved_bc)
     case.setdefault('boundary_conditions',{})['variational']=bc
     load_data=document(load,'Нагрузка')
+    if kind=='MODAL':
+        case['mode']='LINEAR_ELASTIC'
+        case['method']='FDM'
+        case.pop('rank',None);case.pop('reference_mvi',None)
+        case.pop('load_definition',None);case.pop('reference_loads',None)
+        case.pop('dynamics',None)
+        case['modal']=document(dynamics if dynamics is not None else json.dumps(case.get('modal',{})),'Модальные настройки')
+        from cylinder_modal_reference import prepare_modal_case
+        prepare_modal_case(case,base_dir=base_dir)
+        return case
+    case['mode']='NONLINEAR_ELASTIC'
+    case.pop('modal',None)
     if kind=='DYNAMIC':
         factors=load_data.pop('load_factors',None)
         if factors is not None:case['editor_saved_static_load_factors']=factors
@@ -188,7 +200,7 @@ class ReferenceCaseEditor(tk.Toplevel):
         saved=micro.get('editor_saved_flexo',{})
         method=c.get('method','FDM');grid=c.get('mvi_grid' if method=='MVI' else 'fdm_grid',{})
         group('Теория и метод',[
-            ('Тип задачи','calculation_kind',c.get('calculation_kind','STATIC'),('STATIC','DYNAMIC')),
+            ('Тип задачи','calculation_kind',c.get('calculation_kind','STATIC'),('STATIC','DYNAMIC','MODAL')),
             ('Теория','theory',c.get('theory','CUF'),('KL','FSDT','REDDY','CUF')),
             ('Порядок CUF','cuf_model',c.get('cuf_model','TE1'),('TE1','TE2','TE3','TE4')),
             ('Пространственный метод','method',method,('FDM','MVI')),
@@ -243,13 +255,13 @@ class ReferenceCaseEditor(tk.Toplevel):
         self.load_text=json_box('Нагрузка и коэффициенты шагов (JSON)',
                                 c.get('reference_loads',c.get('load_definition',{})))
         self.newton_text=json_box('Параметры связанного Ньютона (JSON)',c.get('reference_newton',{}))
-        self.dynamics_text=json_box('Динамика Ньюмарка и закон F(t) (JSON)',
-            c.get('dynamics',c.get('editor_saved_dynamics',{
+        self.dynamics_text=json_box('Динамика / MODAL: плотность и n_modes (JSON)',
+            c.get('modal',c.get('dynamics',c.get('editor_saved_dynamics',{
                 'time_step_s':0.01,'n_steps':20,'density_kg_m3':1300.0,
                 'newmark_beta':0.25,'newmark_gamma':0.5,'start_time_s':0.0,
                 'damping':'NONE','initial_conditions':{'type':'ZERO'},
                 'time_law':{'kind':'HARMONIC','amplitude':1.0,'frequency_hz':1.0,
-                            'phase_rad':0.0,'start_time_s':0.0}})))
+                            'phase_rad':0.0,'start_time_s':0.0}}))))
         buttons=ttk.Frame(self,padding=8);buttons.pack(fill='x')
         ttk.Button(buttons,text='Проверить',command=self.validate).pack(side='left',padx=4)
         ttk.Button(buttons,text='Сохранить CASE…',command=self.save).pack(side='left',padx=4)
@@ -412,7 +424,7 @@ class ReferenceCaseEditor(tk.Toplevel):
     def validate(self):
         try:
             case=self.collect()
-            warning=reference_locking_message(case)
+            warning=(None if case.get('calculation_kind')=='MODAL' else reference_locking_message(case))
             if warning:messagebox.showwarning('Ограничение изгибной модели',warning,parent=self)
             else:messagebox.showinfo('Проверка CASE','Параметры, нагрузка и ГУ приняты проверочным решателем.',parent=self)
         except Exception as exc:messagebox.showerror('Ошибка CASE',str(exc),parent=self)
@@ -437,7 +449,7 @@ class ReferenceCaseEditor(tk.Toplevel):
     def run(self,series=False):
         path=self.save()
         if path is None:return
-        warning=reference_locking_message(self.case)
+        warning=(None if self.case.get('calculation_kind')=='MODAL' else reference_locking_message(self.case))
         if warning:messagebox.showwarning('Ограничение изгибной модели',warning,parent=self)
         try:self.parent._launch_reference_case(path,self.case,series=series)
         except Exception as exc:messagebox.showerror('Запуск CASE',str(exc),parent=self)
