@@ -235,7 +235,12 @@ class ReferenceCaseEditor(tk.Toplevel):
         ])
         self.flexo=tk.BooleanVar(value=bool(micro.get('enable_flexoelectric',True)))
         ttk.Checkbutton(flexo,text='Флексоэффект ВКЛ',variable=self.flexo).grid(row=4,column=0,columnspan=2,sticky='w')
-        group('Результаты', [('Папка результатов','output_dir',c.get('output_dir',''),None)])
+        resultbox=group('Результаты', [
+            ('Папка результатов','output_dir',c.get('output_dir',''),None)])
+        # Show a real Windows folder chooser immediately beside the output path.
+        ttk.Button(resultbox,text='Обзор папок…',command=self.choose_output_dir).grid(
+            row=0,column=2,sticky='w',padx=(3,8),pady=3)
+        resultbox.columnconfigure(1,weight=1)
         def json_box(title,obj):
             box=ttk.LabelFrame(body,text=title,padding=6);box.pack(fill='both',expand=True,pady=4)
             widget=tk.Text(box,height=9,wrap='none',font=('Consolas',10))
@@ -414,6 +419,20 @@ class ReferenceCaseEditor(tk.Toplevel):
         actions=ttk.Frame(outer);actions.pack(fill='x',pady=6)
         ttk.Button(actions,text='Применить к CASE',command=apply).pack(side='left')
         ttk.Button(actions,text='Отмена',command=win.destroy).pack(side='right')
+
+    def choose_output_dir(self):
+        """Select any existing output folder in the user's local file system."""
+        raw=self.fields['output_dir'].get().strip()
+        start=Path(raw).expanduser() if raw else Path.home()
+        if raw and not start.is_absolute() and self.path is not None:
+            start=self.path.parent/start
+        if not start.is_dir():
+            start=Path.home()
+        selected=filedialog.askdirectory(
+            parent=self,title='Выбрать папку результатов',
+            initialdir=str(start),mustexist=True)
+        if selected:
+            self.fields['output_dir'].set(str(Path(selected).resolve()))
 
     def collect(self, *, base_dir=None):
         fields={key:value.get() for key,value in self.fields.items()}
