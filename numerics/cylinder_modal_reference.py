@@ -39,6 +39,13 @@ def _modal_spec(case, *, base_dir=None):
         raise ValueError("MODAL requires calculation_kind=MODAL")
     if str(case.get("mode", "")).upper() != "LINEAR_ELASTIC":
         raise ValueError("MODAL linearization requires mode=LINEAR_ELASTIC")
+    # For an unloaded, undeformed modal analysis the tangent is the same
+    # first variation for LINEAR, VON_KARMAN and GREEN_LAGRANGE.
+    # Their nonlinear terms only contribute above quadratic order in the
+    # stationary energy. Preserve the requested kinematics in the CASE.
+    geometry_model = str(case.get("geometry_model", "")).upper()
+    if geometry_model not in ("LINEAR", "VON_KARMAN", "GREEN_LAGRANGE"):
+        raise ValueError("MODAL geometry_model must be LINEAR, VON_KARMAN or GREEN_LAGRANGE")
     method = str(case.get("method", "")).upper()
     if method not in ("FDM", "MVI"):
         raise ValueError("MODAL method must be FDM or MVI")
@@ -83,6 +90,9 @@ def _modal_spec(case, *, base_dir=None):
     surrogate = copy.deepcopy(case)
     surrogate["calculation_kind"] = "STATIC"
     surrogate["mode"] = "NONLINEAR_ELASTIC"
+    # The GL variational kernel is used ONLY as the linearization source at
+    # q=0. This is not a GL nonlinear solution of a LINEAR/VK CASE.
+    surrogate["geometry_model"] = "GREEN_LAGRANGE"
     surrogate["reference_loads"] = {
         "mechanical": [0.0] * n_mechanical, "load_factors": [0.0]}
     surrogate.pop("modal", None)
@@ -320,6 +330,7 @@ def run_modal_case(case, case_path):
             "mvi_modal_algorithm": result["mvi_modal_algorithm"]}
            if "rank" in result else {}),
         "scale_model": case["scale_model"], "material_model": "HOOKE",
+        "geometry_model": str(case["geometry_model"]).upper(),
         "status": "MODAL_COMPLETED", "converged": True,
         "accepted_steps": int(len(result["frequencies_hz"])),
         "n_modes": int(len(result["frequencies_hz"])),
@@ -334,6 +345,8 @@ def run_modal_case(case, case_path):
         "mesh_convergence_verified": False,
         "benchmark_validation_verified": False,
         "linearization": "undeformed_unloaded_zero_state",
+        "linearization_source": "GREEN_LAGRANGE_TANGENT_AT_ZERO",
+        "kinematics_linear_limit": True,
         "mass": "consistent_theory_specific_weak_inertia",
         "electric_inertia": False,
         "normalization": "reduced_mechanical_mass_orthonormal",
