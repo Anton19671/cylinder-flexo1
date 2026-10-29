@@ -60,6 +60,21 @@ def archive_terminated_run(output_dir, *, status, case_path=None, journal_path=N
     # A modal event may report a frequency before any mode field has been
     # committed to disk. Never call that mode accepted.
     event = last_modal_event if isinstance(last_modal_event, dict) else {}
+    partial_modes = 0
+    partial_file = root / "MODAL_PARTIAL_MODES.npz"
+    if str(calculation_kind).upper() == "MODAL" and partial_file.is_file():
+        try:
+            import numpy as np
+            with np.load(partial_file, allow_pickle=False) as saved:
+                frequencies = saved["frequencies_hz"]
+                fields = saved["mechanical_modes"]
+                if (frequencies.ndim == 1 and np.isfinite(frequencies).all() and
+                        fields.ndim == 4 and fields.shape[0] == len(frequencies) and
+                        np.isfinite(fields).all()):
+                    partial_modes = len(frequencies)
+                    files["modal_partial_modes"] = partial_file.name
+        except (OSError, ValueError, KeyError):
+            pass
     last_stage = {
         key: event[key] for key in
         ("stage", "mode", "n_modes", "rank", "sweep", "axis",
@@ -79,8 +94,9 @@ def archive_terminated_run(output_dir, *, status, case_path=None, journal_path=N
         "process_exit_code": exit_code,
         "error_type": error_type,
         "error_detail": error_detail,
-        "accepted_steps_verified": len(accepted),
-        "accepted_state_files": [row["state_file"] for row in accepted],
+        "accepted_steps_verified": partial_modes if str(calculation_kind).upper() == "MODAL" else len(accepted),
+        "accepted_state_files": ([partial_file.name] if partial_modes else
+                                 [row["state_file"] for row in accepted]),
         "last_modal_event": last_stage,
         "files": files,
         "note": ("An unfinished eigenmode/iteration is not a physical result. "

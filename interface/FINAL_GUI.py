@@ -1191,8 +1191,11 @@ class SolverGUI(tk.Tk):
         """Export saved reference results using a separate, compatible backend."""
         try:
             out=self._result_output_dir()
-            if out is None or not (out/"FINAL_RUN_SUMMARY.json").is_file():
-                raise ValueError("Сначала завершите вариационный расчёт: FINAL_RUN_SUMMARY.json не найден.")
+            if out is None or not any((out/name).is_file() for name in
+                                      ("FINAL_RUN_SUMMARY.json", "STOPPED_RUN.json", "FAILED_RUN.json")):
+                raise ValueError("Не найдено сохранение завершённого, остановленного или аварийного расчёта.")
+            if self.proc is not None and self.proc.poll() is None:
+                raise ValueError("Экспорт доступен после остановки расчёта.")
             mode=str(mode).upper()
             if mode not in ("FAST","STANDARD","FULL","QUICK"):
                 raise ValueError("Неверный режим экспорта: "+mode)

@@ -217,13 +217,15 @@ def _linear_matrices(prepared, density, *, progress_callback=None, detail_callba
     return k, m, bm, be, q0.shape, None if p0 is None else p0.shape
 
 
-def solve_modal_case(case, *, base_dir=None, progress_callback=None, detail_callback=None):
+def solve_modal_case(case, *, base_dir=None, progress_callback=None, detail_callback=None,
+                     mode_callback=None):
     """Compute consistent small-grid modes in Hz, with massless electric DOFs condensed."""
     prepared, density, requested = _modal_spec(case, base_dir=base_dir)
     if prepared.method == "MVI":
         from cylinder_modal_mvi import solve_modal_mvi
         return solve_modal_mvi(prepared, density, requested,
-                               progress_callback=progress_callback,detail_callback=detail_callback)
+                               progress_callback=progress_callback,detail_callback=detail_callback,
+                               mode_callback=mode_callback)
     k, m, bm, be, q_shape, p_shape = _linear_matrices(
         prepared, density, progress_callback=progress_callback,detail_callback=detail_callback)
     n_m = bm.shape[1]
@@ -282,6 +284,39 @@ def run_modal_case(case, case_path):
     out = out.resolve()
     if out.exists() and (not out.is_dir() or any(out.iterdir())):
         raise ValueError("OUTPUT_DIR_NOT_EMPTY: MODAL results must be separate")
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "REFERENCE_CASE.json").write_text(
+        json.dumps(case, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    saved_modes, saved_electrical, saved_eigenvalues, saved_sweeps = [], [], [], []
+
+    def save_mode(q, p, eigenvalue, sweep):
+        # Atomic, accepted forms in discovery order, not a completed spectrum.
+        grid = case["mvi_grid"]
+        nx, ns = int(grid["nx"]), int(grid["ns"])
+        shape = (-1, nx, ns)
+        saved_modes.append(np.asarray(q, float).reshape(shape))
+        if p is not None:
+            saved_electrical.append(np.asarray(p, float).reshape(shape))
+        saved_eigenvalues.append(float(eigenvalue))
+        saved_sweeps.append(int(sweep))
+        eigs = np.asarray(saved_eigenvalues)
+        arrays = {"mechanical_modes": np.stack(saved_modes),
+                  "omega_squared_rad2_s2": eigs, "omega_rad_s": np.sqrt(eigs),
+                  "frequencies_hz": np.sqrt(eigs) / (2. * np.pi),
+                  "x_m": np.linspace(0., float(case["geometry"]["L"]), nx),
+                  "s_m": np.arange(ns) * 2. * np.pi * float(case["geometry"]["R"]) / ns}
+        if saved_electrical:
+            arrays["electrical_modes"] = np.stack(saved_electrical)
+        temporary = out / "MODAL_PARTIAL_MODES.npz.tmp"
+        with temporary.open("wb") as stream:
+            np.savez_compressed(stream, **arrays)
+        os.replace(temporary, out / "MODAL_PARTIAL_MODES.npz")
+        info = {"status": "PARTIAL", "accepted_modes": len(saved_modes),
+                "requested_modes": int(case["modal"]["n_modes"]),
+                "mode_order": "discovery", "mvi_sweeps": saved_sweeps}
+        temporary = out / "MODAL_PARTIAL_STATUS.json.tmp"
+        temporary.write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8")
+        os.replace(temporary, out / "MODAL_PARTIAL_STATUS.json")
 
     def report(current, total):
         print(f"MODAL STEP {current}/{total} elapsed_s={time.monotonic()-started:.3f}",flush=True)
@@ -293,7 +328,8 @@ def run_modal_case(case, case_path):
 
     print("MODAL ASSEMBLY START",flush=True)
     result = solve_modal_case(case,base_dir=path.parent,
-                              progress_callback=report,detail_callback=details)
+                              progress_callback=report,detail_callback=details,
+                              mode_callback=save_mode)
     print(f"MODAL SOLVE DONE elapsed_s={time.monotonic()-started:.3f}",flush=True)
     out.mkdir(parents=True, exist_ok=True)
     arrays = {
