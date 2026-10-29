@@ -8,7 +8,7 @@
 - Во **всех книгах** есть лист `ОБОЗНАЧЕНИЯ`: имя листа, название столбца, исходный код, символ, единица СИ, пояснение. Ссылки ведут на исходные листы.
 - Единый чёрно-белый/серый стиль; значения сохраняют исходную точность, не пересчитываются при экспорте.
 - Для специфического поля без известного определения единица не выдумывается: явно требуется уточнение по CASE.
-- Этот стандарт применяется к `00_DYNAMIC_INDEX.xlsx`, `01_SIGNALS.xlsx`, `02_FOURIER_FFT_PSD.xlsx`, `03_PHASE_ATTRACTORS.xlsx`, `04_POINCARE.xlsx`, `05_LYAPUNOV.xlsx`, `06_BIFURCATION.xlsx` и `00_MODAL_RESULTS.xlsx`.
+- Этот стандарт применяется к `00_DYNAMIC_INDEX.xlsx`, `01_SIGNALS.xlsx`, `02_FOURIER_FFT_PSD.xlsx`, `03_PHASE_ATTRACTORS.xlsx`, `04_POINCARE.xlsx`, `05_LYAPUNOV.xlsx`, `06_BIFURCATION.xlsx` и `00_МОДАЛЬНЫЙ_АНАЛИЗ_ЧАСТОТЫ_ФОРМЫ.xlsx`.
 
 ## MODAL
 
