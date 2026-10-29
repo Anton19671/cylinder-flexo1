@@ -63,7 +63,9 @@ def edit_reference_case(original, fields, boundary, load, newton, dynamics=None,
     kind=str(fields.get('calculation_kind',case.get('calculation_kind','STATIC'))).upper()
     if kind not in ('STATIC','DYNAMIC','MODAL'):raise ValueError('Тип задачи: STATIC / DYNAMIC / MODAL')
     case['calculation_kind']=kind
-    if kind=='MODAL':method='FDM';fdm_backend='DENSE_REFERENCE';case['fdm_backend']=fdm_backend;case['method']=method
+    if kind=='MODAL':
+        fdm_backend='DENSE_REFERENCE'
+        case['fdm_backend']=fdm_backend
     case.pop('fdm_grid',None);case.pop('mvi_grid',None);case.pop('grid',None)
     grid.update(nx=integer('nx'),ns=integer('ns'),operator_scheme=scheme)
     case['mvi_grid' if method=='MVI' else 'fdm_grid']=grid
@@ -110,7 +112,6 @@ def edit_reference_case(original, fields, boundary, load, newton, dynamics=None,
     load_data=document(load,'Нагрузка')
     if kind=='MODAL':
         case['mode']='LINEAR_ELASTIC'
-        case.pop('rank',None);case.pop('reference_mvi',None)
         case.pop('load_definition',None);case.pop('reference_loads',None)
         case.pop('dynamics',None)
         options=document(dynamics if dynamics is not None else json.dumps(case.get('modal',{})),'Модальные настройки')
