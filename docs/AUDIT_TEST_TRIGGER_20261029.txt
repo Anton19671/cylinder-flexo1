@@ -1,0 +1,1 @@
+One-shot full-suite audit trigger. 2026-10-29. Run Python 3.11 compileall and pytest all tests; capture JUnit artifact. No solver physics changes.
