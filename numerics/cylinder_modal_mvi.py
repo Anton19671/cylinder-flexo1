@@ -377,13 +377,21 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
                 raise ValueError("MODAL MVI: invalid Rayleigh quotient")
             relative, change = float("inf"), float("inf")
             if last_q is not None:
+                old_mass = float(last_q @ operator.mass(last_q))
+                new_mass = float(q @ operator.mass(q))
+                if not (np.isfinite(old_mass) and np.isfinite(new_mass)
+                        and old_mass > 0. and new_mass > 0.):
+                    raise ValueError("MODAL MVI: invalid mass in shape comparison")
                 overlap = float(last_q @ operator.mass(q))
                 if overlap < 0.:
                     q = -q
                     p = None if p is None else -p
                     x = -x
                     overlap = -overlap
-                change = np.sqrt(max(0., 2. - 2. * min(1., overlap)))
+                # Compare UNIT-MASS fields. The raw eigenvectors can have
+                # different norms in successive frozen-partner subspaces.
+                cosine = np.clip(overlap / np.sqrt(old_mass * new_mass), 0., 1.)
+                change = float(np.sqrt(max(0., 2. - 2. * cosine)))
                 relative = abs(value - last_lambda) / max(
                     1., abs(value), abs(last_lambda))
             if sweep_callback is not None:
