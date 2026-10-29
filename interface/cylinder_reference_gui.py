@@ -11,6 +11,7 @@ from cylinder_reference_case import BACKEND, prepare_reference_case
 from cylinder_time_integrator_gui import TIME_INTEGRATOR_CHOICES
 from cylinder_thickness_locking_diagnostic import thickness_locking_diagnostic
 from cylinder_director_rotation_audit import director_rotation_diagnostic
+from cylinder_boundary_ui_model import boundary_ui_model
 
 TEMPLATE=Path(__file__).resolve().parent.parent/'config/CASE_REFERENCE_CUF_G3D_STATIC.json'
 DYNAMIC_TEMPLATE=Path(__file__).resolve().parent.parent/'config/CASE_REFERENCE_CUF_G3D_MVI_DYNAMIC.json'
@@ -231,6 +232,14 @@ class ReferenceCaseEditor(tk.Toplevel):
         if not micro.get('enable_flexoelectric',True) and micro.get('editor_saved_electrical_bc'):
             bc['electrical']=copy.deepcopy(micro['editor_saved_electrical_bc'])
         self.bc_text=json_box('Граничные условия: механические / градиентные / электрические',bc)
+        ttk.Button(body,text='Краевые условия по выбранной теории…',
+                   command=self.open_theory_boundary_editor).pack(anchor='w',pady=4)
+        self.bc_theory_info=ttk.Label(body,text='',wraplength=840)
+        self.bc_theory_info.pack(anchor='w')
+        for key in ('theory','cuf_model','scale_model'):
+            self.fields[key].trace_add('write',lambda *_:self._refresh_boundary_theory())
+        self.flexo.trace_add('write',lambda *_:self._refresh_boundary_theory())
+        self._refresh_boundary_theory()
         self.load_text=json_box('Нагрузка и коэффициенты шагов (JSON)',
                                 c.get('reference_loads',c.get('load_definition',{})))
         self.newton_text=json_box('Параметры связанного Ньютона (JSON)',c.get('reference_newton',{}))
@@ -247,6 +256,122 @@ class ReferenceCaseEditor(tk.Toplevel):
         ttk.Button(buttons,text='Рассчитать',command=self.run).pack(side='left',padx=4)
         ttk.Button(buttons,text='МВИ 1–8',command=lambda:self.run(series=True)).pack(side='left',padx=4)
         ttk.Button(buttons,text='Закрыть',command=self.destroy).pack(side='right',padx=4)
+
+    def _current_boundary_model(self):
+        fields={key:var.get() for key,var in self.fields.items()}
+        return boundary_ui_model({
+            'theory':fields['theory'],'cuf_model':fields['cuf_model'],
+            'scale_model':fields['scale_model'],
+            'micro':{'enable_flexoelectric':bool(self.flexo.get())}})
+
+    def _refresh_boundary_theory(self):
+        try:
+            info=self._current_boundary_model()
+            modes=' / '.join(info['electric_modes'])
+            self.bc_theory_info.configure(
+                text=f"{info['theory']}: {info['n_components']} механических компонент "
+                     f"({', '.join(info['components'])}); высшие следы: "
+                     f"{', '.join(info['higher_choices'])}; электрические ГУ: {modes}")
+        except Exception as exc:
+            self.bc_theory_info.configure(text=f"Проверьте теорию: {exc}")
+
+    def open_theory_boundary_editor(self):
+        """Live theory-dependent BC controls, synchronized into this CASE JSON."""
+        try:
+            info=self._current_boundary_model()
+            spec=json.loads(self.bc_text.get('1.0','end-1c'))
+            if not isinstance(spec,dict):raise ValueError('Нужен JSON-объект ГУ')
+        except Exception as exc:
+            messagebox.showerror('Краевые условия',str(exc),parent=self);return
+        from cylinder_variational_boundary import (
+            MECHANICAL_SUPPORTS,validate_boundary_passport,_fixed_components)
+        win=tk.Toplevel(self);win.title('ГУ: '+info['theory'])
+        win.geometry('900x720');win.transient(self)
+        outer=ttk.Frame(win,padding=10);outer.pack(fill='both',expand=True)
+        ttk.Label(outer,text='Теория '+info['theory']+' — '+', '.join(info['components']),
+                  wraplength=830).pack(anchor='w',pady=5)
+        tab=ttk.Notebook(outer);tab.pack(fill='both',expand=True)
+        mechanical=ttk.Frame(tab,padding=8);electric=ttk.Frame(tab,padding=8)
+        tab.add(mechanical,text='Механические и высшие ГУ')
+        tab.add(electric,text='Электрические ГУ')
+        mechanical.columnconfigure(0,weight=1)
+        controls={}
+        for rowno,side in enumerate(('left','right')):
+            saved=spec.get('mechanical',{}).get(side,{})
+            group=ttk.LabelFrame(mechanical,text='x=0' if side=='left' else 'x=L',padding=8)
+            group.grid(row=rowno,column=0,sticky='ew',pady=6)
+            support=tk.StringVar(value=saved.get('support','FREE'))
+            higher=tk.StringVar(value=saved.get('higher','NATURAL'))
+            ttk.Label(group,text='Закрепление').grid(row=0,column=0,sticky='w')
+            ttk.Combobox(group,textvariable=support,values=MECHANICAL_SUPPORTS,
+                         state='readonly').grid(row=0,column=1,sticky='ew')
+            ttk.Label(group,text='Градиентные следы').grid(row=1,column=0,sticky='w')
+            ttk.Combobox(group,textvariable=higher,values=info['higher_choices'],
+                         state='readonly',width=32).grid(row=1,column=1,sticky='ew')
+            caption=ttk.Label(group,text='',wraplength=720)
+            caption.grid(row=2,column=0,columnspan=2,sticky='w',pady=4)
+            custom=tk.StringVar(value=','.join(str(i) for i in saved.get('fixed_components',[])))
+            ttk.Label(group,text='CUSTOM: индексы компонент').grid(row=3,column=0,sticky='w')
+            ttk.Entry(group,textvariable=custom).grid(row=3,column=1,sticky='ew')
+            def update_label(*_,support=support,caption=caption,custom=custom):
+                try:
+                    mode=support.get()
+                    if mode=='CUSTOM':
+                        caption.configure(text='Выберите индексы из: '+
+                                          ', '.join(f'{i}={v}' for i,v in enumerate(info['components'])))
+                    else:
+                        names=info['support_components'][mode]
+                        caption.configure(text='Фиксируются: '+(', '.join(names) if names else 'нет'))
+                except Exception as exc:caption.configure(text=str(exc))
+            support.trace_add('write',update_label);update_label()
+            controls[side]=(support,higher,custom)
+        econtrols={}
+        ttk.Label(electric,text='Электрическая часть выключена' if not info['electric_enabled']
+                  else 'POTENTIAL — В; CHARGE — Кл/м²; INSULATED — изолировано').grid(
+                      row=0,column=0,columnspan=3,sticky='w',pady=8)
+        for j,side in enumerate(('left','right','outer','inner'),start=1):
+            previous=spec.get('electrical',{}).get(side,{})
+            mode=tk.StringVar(value=previous.get('mode','INSULATED') if info['electric_enabled'] else 'INSULATED')
+            val=tk.StringVar(value=str(previous.get('value','')))
+            ttk.Label(electric,text=side).grid(row=j,column=0,sticky='w')
+            sel=ttk.Combobox(electric,textvariable=mode,values=info['electric_modes'],state='readonly')
+            sel.grid(row=j,column=1,padx=5,pady=5)
+            entry=ttk.Entry(electric,textvariable=val)
+            entry.grid(row=j,column=2,padx=5,pady=5)
+            def refresh(*_,entry=entry,mode=mode):
+                entry.configure(state='normal' if info['electric_enabled']
+                                and mode.get()!='INSULATED' else 'disabled')
+            mode.trace_add('write',refresh);refresh()
+            econtrols[side]=(mode,val)
+        def apply():
+            from copy import deepcopy
+            try:
+                new=deepcopy(spec)
+                mech=new.setdefault('mechanical',{})
+                for side,(support,higher,custom) in controls.items():
+                    obj=mech.setdefault(side,{})
+                    obj['support']=support.get();obj['higher']=higher.get()
+                    if support.get()=='CUSTOM':
+                        obj['fixed_components']=[int(x.strip()) for x in custom.get().split(',') if x.strip()]
+                    else:obj.pop('fixed_components',None)
+                electrical=new.setdefault('electrical',{})
+                for side,(mode,val) in econtrols.items():
+                    obj=electrical.setdefault(side,{})
+                    obj['mode']=mode.get()
+                    if obj['mode']=='INSULATED':
+                        obj.pop('value',None);obj.pop('time_law',None)
+                    else:obj['value']=float(val.get().replace(',','.'))
+                validate_boundary_passport(new,electrical_enabled=info['electric_enabled'],
+                    calculation_kind=self.fields['calculation_kind'].get(),
+                    theory=info['theory'])
+                self.bc_text.delete('1.0','end')
+                self.bc_text.insert('1.0',json.dumps(new,ensure_ascii=False,indent=2))
+                win.destroy()
+            except Exception as exc:
+                messagebox.showerror('Некорректные краевые условия',str(exc),parent=win)
+        actions=ttk.Frame(outer);actions.pack(fill='x',pady=6)
+        ttk.Button(actions,text='Применить к CASE',command=apply).pack(side='left')
+        ttk.Button(actions,text='Отмена',command=win.destroy).pack(side='right')
 
     def collect(self, *, base_dir=None):
         fields={key:value.get() for key,value in self.fields.items()}
