@@ -36,6 +36,9 @@ class ModalCacheTests(unittest.TestCase):
         }
         prepared, density, _ = _modal_spec(case)
         operator = _SeparatedModalProblem(prepared, density, 1)
+        # Nine components, 5x5 nodes, one clamped end (9x5 traces).
+        self.assertEqual(operator.n_mechanical_free_dofs, 9 * 5 * 5 - 9 * 5)
+        self.assertEqual(operator.n_electric_free_dofs, 0)
         direction = np.random.default_rng(829).normal(size=operator.nm) * operator.scales
         def force(sign):
             q = (sign * operator.step * direction).reshape(operator.shape)
@@ -47,3 +50,4 @@ class ModalCacheTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

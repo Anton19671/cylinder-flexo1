@@ -24,6 +24,25 @@ from cylinder_variational_mvi import _normalize_partner, reconstruct_profiles
 MAX_PROJECTED_DIRECTIONS = 1600
 
 
+def _free_dof_count(constraints):
+    """Count unconstrained nodal coefficients without forming a nodal basis."""
+    c = np.asarray(constraints, float)
+    if c.ndim != 2 or not np.isfinite(c).all():
+        raise ValueError("invalid modal trace matrix")
+    if not c.shape[0]:
+        return c.shape[1]
+    row_scale = np.max(np.abs(c), axis=1, initial=0.)
+    c = c[row_scale > 0.] / row_scale[row_scale > 0., None]
+    if not c.shape[0]:
+        return c.shape[1]
+    c /= np.linalg.norm(c, axis=1)[:, None]
+    _, r, _ = qr(c.T, mode="economic", pivoting=True, check_finite=False)
+    diagonal = np.abs(np.diag(r))
+    rank = int(np.count_nonzero(
+        diagonal > 1.e-12 * np.max(diagonal, initial=0.)))
+    return c.shape[1] - rank
+
+
 def _mass_orthogonal_null(matrix):
     """QR null basis of preceding modal mass constraints, without SVD."""
     c = np.asarray(matrix, float)
@@ -140,6 +159,8 @@ class _SeparatedModalProblem:
             raise ValueError("MODAL MVI cannot separate mixed mechanical/electric constraints")
         self.cm = c[has_m, :self.nm]
         self.ce = c[has_e, self.nm:]
+        self.n_mechanical_free_dofs = _free_dof_count(self.cm)
+        self.n_electric_free_dofs = _free_dof_count(self.ce)
         self.step = prepared.settings.tangent_step_scaled
         self.scales = state_scales(self.f, self.q0, self.p0, prepared.settings)
         self.velocity0 = np.zeros_like(self.q0)
@@ -558,8 +579,8 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
         "frequencies_hz": omega / (2. * np.pi),
         "omega_rad_s": omega, "omega_squared_rad2_s2": eigenvalues,
         "mechanical_modes": q_out, "electrical_modes": p_out,
-        "n_mechanical_free_dofs": operator.nm,
-        "n_electric_free_dofs": operator.ne,
+        "n_mechanical_free_dofs": operator.n_mechanical_free_dofs,
+        "n_electric_free_dofs": operator.n_electric_free_dofs,
         "mvi_sweeps": [cycles[i] for i in order],
         "mvi_modal_algorithm": "fixed_rank_constrained_variational_YX_stationarity",
     }

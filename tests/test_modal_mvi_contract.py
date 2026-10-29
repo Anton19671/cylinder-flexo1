@@ -10,7 +10,8 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from cylinder_modal_mvi import _SeparatedModalProblem, _mass_orthogonal_null
+from cylinder_modal_mvi import (_SeparatedModalProblem, _mass_orthogonal_null,
+                                _free_dof_count)
 
 
 def test_modal_direction_order_matches_static_variational_contract():
@@ -46,6 +47,15 @@ def test_modal_orthogonality_rank_does_not_depend_on_row_scale(scale):
 
 def test_modal_zero_orthogonality_rows_leave_all_directions():
     np.testing.assert_array_equal(_mass_orthogonal_null(np.zeros((2, 3))), np.eye(3))
+
+
+def test_modal_free_dofs_exclude_only_independent_essential_traces():
+    # Prescribing a trace twice does not remove two independent unknowns.
+    constraints = np.array([[1., 0., 0., 0.], [2., 0., 0., 0.],
+                            [0., 1.e-15, 0., 0.]])
+    assert _free_dof_count(constraints) == 2
+    assert _free_dof_count(np.empty((0, 4))) == 4
+    assert _free_dof_count(np.empty((0, 0))) == 0
 
 
 def test_admissible_start_does_not_request_full_grid_modal_eigenvectors():
