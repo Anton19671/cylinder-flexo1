@@ -6919,6 +6919,37 @@ class FinalSolverGUI(EnhancedSolverGUI):
                 try:widget.configure(state="readonly")
                 except tk.TclError:pass
 
+    @staticmethod
+    def _modal_folder_key(path):
+        return str(Path(path).expanduser().resolve()) if path is not None else None
+
+    def _modal_results_folder(self,path=None):
+        return getattr(self,"_modal_results_folders",{}).get(self._modal_folder_key(path))
+
+    def _remember_modal_results_folder(self,folder,path=None):
+        """Keep unsaved modal output selection in this GUI session, not JSON."""
+        folder=str(folder).strip()
+        if not folder:return
+        cache=getattr(self,"_modal_results_folders",None)
+        if cache is None:
+            cache={}
+            self._modal_results_folders=cache
+        key=self._modal_folder_key(path)
+        cache[key]=folder
+        cache[None]=folder
+        if path is None:
+            if self._active_reference_case() is None:self._v("output_dir").set(folder)
+            return
+        active=self._active_reference_case()
+        if active is None or self._modal_folder_key(active[0])!=key:return
+        pending=getattr(self,"_pending_reference_case",None)
+        base=(pending[1] if pending is not None and
+              self._modal_folder_key(pending[0])==key else active[1])
+        draft=copy.deepcopy(base)
+        draft["output_dir"]=folder
+        self._pending_reference_case=(active[0].resolve(),draft) if draft!=active[1] else None
+        self._v("output_dir").set(folder)
+
     def _choose_results_folder(self):
         """Select a real local output folder; edit saved CASE without silent changes."""
         current=self._v("output_dir").get().strip()
@@ -7040,9 +7071,10 @@ class FinalSolverGUI(EnhancedSolverGUI):
                         "SBP21_PERIODIC_ODD","SBP21_FOURIER_ODD","SBP21_PERIODIC_ODD_CSR"):
                     if ns%2==0:ns+=1
                 case["mvi_grid"]["ns"]=ns
-            case["output_dir"]="../OUTPUT_REFERENCE_MODAL_"+(
+            case["output_dir"]=(self._modal_results_folder() or (
+                "../OUTPUT_REFERENCE_MODAL_"+(
                 "CUF_"+model if theory=="CUF" else theory)+"_"+(
-                "MVI"+str(case["rank"]) if case["method"]=="MVI" else "FDM")
+                "MVI"+str(case["rank"]) if case["method"]=="MVI" else "FDM")))
             return self.open_reference_case(case)
         except (OSError,ValueError,KeyError,TypeError) as exc:
             messagebox.showerror("Модальный анализ",str(exc))
