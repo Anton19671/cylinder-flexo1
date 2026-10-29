@@ -1181,6 +1181,14 @@ class SolverGUI(tk.Tk):
             messagebox.showerror("Расчёт","Расчёт завершился с ошибкой. См. лог.")
 
     def _run_postprocess(self,mode="FAST",full=None):
+        if self.run_kind in ("REFERENCE_CASE","REFERENCE_SERIES"):
+            messagebox.showinfo(
+                "Постобработка вариационного решателя",
+                "Старые FAST/STANDARD/FULL рассчитаны на другой формат STEP. "
+                "Для опорного решателя используйте REFERENCE_STEP_*.npz, "
+                "FINAL_RUN_SUMMARY.json и динамическую аналитику. "
+                "Смешивать толщинные базисы z^k и (2z/h)^k запрещено.")
+            return
         """Run postprocessing only on explicit user request.
 
         ``full`` is retained only for compatibility with older internal calls;
@@ -1243,6 +1251,12 @@ class SolverGUI(tk.Tk):
             self.progress_label.configure(text=f"Ошибка постобработки / Post-process error rc={rc}")
 
     def _run_quick_summary(self):
+        if self.run_kind in ("REFERENCE_CASE","REFERENCE_SERIES"):
+            messagebox.showinfo(
+                "Отчёт по вариационному решателю",
+                "Legacy QUICK SUMMARY не поддерживает формат REFERENCE. "
+                "Используйте FINAL_RUN_SUMMARY.json и сохранённые поля NPZ.")
+            return
         """Build a compact two-page RU/EN + English PDF from existing results."""
         try:
             if self.run_output_dir is None:
@@ -1294,6 +1308,11 @@ class SolverGUI(tk.Tk):
             self._log(f"QUICK SUMMARY OPEN WARNING: {type(exc).__name__}: {exc}\n")
 
     def _run_mvi_series_postprocess(self):
+        if self.run_kind in ("REFERENCE_CASE","REFERENCE_SERIES"):
+            messagebox.showinfo("МВИ 1–8",
+                "Результаты вариационной серии находятся в MVI_1_8_SUMMARY.json. "
+                "Старый постпроцессор к этой схеме не применяется.")
+            return
         try:
             if self.post_proc is not None and self.post_proc.poll() is None:
                 return
@@ -8187,6 +8206,20 @@ class FinalSolverGUI(EnhancedSolverGUI):
         except Exception as exc:messagebox.showerror("Открытие папки",str(exc))
 
     def _analyze_time_series(self):
+        if self.run_kind=="REFERENCE_CASE":
+            from cylinder_dynamic_analytics import export_dynamic_analytics
+            out=Path(self.run_output_dir)
+            if not (out/"REFERENCE_DYNAMIC_HISTORY.csv").is_file():
+                messagebox.showerror("Анализ динамики",
+                    "Для этого CASE не найдена принятая динамическая история.")
+                return
+            try:
+                report=export_dynamic_analytics(out)
+                self.dyn_text.delete("1.0","end")
+                self.dyn_text.insert("end",json.dumps(report,ensure_ascii=False,indent=2))
+            except Exception as exc:
+                messagebox.showerror("Анализ динамики",str(exc))
+            return
         try:
             from nonlinear_dynamics import save_analysis
             csvpath=self._v("dyn_csv").get().strip()
