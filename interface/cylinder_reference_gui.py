@@ -276,6 +276,20 @@ class ReferenceCaseEditor(tk.Toplevel):
             self.bc_theory_info.configure(text=f"Проверьте теорию: {exc}")
 
     def open_theory_boundary_editor(self):
+        """Use the SAME boundary dialog as the main interface."""
+        try:
+            from cylinder_boundary_editor import open_boundary_editor
+            case=self.collect()
+            def apply_changes(boundary, gradient):
+                self.bc_text.delete('1.0','end')
+                self.bc_text.insert('1.0',json.dumps(boundary,ensure_ascii=False,indent=2))
+                self.fields['gradient_model'].set(gradient)
+                self._refresh_boundary_theory()
+            open_boundary_editor(self,reference_case=case,on_apply=apply_changes)
+        except Exception as exc:
+            messagebox.showerror('Краевые условия',str(exc),parent=self)
+
+    def _legacy_theory_boundary_editor(self):
         """Live theory-dependent BC controls, synchronized into this CASE JSON."""
         try:
             info=self._current_boundary_model()
