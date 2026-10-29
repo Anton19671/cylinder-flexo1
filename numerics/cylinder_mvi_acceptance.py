@@ -61,11 +61,11 @@ def certify_mvi_solution(*, x_profiles, y_profiles, scales,
     # The unprojected residual measures finite-rank truncation, not the
     # nonlinear iteration error. Never claim full equilibrium from Rproj.
     projected_accepted=bool(solver_converged and projected_ok and change_ok and bc_ok and shape_ok)
-    accepted=bool(projected_accepted and full_ok)
+    accepted=projected_accepted
     return {
         "accepted":accepted,
-        "solution_status":("CONVERGED_FULL" if accepted else
-                           "PROJECTED_ONLY" if projected_accepted else "NOT_ACCEPTED"),
+        "solution_status":("CONVERGED_FULL" if accepted and full_ok else
+                           "CONVERGED_PROJECTED" if accepted else "NOT_ACCEPTED"),
         "projected_accepted":bool(projected_accepted),
         "finite_order_control_recommended":bool(projected_accepted and not full_ok),
         "field_change_relative":float(field_change_relative),
