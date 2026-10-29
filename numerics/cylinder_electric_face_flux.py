@@ -20,6 +20,7 @@ class DielectricFaceFluxResult:
     potential_energy_j: float
     net_residual_c: float
     circumferential_checkerboard_detected: bool
+    circumferential_checkerboard_energy_fraction: float = 0.
 
 
 def dielectric_face_flux_fdm(potential_v, *, length_m, radius_m, thickness_m,
@@ -66,15 +67,27 @@ def dielectric_face_flux_fdm(potential_v, *, length_m, radius_m, thickness_m,
         residual+=supplied
         energy+=float(np.sum(supplied*phi))
     checkerboard=False
+    checkerboard_fraction=0.
     if ns%2==0:
-        checker=(-1.)**np.arange(ns)
-        checkerboard=bool(np.linalg.norm(np.roll(checker,-1)-checker)>0)
+        # This flag describes the actual potential, not merely an even grid.
+        # Subtract the circumferential mean to preserve gauge invariance.
+        centered=phi-np.mean(phi,axis=1,keepdims=True)
+        amplitude=float(np.max(np.abs(centered),initial=0.))
+        if amplitude>0.:
+            normalized=centered/amplitude
+            alternating=(-1.)**np.arange(ns)
+            nyquist=normalized@alternating
+            energy=float(np.sum(normalized*normalized))
+            checkerboard_fraction=float(np.sum(nyquist*nyquist)/(ns*energy))
+            checkerboard_fraction=min(1.,max(0.,checkerboard_fraction))
+            checkerboard=checkerboard_fraction>=.05
     return DielectricFaceFluxResult(
         residual_c=residual,axial_face_flux_c_per_m=fx,
         circumferential_face_flux_c_per_m=fs,
         potential_energy_j=float(energy),
         net_residual_c=float(np.sum(residual)),
-        circumferential_checkerboard_detected=checkerboard)
+        circumferential_checkerboard_detected=checkerboard,
+        circumferential_checkerboard_energy_fraction=checkerboard_fraction)
 
 
 __all__=("DielectricFaceFluxResult","dielectric_face_flux_fdm")
