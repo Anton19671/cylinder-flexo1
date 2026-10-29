@@ -6813,7 +6813,8 @@ class FinalSolverGUI(EnhancedSolverGUI):
             path,cfg=active
             stat=path.stat()
             key=(str(path.resolve()),stat.st_mtime_ns,stat.st_size)
-            if getattr(self,"_reference_case_key",None)!=key:
+            new_case=getattr(self,"_reference_case_key",None)!=key
+            if new_case:
                 self._release_reference_locks()
                 self._reference_case_key=key
                 self._pending_reference_case=None
@@ -6826,6 +6827,9 @@ class FinalSolverGUI(EnhancedSolverGUI):
                 self.reference_bar.pack(fill="x",before=self._reference_bar_before,padx=0)
             self._refresh_visibility()
             self._apply_reference_locks()
+            if new_case and str(cfg.get("calculation_kind","")).upper()=="MODAL":
+                self._refresh_modal_results()
+                self.notebook.select(self.tab_modal_setup)
         finally:self._syncing_reference=False
 
     def _populate_reference_view(self,cfg):
@@ -8003,6 +8007,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self.tab_results=ttk.Frame(self.notebook,padding=10)
         self.tab_cylinder=ttk.Frame(self.notebook,padding=8)
         self.tab_dynamic_setup=ttk.Frame(self.notebook,padding=8)
+        self.tab_modal_setup=ttk.Frame(self.notebook,padding=10)
         self.tab_dynamics=ttk.Frame(self.notebook,padding=10)
         self.tab_files=ttk.Frame(self.notebook,padding=10)
         self.tab_run=ttk.Frame(self.notebook,padding=10)
@@ -8017,6 +8022,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self._build_online_tab()
         self._build_results_tab()
         self._build_dynamic_setup_tab()
+        self._build_modal_setup_tab()
         self._build_scrollable_page("tab_dynamics",self._build_dynamics_tab)
         self._build_scrollable_page("tab_files",self._build_files_tab)
         self._build_run_tab()
@@ -8032,14 +8038,15 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self.notebook.bind(
             "<<NotebookTabChanged>>",
             lambda _e:self._schedule_problem_scheme_redraw(70),add="+")
+        self.notebook.bind("<<NotebookTabChanged>>",self._modal_tab_selected,add="+")
         self._schedule_problem_scheme_redraw(100)
 
     def _on_calculation_kind_change(self):
         """Switch to the dedicated setup page without destroying GUI inputs."""
-        dynamic=self._v("calculation_kind","STATIC").get()=="DYNAMIC"
+        kind=self._v("calculation_kind","STATIC").get().upper()
         self._refresh_visibility()
-        if dynamic and hasattr(self,"tab_dynamic_setup"):
-            self.notebook.select(self.tab_dynamic_setup)
+        target=self.tab_dynamic_setup if kind=="DYNAMIC" else self.tab_modal_setup if kind=="MODAL" else None
+        if target is not None and str(target) in self.notebook.tabs():self.notebook.select(target)
 
     def _arrange_problem_workstation(self,event=None):
         """Show the side sketch only after both input panes have enough room."""
@@ -8889,6 +8896,134 @@ class FinalSolverGUI(EnhancedSolverGUI):
             self.user_material_save_btn.configure(state="normal" if user else "disabled")
         except Exception:pass
 
+    def _build_modal_setup_tab(self):
+        """Display saved modal eigenfrequencies without running calculations."""
+        p=self.tab_modal_setup
+        p.columnconfigure(0,weight=1)
+        p.rowconfigure(3,weight=1)
+        ttk.Label(p,text="Динамика · Модальный анализ",font=("Segoe UI Semibold",14)).grid(row=0,column=0,sticky="w")
+        ttk.Label(p,text="Свободные колебания: собственные частоты и формы. Ньюмарк и IRK4 не применяются.",
+                  wraplength=920).grid(row=1,column=0,sticky="ew",pady=6)
+        self.modal_case_summary=ttk.Label(p,text="Загрузите модальный CASE.",wraplength=950)
+        self.modal_case_summary.grid(row=2,column=0,sticky="ew",pady=6)
+        box=ttk.LabelFrame(p,text="Собственные частоты завершённого расчёта",padding=8)
+        box.grid(row=3,column=0,sticky="nsew")
+        box.columnconfigure(0,weight=1)
+        box.rowconfigure(1,weight=1)
+        actions=ttk.Frame(box)
+        actions.grid(row=0,column=0,sticky="w")
+        for label,fn in (("Редактировать CASE",self.open_modal_case),
+                         ("Обновить частоты",self._refresh_modal_results),
+                         ("Показать форму",self._show_modal_mode),
+                         ("Открыть Excel",self._open_modal_excel)):
+            ttk.Button(actions,text=label,command=fn).pack(side="left",padx=3,pady=5)
+        self.modal_frequency_tree=ttk.Treeview(box,columns=("mode","f","omega"),show="headings",selectmode="browse")
+        for key,label in (("mode","№ формы"),("f","Частота, Гц"),("omega","Круговая частота, рад/с")):
+            self.modal_frequency_tree.heading(key,text=label)
+            self.modal_frequency_tree.column(key,anchor="center",width=175)
+        self.modal_frequency_tree.grid(row=1,column=0,sticky="nsew")
+        scrollbar=ttk.Scrollbar(box,orient="vertical",command=self.modal_frequency_tree.yview)
+        scrollbar.grid(row=1,column=1,sticky="ns")
+        self.modal_frequency_tree.configure(yscrollcommand=scrollbar.set)
+        self.modal_frequency_tree.bind("<Double-Button-1>",lambda _e:self._show_modal_mode())
+        self.modal_result_status=ttk.Label(p,text="Результаты не загружены.",wraplength=950)
+        self.modal_result_status.grid(row=4,column=0,sticky="ew",pady=6)
+
+    def _modal_tab_selected(self,_event=None):
+        if not hasattr(self,"modal_frequency_tree"):return
+        try:
+            if self.notebook.select()==str(self.tab_modal_setup):self._refresh_modal_results()
+        except tk.TclError:pass
+
+    def _modal_output_dir(self):
+        active=self._active_reference_case()
+        if not active or str(active[1].get("calculation_kind","")).upper()!="MODAL":return None
+        case,cfg=active
+        raw=cfg.get("output_dir")
+        if not isinstance(raw,str) or not raw.strip():return None
+        folder=Path(raw).expanduser()
+        return (folder if folder.is_absolute() else case.parent/folder).resolve()
+
+    def _refresh_modal_results(self):
+        if not hasattr(self,"modal_frequency_tree"):return
+        tree=self.modal_frequency_tree
+        for item in tree.get_children():tree.delete(item)
+        active=self._active_reference_case()
+        if not active or str(active[1].get("calculation_kind","")).upper()!="MODAL":
+            self.modal_case_summary.configure(text="Загрузите модальный CASE.")
+            self.modal_result_status.configure(text="Модальный CASE не выбран.")
+            return
+        cfg=active[1]
+        modal=cfg.get("modal") or {}
+        self.modal_case_summary.configure(text=f"{active[0].name} · {cfg.get('theory')} {cfg.get('cuf_model','')} · {cfg.get('method')} · "
+             f"n_modes={modal.get('n_modes','?')} · плотность={modal.get('density_kg_m3','?')} кг/м³")
+        out=self._modal_output_dir()
+        summary=out/"FINAL_RUN_SUMMARY.json" if out else None
+        if summary is None or not summary.is_file():
+            self.modal_result_status.configure(text=f"Сохранённые результаты ещё не найдены: {out}")
+            return
+        try:
+            data=json.loads(summary.read_text(encoding="utf-8"))
+            if data.get("calculation_kind")!="MODAL" or data.get("status")!="MODAL_COMPLETED":
+                raise ValueError("Расчёт ещё не завершён")
+            f=data.get("frequencies_hz")
+            w=data.get("omega_rad_s")
+            if not isinstance(f,list) or not f or not isinstance(w,list) or len(f)!=len(w):
+                raise ValueError("Отсутствует спектр собственных частот")
+            for i,(fi,wi) in enumerate(zip(f,w),1):
+                fi,wi=float(fi),float(wi)
+                if not np.isfinite(fi) or not np.isfinite(wi):raise ValueError("Некорректные частоты")
+                tree.insert("","end",iid=str(i),values=(i,f"{fi:.9g}",f"{wi:.9g}"))
+            self.modal_result_status.configure(text=f"Сохранено форм: {len(f)} · {out}")
+        except (OSError,ValueError,TypeError,KeyError) as exc:
+            self.modal_result_status.configure(text=f"Результаты не загружены: {exc}")
+
+    def _open_modal_excel(self):
+        out=self._modal_output_dir()
+        file=out/"00_MODAL_RESULTS.xlsx" if out else None
+        if file is None or not file.is_file():
+            messagebox.showerror("Модальный анализ","Файл 00_MODAL_RESULTS.xlsx не найден.")
+            return
+        try:
+            if sys.platform.startswith("win"):os.startfile(file)
+            elif sys.platform=="darwin":subprocess.Popen(["open",str(file)])
+            else:subprocess.Popen(["xdg-open",str(file)])
+        except Exception as exc:messagebox.showerror("Модальный анализ",str(exc))
+
+    def _show_modal_mode(self):
+        selected=self.modal_frequency_tree.selection()
+        if not selected:
+            messagebox.showinfo("Модальный анализ","Выберите форму в таблице.")
+            return
+        out=self._modal_output_dir()
+        file=out/"REFERENCE_MODAL_MODES.npz" if out else None
+        if file is None or not file.is_file():
+            messagebox.showerror("Модальный анализ","REFERENCE_MODAL_MODES.npz не найден.")
+            return
+        try:
+            i=int(selected[0])-1
+            with np.load(file,allow_pickle=False) as z:
+                fields=np.asarray(z["mechanical_modes"])
+                x=np.asarray(z["x_m"])
+                ss=np.asarray(z["s_m"])
+                freq=np.asarray(z["frequencies_hz"])
+            case=self._active_reference_case()[1]
+            radial=2*(int(case["cuf_model"][2:])+1) if case.get("theory")=="CUF" else 2
+            if fields.ndim!=4 or i<0 or i>=len(fields) or radial>=fields.shape[1] or fields.shape[2:]!=(len(x),len(ss)):
+                raise ValueError("Неверные размеры сохранённой модальной формы")
+            field=np.asarray(fields[i,radial],dtype=float)
+            if not np.isfinite(field).all():raise ValueError("Некорректное модальное поле")
+            from matplotlib.figure import Figure
+            fig=Figure(figsize=(9,6))
+            ax=fig.add_subplot(111)
+            im=ax.imshow(field.T,origin="lower",aspect="auto",extent=(float(x[0]),float(x[-1]),float(ss[0]),float(ss[-1])))
+            fig.colorbar(im,ax=ax,label="Массово-нормированная радиальная форма")
+            ax.set(xlabel="x, м",ylabel="s, м",title=f"Форма {i+1} · f={float(freq[i]):.8g} Гц")
+            fig.tight_layout()
+            self._open_figure_in_window(fig,f"Модальный анализ · форма {i+1}")
+        except (OSError,ValueError,KeyError,IndexError,TypeError) as exc:
+            messagebox.showerror("Модальный анализ",str(exc))
+
     def _build_dynamics_tab(self):
         """Real temporal CSV postprocessing; no invented dynamic simulation."""
         p=self.tab_dynamics
@@ -8975,16 +9110,17 @@ class FinalSolverGUI(EnhancedSolverGUI):
         if not hasattr(self,"notebook"):return
         try:selected=str(self.notebook.select())
         except Exception:selected=""
-        for tab in (self.tab_problem,self.tab_load,self.tab_cylinder,self.tab_dynamic_setup,self.tab_numeric,self.tab_birger,self.tab_j2,self.tab_online,self.tab_results,self.tab_dynamics,self.tab_files,self.tab_run):
+        for tab in (self.tab_problem,self.tab_load,self.tab_cylinder,self.tab_dynamic_setup,self.tab_modal_setup,self.tab_numeric,self.tab_birger,self.tab_j2,self.tab_online,self.tab_results,self.tab_dynamics,self.tab_files,self.tab_run):
             try:self.notebook.forget(tab)
             except Exception:pass
         expert=self._v("ui_level","BASIC").get()=="EXPERT"
         # Historical Birger/J2 widgets are not available in the flexo interface.
         tabs=[(self.tab_problem,"1 · Постановка"),(self.tab_load,"2 · Нагрузка"),(self.tab_cylinder,"Цилиндр · схема")]
-        if self._v("calculation_kind","STATIC").get()=="DYNAMIC":
-            tabs.append((self.tab_dynamic_setup,"3 · Параметры динамики"))
+        kind=self._v("calculation_kind","STATIC").get().upper()
+        if kind=="DYNAMIC":tabs.append((self.tab_dynamic_setup,"3 · Динамика во времени"))
+        elif kind=="MODAL":tabs.append((self.tab_modal_setup,"3 · Динамика · Модальный анализ"))
         if expert:tabs.append((self.tab_numeric,"Численные настройки"))
-        tabs.extend(((self.tab_online,"Онлайн-расчёт"),(self.tab_results,"Результаты"),(self.tab_dynamics,"Анализ динамики")))
+        tabs.extend(((self.tab_online,"Онлайн-расчёт"),(self.tab_results,"Результаты"),(self.tab_dynamics,"Анализ временных рядов")))
         if expert:tabs.extend(((self.tab_files,"Файлы и начальные поля"),(self.tab_run,"Журнал")))
         for tab,title in tabs:self.notebook.add(tab,text=title)
         if hasattr(self,"tab_menu"):
@@ -8994,6 +9130,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         visible={str(tab) for tab,_ in tabs}
         try:
             if selected in visible:self.notebook.select(selected)
+            elif kind=="MODAL":self.notebook.select(self.tab_modal_setup)
         except Exception:pass
 
     def _open_expert_bc_settings(self):
