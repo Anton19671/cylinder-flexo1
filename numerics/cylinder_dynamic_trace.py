@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import numpy as np
+from cylinder_constraint_row import combined_constraint_entries
 
 
 def _vector(value, shape, name):
@@ -50,12 +51,8 @@ def mechanical_trace_matrix(rows, count):
     c = np.zeros((len(rows), int(count)), dtype=float)
     d = np.zeros(len(rows), dtype=float)
     for i, row in enumerate(rows):
-        if len(row.indices) != len(row.weights):
-            raise ValueError("mechanical trace index/weight count mismatch")
-        for idx, weight in zip(row.indices, row.weights):
-            if isinstance(idx, (bool, np.bool_)) or not isinstance(idx, (int, np.integer)) or not 0 <= idx < count:
-                raise ValueError("mechanical trace index out of range")
-            c[i, idx] += float(weight)
+        indexes,weights=combined_constraint_entries(row.indices,row.weights,count,label="mechanical trace")
+        c[i,indexes]=weights
         d[i] = float(row.prescribed)
     if not (np.isfinite(c).all() and np.isfinite(d).all()):
         raise ValueError("nonfinite mechanical trace")
@@ -85,24 +82,13 @@ def sparse_mechanical_trace_matrix(rows, count):
     rows=[row for row in rows if row.field=="mechanical"]
     ridx=[];cidx=[];values=[];target=np.zeros(len(rows),float)
     for i,row in enumerate(rows):
-        if len(row.indices)!=len(row.weights):
-            raise ValueError("mechanical trace index/weight count mismatch")
         prescribed=float(row.prescribed)
         if not np.isfinite(prescribed):
             raise ValueError("nonfinite mechanical trace")
         target[i]=prescribed
-        for index,weight in zip(row.indices,row.weights):
-            if (isinstance(index,(bool,np.bool_)) or
-                not isinstance(index,(int,np.integer)) or
-                not 0<=index<count):
-                raise ValueError("mechanical trace index out of range")
-            if isinstance(weight,(bool,np.bool_)):
-                raise ValueError("nonfinite mechanical trace")
-            w=float(weight)
-            if not np.isfinite(w):
-                raise ValueError("nonfinite mechanical trace")
-            if w:
-                ridx.append(i);cidx.append(int(index));values.append(w)
+        indexes,weights=combined_constraint_entries(row.indices,row.weights,count,label="mechanical trace")
+        for index,weight in zip(indexes,weights):
+            ridx.append(i);cidx.append(int(index));values.append(float(weight))
     c=sparse.coo_matrix(
         (values,(ridx,cidx)),shape=(len(rows),int(count)),
         dtype=float).tocsr()
