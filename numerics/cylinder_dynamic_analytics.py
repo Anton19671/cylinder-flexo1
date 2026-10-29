@@ -412,9 +412,20 @@ def export_dynamic_analytics(run_dir, *, output_dir=None,transient_fraction=.2,
     if not 0<=transient_fraction<0.9:
         raise ValueError("transient_fraction must lie in [0,.9)")
     run=load_dynamic_run(run_dir,probes=probes)
-    target=Path(output_dir).expanduser().resolve() if output_dir else run.root/"DYNAMIC_ANALYTICS"
-    if target.exists() and any(target.iterdir()) and not overwrite:
-        raise ValueError("analytics output directory already contains files; use overwrite=True")
+    target=Path(output_dir).expanduser().resolve() if output_dir else run.root
+    if target.exists() and not target.is_dir():
+        raise ValueError("analytics output path is not a directory")
+    if not overwrite:
+        conflicts=[name for name in (
+            "00_ДИНАМИКА_ОБЩИЕ_ДАННЫЕ.xlsx",
+            "01_ДИНАМИКА_ИСТОРИИ_ПЕРЕМЕЩЕНИЙ.xlsx",
+            "02_ДИНАМИКА_ЧАСТОТНЫЙ_АНАЛИЗ.xlsx",
+            "03_ДИНАМИКА_ФАЗОВЫЕ_ТРАЕКТОРИИ.xlsx",
+            "04_ДИНАМИКА_СЕЧЕНИЯ_ПУАНКАРЕ.xlsx",
+            "05_ДИНАМИКА_ПОКАЗАТЕЛИ_ЛЯПУНОВА.xlsx")
+            if (target/name).exists()]
+        if conflicts:
+            raise ValueError("analytics workbook already exists: "+", ".join(conflicts))
     target.mkdir(parents=True,exist_ok=True)
     plots=target/"PLOTS";plots.mkdir(exist_ok=True)
     freq=forcing_frequency_hz(run.case,forcing_hz)
@@ -426,7 +437,7 @@ def export_dynamic_analytics(run_dir, *, output_dir=None,transient_fraction=.2,
     books=[]
 
     # 01: physical fixed-point time series and per-probe Excel time charts.
-    path=target/"01_SIGNALS.xlsx"
+    path=target/"01_ДИНАМИКА_ИСТОРИИ_ПЕРЕМЕЩЕНИЙ.xlsx"
     with LabeledWorkbook(str(path)) as wb:
         for pt in run.probes:
             series=run.signals[pt.name]
@@ -438,7 +449,7 @@ def export_dynamic_analytics(run_dir, *, output_dir=None,transient_fraction=.2,
     books.append(path.name)
 
     # 02: windowed one-sided FFT with physically normalized amplitude and PSD.
-    path=target/"02_FOURIER_FFT_PSD.xlsx"
+    path=target/"02_ДИНАМИКА_ЧАСТОТНЫЙ_АНАЛИЗ.xlsx"
     with LabeledWorkbook(str(path)) as wb:
         for pt in run.probes:
             transform=fourier_spectrum(run.signals[pt.name]["w_m"],dt,
@@ -455,7 +466,7 @@ def export_dynamic_analytics(run_dir, *, output_dir=None,transient_fraction=.2,
     books.append(path.name)
 
     # 03: fixed-point phase trajectories; no claims of chaotic attractors.
-    path=target/"03_PHASE_ATTRACTORS.xlsx"
+    path=target/"03_ДИНАМИКА_ФАЗОВЫЕ_ТРАЕКТОРИИ.xlsx"
     with LabeledWorkbook(str(path)) as wb:
         for pt in run.probes:
             s=run.signals[pt.name]
@@ -475,7 +486,7 @@ def export_dynamic_analytics(run_dir, *, output_dir=None,transient_fraction=.2,
     books.append(path.name)
 
     # 04: forced-period section; never use an inferred natural FFT peak as the forcing.
-    path=target/"04_POINCARE.xlsx"
+    path=target/"04_ДИНАМИКА_СЕЧЕНИЯ_ПУАНКАРЕ.xlsx"
     with LabeledWorkbook(str(path)) as wb:
         for pt in run.probes:
             s=run.signals[pt.name]
@@ -493,7 +504,7 @@ def export_dynamic_analytics(run_dir, *, output_dir=None,transient_fraction=.2,
     books.append(path.name)
 
     # 05: one embedding-based maximal LE ESTIMATE for each distinct probe.
-    path=target/"05_LYAPUNOV.xlsx"
+    path=target/"05_ДИНАМИКА_ПОКАЗАТЕЛИ_ЛЯПУНОВА.xlsx"
     with LabeledWorkbook(str(path)) as wb:
         head=["probe","method","status","lambda_est_1_per_s","fit_R2","neighbor_pairs",
               "delay_samples","theiler_samples"]
@@ -526,7 +537,7 @@ def export_dynamic_analytics(run_dir, *, output_dir=None,transient_fraction=.2,
     books.append(path.name)
 
     # 00: complete provenance and explicit interpretation for the artifacts.
-    path=target/"00_DYNAMIC_INDEX.xlsx"
+    path=target/"00_ДИНАМИКА_ОБЩИЕ_ДАННЫЕ.xlsx"
     with LabeledWorkbook(str(path)) as wb:
         _worksheet(wb,"RUN",["property","value"],[
             ("theory",run.summary["theory"]),("method",run.summary.get("method")),
@@ -590,9 +601,11 @@ def export_bifurcation_study(manifest_csv, *, output_dir=None, parameter_name="p
             raise ValueError("one bifurcation study requires matching theory/method/MVI rank")
         if not np.isclose(np.diff(record.time_s)[0],np.diff(first.time_s)[0],rtol=1e-8):
             raise ValueError("one parameter diagram requires the same time step")
-    output=Path(output_dir).expanduser().resolve() if output_dir else path.parent/"BIFURCATION_ANALYTICS"
-    if output.exists() and any(output.iterdir()) and not overwrite:
-        raise ValueError("nonempty bifurcation output directory")
+    output=Path(output_dir).expanduser().resolve() if output_dir else path.parent
+    if output.exists() and not output.is_dir():
+        raise ValueError("bifurcation output path is not a directory")
+    if (output/"06_ДИНАМИКА_БИФУРКАЦИИ.xlsx").exists() and not overwrite:
+        raise ValueError("bifurcation workbook already exists")
     output.mkdir(parents=True,exist_ok=True)
     peak_rows=[];poincare_rows=[];summary_rows=[]
     for value,record in runs:
@@ -616,7 +629,7 @@ def export_bifurcation_study(manifest_csv, *, output_dir=None, parameter_name="p
         lyap=rosenstein_lyapunov(trace,dt,transient_fraction=transient_fraction)
         summary_rows.append((value,len(peaks),len(points),float(np.mean(q)),float(np.std(q)),
                              lyap["lambda_per_s"],lyap["status"]))
-    dest=output/"06_BIFURCATION.xlsx"
+    dest=output/"06_ДИНАМИКА_БИФУРКАЦИИ.xlsx"
     with LabeledWorkbook(str(dest)) as wb:
         _worksheet(wb,"PEAK_BRANCHES",[parameter_name,"peak_time_s","radial_peak_m"],
                    peak_rows,chart=("scatter",0,2),chart_title="Bifurcation from post-transient maxima")
