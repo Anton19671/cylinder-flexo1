@@ -336,8 +336,11 @@ def export_modal_full(root, destination, summary, frequencies, fields, electrica
     theta = np.asarray(s,float) / R
     names = _write_mode_workbooks(root,case,summary,x,theta,rows,physical,
                                   grams,mac,participation,diagnostics["pairs"])
-    plots = _make_plots(destination,x,theta,R,frequencies,diagnostics,physical)
-    return {"workbooks": names, "plots": str(plots), "modes": len(rows)}
+    # Numeric-first FULL: all data for Excel, Origin, MATLAB and Python.
+    from cylinder_modal_student_export import export_modal_student_data
+    names.extend(export_modal_student_data(root,summary,x,s,frequencies,modes,physical))
+    # Images remain optional presentation artifacts. Data books are authoritative.
+    return {"workbooks": names, "plots": None, "modes": len(rows)}
 
 
 __all__ = ("export_modal_full","CHARACTERISTICS_XLSX","FIELDS_XLSX","PLOTS_DIR")
