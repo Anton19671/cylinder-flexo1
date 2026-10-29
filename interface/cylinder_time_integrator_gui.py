@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from hashlib import sha256
 import json
 from pathlib import Path
+from cylinder_case_io import load_case_file
 
 
 TIME_INTEGRATOR_CHOICES = (
@@ -60,7 +61,7 @@ def plan_time_integrator_run(case_path, selection="NEWMARK", *, series=False):
     code=time_integrator_code(selection)
     path=Path(case_path).expanduser().resolve()
     raw=path.read_bytes()
-    case=json.loads(raw.decode("utf-8-sig"))
+    case=load_case_file(path)
     if not isinstance(case,dict):
         raise ValueError("CASE должен быть JSON-объектом")
     # Same complete physics validation as the established Newmark GUI.
