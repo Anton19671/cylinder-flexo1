@@ -7018,6 +7018,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
                              if plan.calculation_kind=="MODAL" else int(cfg.get("dynamics",{}).get("n_steps",0))
                              if plan.calculation_kind=="DYNAMIC" else len(loads.get("load_factors",[])))
         self.run_kind="REFERENCE_SERIES" if series else "REFERENCE_CASE"
+        self._live_run_calculation_kind=plan.calculation_kind
         self._stop_requested=False;self._paused=False;self._paused_pids=[]
         cmd=[sys.executable,str(APP_DIR/"interface"/"restored_gui_runner.py"),str(path),"NEWMARK" if plan.integrator=="STATIC" else plan.integrator]+(["--series"] if series else [])
         self._start_live_run_journal("REFERENCE START")
@@ -8344,10 +8345,13 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self._live_journal_path=None
         try:
             output=Path(self.run_output_dir).resolve()
-            folder=output.parent/"CALCULATION_JOURNALS"
+            kind=str(getattr(self,"_live_run_calculation_kind",self._v("calculation_kind","STATIC").get())).upper()
+            if kind not in ("STATIC","DYNAMIC","MODAL"):
+                raise ValueError(f"Unknown calculation kind for journal: {kind}")
+            folder=output.parent/"CALCULATION_JOURNALS"/kind
             folder.mkdir(parents=True,exist_ok=True)
             stamp=time.strftime("%Y%m%d_%H%M%S")
-            name=f"{output.name}_{stamp}_{time.time_ns() % 1000000000:09d}.log"
+            name=f"{kind}_{output.name}_{stamp}_{time.time_ns() % 1000000000:09d}.log"
             path=folder/name
             path.touch(exist_ok=False)
             self._live_journal_path=path
@@ -8362,6 +8366,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
 
     def _log(self,text):
         message=str(text)
+        archive_message=message  # Preserve the complete machine-readable event.
         if message.startswith("MODAL_EVENT "):
             try:
                 event=json.loads(message[len("MODAL_EVENT "):])
@@ -8433,7 +8438,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         if path is not None:
             try:
                 with Path(path).open("a",encoding="utf-8") as fh:
-                    fh.write(message)
+                    fh.write(archive_message if archive_message.endswith("\n") else archive_message+"\n")
             except OSError:
                 # Show messages live even if an archive folder becomes unavailable.
                 self._live_journal_path=None
