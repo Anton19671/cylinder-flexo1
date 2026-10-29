@@ -489,7 +489,12 @@ class ReferenceCaseEditor(tk.Toplevel):
             parent=self,title='Выбрать папку результатов',
             initialdir=str(start),mustexist=True)
         if selected:
-            self.fields['output_dir'].set(str(Path(selected).resolve()))
+            folder=str(Path(selected).resolve())
+            self.fields['output_dir'].set(folder)
+            if self.fields['calculation_kind'].get().upper()=='MODAL':
+                remember=getattr(self.parent,'_remember_modal_results_folder',None)
+                if callable(remember):
+                    remember(folder,self.path)
 
     def collect(self, *, base_dir=None):
         fields={key:value.get() for key,value in self.fields.items()}
