@@ -22,7 +22,8 @@ _TIME_CODES = {
     TIME_INTEGRATOR_CHOICES[1]: "GAUSS2_IRK4",
     "NEWMARK": "NEWMARK",
     "GAUSS2_IRK4": "GAUSS2_IRK4",
-    "MODAL": "NEWMARK",  # modal runner token; modal CASE never time-integrated
+    "STATIC": "STATIC",
+    "MODAL": "MODAL",  # eigenproblem: never a Newmark time integrator
 }
 
 
@@ -74,7 +75,13 @@ def plan_time_integrator_run(case_path, selection="NEWMARK", *, series=False):
     output=_output(case,path)
     if kind=="MODAL":
         if series:raise ValueError("MODAL does not support MVI rank series")
-        if code!="NEWMARK":raise ValueError("MODAL has no time integrator")
+        if code not in ("NEWMARK","MODAL"):raise ValueError("MODAL has no time integrator")
+    elif kind=="STATIC":
+        if code not in ("NEWMARK","STATIC"):
+            raise ValueError("STATIC has no time integrator")
+    elif kind=="DYNAMIC":
+        if code not in ("NEWMARK","GAUSS2_IRK4"):
+            raise ValueError("DYNAMIC requires Newmark or IRK4")
     if code=="GAUSS2_IRK4":
         if series:
             raise ValueError("IRK4 не поддерживает серию МВИ 1–8; выберите Ньюмарк")
