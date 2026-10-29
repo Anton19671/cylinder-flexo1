@@ -103,6 +103,40 @@ def _describe(code):
     found = COLUMN_INFO.get(name)
     if found is not None:
         return found
+    # Physical fields are sampled at saved z stations, not CUF coefficients.
+    if name in ("u(z)", "v(z)", "w(z)"):
+        axis = {"u": "продольное", "v": "окружное", "w": "радиальное"}[name[0]]
+        return (f"{axis.capitalize()} перемещение", name[0], "м",
+                f"Физическое {axis} перемещение в точке (x,s,z), из displacement3_m.")
+    if name == "detF":
+        return ("Якобиан деформации", "det F", "1",
+                "Определитель градиента деформации из сохранённого det_F.")
+    tensor = re.fullmatch(r"([ES])_(xx|ss|zz|xs|xz|sz)", name)
+    if tensor:
+        family, component = tensor.groups()
+        if family == "E":
+            return ("Компонента тензора деформации", f"E_{component}", "1",
+                    f"Компонента {component} из сохранённого strain6; безразмерная.")
+        return ("Компонента тензора напряжения", f"S_{component}", "Па",
+                f"Компонента {component} из сохранённого stress6_pa.")
+    electric = re.fullmatch(r"(Efield|D)_([xsz])", name)
+    if electric:
+        family, component = electric.groups()
+        if family == "Efield":
+            return ("Компонента электрического поля", f"E_{component}", "В/м",
+                    f"Компонента {component} из сохранённого electric3_v_per_m.")
+        return ("Компонента электрической индукции", f"D_{component}", "Кл/м²",
+                f"Компонента {component} из сохранённого induction3_c_per_m2.")
+    additional = {
+        "step": ("Принятый шаг", "k", "1", "Номер физически сохранённого шага из FINAL_RUN_SUMMARY.json."),
+        "iz": ("Индекс по толщине", "i_z", "1", "Нулевой индекс станции z по толщине."),
+        "z_m": ("Координата по толщине", "z", "м", "Физическая координата по толщине цилиндрической оболочки."),
+        "status": ("Статус принятого шага", "status", "—", "Итоговый статус шага в файле решателя."),
+        "w_middle_abs_max_m": ("Максимум модуля радиального коэффициента", "max|w_0|", "м",
+                                "Значение из итогового STEP, не повторно вычисленное экспортером."),
+    }
+    if name in additional:
+        return additional[name]
     electric_match = re.fullmatch(r"phi([0-4])_v", name)
     if electric_match:
         k = electric_match.group(1)
