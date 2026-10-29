@@ -91,6 +91,10 @@ class MatrixFreeNewtonSettings:
                 raise ValueError(name+": positive integer required")
 
 
+class _KrylovMatvecBudgetExceeded(RuntimeError):
+    """Hard Jv budget reached; never interpret as a successful solve."""
+
+
 class SparseTraceProjector:
     """Sparse normalized C*u=d with full-row-rank Gram factorization.
 
@@ -291,6 +295,8 @@ def _solve(problem, q0, p0, *, time_s, dead_load, free_charge,
         tangent_count=[0]
 
         def action(x):
+            if tangent_count[0]>=settings.krylov_max_matvecs:
+                raise _KrylovMatvecBudgetExceeded("KRYLOV_MATVEC_BUDGET_EXCEEDED")
             tangent_count[0]+=1
             xp=projector.project_null(x)
             magnitude=float(np.linalg.norm(xp))
@@ -319,24 +325,39 @@ def _solve(problem, q0, p0, *, time_s, dead_load, free_charge,
                 linear,-g,rtol=settings.krylov_rtol,atol=0.,
                 M=None if preconditioner is None else preconditioner.linear_operator(),
                 restart=settings.krylov_restart,
-                maxiter=settings.krylov_max_matvecs,
+                # With pr_norm, maxiter counts restart cycles, NOT Jv calls.
+                # The action guard above enforces the exact physical Jv cap.
+                maxiter=max(1,math.ceil(settings.krylov_max_matvecs/settings.krylov_restart)),
                 callback=lambda residual:linear_history.append(float(residual)),
-                callback_type="legacy")
+                callback_type="pr_norm")
+        except _KrylovMatvecBudgetExceeded:
+            rec["krylov_matvecs"]=tangent_count[0]
+            rec["krylov_iterations"]=len(linear_history)
+            rec["krylov_last_preconditioned_relative_residual"]=(
+                linear_history[-1] if linear_history else None)
+            status="KRYLOV_MATVEC_BUDGET_EXCEEDED"
+            break
         except ValueError as exc:
             if "INVALID_" not in str(exc):raise
             status="INVALID_TANGENT_PERTURBATION";break
         rec["krylov_matvecs"]=tangent_count[0]
-        if tangent_count[0]>settings.krylov_max_matvecs:
-            status="KRYLOV_MATVEC_BUDGET_EXCEEDED";break
         rec["krylov_iterations"]=len(linear_history)
-        rec["krylov_last_relative_residual"]=(
-            linear_history[-1] if linear_history else 0.)
+        rec["krylov_last_preconditioned_relative_residual"]=(
+            linear_history[-1] if linear_history else None)
         if info!=0 or not np.isfinite(correction).all():
             status="KRYLOV_LINEAR_SOLVE_NOT_CONVERGED"
             break
         correction=projector.project_null(correction)
-        true_linear=float(np.linalg.norm(action(correction)+g))
+        try:
+            true_linear=float(np.linalg.norm(action(correction)+g))
+        except _KrylovMatvecBudgetExceeded:
+            rec["krylov_matvecs"]=tangent_count[0]
+            status="KRYLOV_MATVEC_BUDGET_EXCEEDED"
+            break
+        rec["krylov_matvecs"]=tangent_count[0]
         rec["krylov_true_residual_scaled"]=true_linear
+        rec["krylov_last_relative_residual"]=(
+            true_linear/max(float(np.linalg.norm(g)),np.finfo(float).tiny))
         if true_linear>max(1.e-11,2.*settings.krylov_rtol*float(np.linalg.norm(g))):
             status="KRYLOV_TRUE_RESIDUAL_TOO_LARGE";break
         rec["increment_scaled"]=float(np.max(np.abs(correction),initial=0))
