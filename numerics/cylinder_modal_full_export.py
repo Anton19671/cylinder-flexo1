@@ -321,7 +321,7 @@ def export_modal_full(root, destination, summary, frequencies, fields, electrica
     """Create physical FULL books in the RUN root, charts under EXPORT/FULL."""
     root, destination = Path(root), Path(destination)
     case = json.loads((root / "REFERENCE_CASE.json").read_text(encoding="utf-8"))
-    prepared, density, requested = _modal_spec(case,base_dir=root.parent)
+    prepared, density, requested = _modal_spec(case,base_dir=root)
     modes = np.asarray(fields, float)
     if modes.shape[0] != requested:
         raise ValueError("Saved modal mode count differs from CASE")
