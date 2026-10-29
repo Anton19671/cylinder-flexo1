@@ -82,6 +82,18 @@ class _SeparatedModalProblem:
         self.scales = state_scales(self.f, self.q0, self.p0, prepared.settings)
         self.velocity0 = np.zeros_like(self.q0)
         self.density = density
+        # A completed mode never changes. Reuse its physical mass action
+        # across all X/Y sweeps and orthogonality projections.
+        self._previous_mass_cache = {}
+
+    def previous_mass(self, direction):
+        key = id(direction)
+        entry = self._previous_mass_cache.get(key)
+        if entry is not None and entry[0] is direction:
+            return entry[1]
+        result = self.mass(direction)
+        self._previous_mass_cache[key] = (direction, result)
+        return result
 
     def mass(self, direction):
         q = np.asarray(direction, float).reshape(self.shape)
@@ -198,7 +210,7 @@ class _SeparatedModalProblem:
                                       assume_a="sym", check_finite=True)
             keff += k[:nm, nm:] @ electric_recovery
             keff = 0.5 * (keff + keff.T)
-        constraints = (np.stack([bm.T @ self.mass(q) for q in previous])
+        constraints = (np.stack([bm.T @ self.previous_mass(q) for q in previous])
                        if previous else np.zeros((0, nm)))
         z = _mass_orthogonal_null(constraints)
         if not z.shape[1]:
@@ -269,7 +281,7 @@ class _SeparatedModalProblem:
                                 self.nx, self.ns, mode)
         x, y = _normalize_partner(x, y, "X")
         bm, be = self.projected_bases(x, y, "X")
-        constraints = (np.stack([bm.T @ self.mass(q) for q in previous])
+        constraints = (np.stack([bm.T @ self.previous_mass(q) for q in previous])
                        if previous else np.zeros((0, bm.shape[1])))
         z = _mass_orthogonal_null(constraints)
         if not z.shape[1]:
@@ -418,7 +430,7 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
         if p is not None:
             p = p / modal_mass
         for previous in qmodes:
-            overlap = abs(float(q @ operator.mass(previous)))
+            overlap = abs(float(q @ operator.previous_mass(previous)))
             if overlap > 1.e-6:
                 raise ValueError(
                     f"MODAL_MVI_MODE_NOT_ORTHOGONAL: mode={mode+1}, "
