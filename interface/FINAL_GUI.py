@@ -7991,34 +7991,48 @@ class FinalSolverGUI(EnhancedSolverGUI):
         ttk.Button(self.reference_bar,text="Краевые условия…",command=self._edit_variational_bc).pack(side="left",padx=5)
         ttk.Button(self.reference_bar,text="Редактировать CASE…",command=self._edit_active_reference_case).pack(side="left",padx=5)
         ttk.Button(self.reference_bar,text="Закрыть CASE",command=self._close_active_reference_case).pack(side="left")
-        actions=ttk.Frame(self,padding=(12,0,12,7));actions.pack(fill="x")
+        # A long CASE toolbar previously clipped the right-packed Run button.
+        # Keep file/CASE actions and the run controls in separate rows.  The
+        # Run button is the FIRST left-packed child in the calculation row so
+        # it remains visible even at minimum window width / high Windows DPI.
+        actions=ttk.Frame(self,padding=(12,0,12,2));actions.pack(fill="x")
         self._reference_bar_before=actions
         ttk.Button(actions,text="Открыть параметры",command=self.open_parameters).pack(side="left",padx=(0,5))
-        ttk.Button(actions,text="Сохранить параметры в папку…",command=self.save_parameters_to_folder).pack(side="left",padx=5)
+        ttk.Button(actions,text="Сохранить параметры…",command=self.save_parameters_to_folder).pack(side="left",padx=5)
         ttk.Button(actions,text="Новый CASE…",command=self.open_reference_case).pack(side="left",padx=5)
-        ttk.Button(actions,text="Сохранить выбранный CASE…",command=self._save_selected_reference_case).pack(side="left",padx=5)
+        self.save_selected_case_btn=ttk.Button(
+            actions,text="Сохранить выбранный CASE…",
+            command=self._save_selected_reference_case)
+        self.save_selected_case_btn.pack(side="left",padx=5)
         self.top_load_case_btn=ttk.Button(actions,text="Загрузить CASE…",command=self.load_case)
         self.top_load_case_btn.pack(side="left",padx=5)
-        ttk.Button(actions,text="Проверить",command=self.validate_case).pack(side="left",padx=(14,5))
-        self.series_btn=ttk.Button(actions,text="МВИ 1–8",command=self.run_mvi_series)
+
+        calculation_actions=ttk.Frame(self,padding=(12,0,12,5))
+        calculation_actions.pack(fill="x")
+        self.calculation_toolbar=calculation_actions
+        self.top_run_btn=ttk.Button(
+            calculation_actions,text="Рассчитать",command=self.run_case,
+            style="Accent.TButton")
+        self.top_run_btn.pack(side="left",padx=(0,8))
+        self.top_pause_btn=ttk.Button(
+            calculation_actions,text="Пауза",
+            command=self.toggle_pause_calculation,state="disabled")
+        self.top_pause_btn.pack(side="left",padx=5)
+        self.top_stop_btn=ttk.Button(
+            calculation_actions,text="Стоп",
+            command=self.stop_calculation,state="disabled",style="Stop.TButton")
+        self.top_stop_btn.pack(side="left",padx=5)
+        ttk.Button(calculation_actions,text="Проверить",command=self.validate_case).pack(side="left",padx=(12,5))
+        self.series_btn=ttk.Button(calculation_actions,text="МВИ 1–8",command=self.run_mvi_series)
         self.series_btn.pack(side="left",padx=5)
-        self.top_results_btn=ttk.Button(actions,text="Открыть результаты",command=self.open_results)
+        self.top_results_btn=ttk.Button(
+            calculation_actions,text="Открыть результаты",command=self.open_results)
         self.top_results_btn.pack(side="right",padx=(5,0))
-        self.top_stop_btn=ttk.Button(actions,text="Стоп",command=self.stop_calculation,state="disabled",style="Stop.TButton")
-        self.top_stop_btn.pack(side="right",padx=5)
-        self.top_pause_btn=ttk.Button(actions,text="Пауза",command=self.toggle_pause_calculation,state="disabled")
-        self.top_pause_btn.pack(side="right",padx=5)
-        self.top_run_btn=ttk.Button(actions,text="Рассчитать",command=self.run_case,style="Accent.TButton")
-        self.top_run_btn.pack(side="right",padx=5)
-        # Visible in the main toolbar, not buried in the Files tab.
-        # This uses the same Windows folder picker for static, dynamic and MODAL.
         self.top_choose_output_btn=ttk.Button(
-            actions,text="Папка результатов…",command=self._choose_results_folder)
+            calculation_actions,text="Папка результатов…",
+            command=self._choose_results_folder)
         self.top_choose_output_btn.pack(side="right",padx=5)
         self.run_btn=self.top_run_btn
-        # Keep calculation progress on its own row.  VIDEO/3D and other action
-        # buttons can make the toolbar wider; the old inline label was clipped
-        # by Tk, which made step/percent information disappear.
         self.parameter_toolbar=actions
         progress_row=ttk.Frame(self,padding=(12,0,12,7))
         progress_row.pack(fill="x")
