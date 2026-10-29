@@ -30,13 +30,13 @@ for _folder in ("mvi","mkr","models","legacy"):
 import numpy as np
 
 import cylinder_te1_mvi_core as mvi
-import cylinder_te1_stage5a_birger as b5
+from cylinder_gui_removed_material import material_validation_ui as b5
 import cylinder_cuf_stage7a_general_mechanics as g7
 from cylinder_final_stage11a_dispatcher import (
     THEORIES, CUF_MODELS, METHODS, MODES, validate_final_case
 )
 import final_load_builder as loadbuilder
-import final_birger_curve as birgercurve
+from cylinder_gui_removed_material import curve_ui as birgercurve
 import final_units as funits
 UNIT_SYSTEMS=tuple(funits.SYSTEMS)
 import restored_gui_capabilities as capreg
