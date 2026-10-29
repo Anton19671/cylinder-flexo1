@@ -241,13 +241,28 @@ class _SeparatedModalProblem:
                 raise ValueError("MODAL MVI: old projected modal mass invalid")
             old_projected_value = float(reduced @ kz @ reduced / old_mass)
         if on_stage is not None:on_stage("EIGEN_BEGIN",0,1)
-        eigenvalues, eigvec = eigh(kz, mz, subset_by_index=(0, 0),
-                                  driver="gvx", check_finite=True)
+        # A repeated eigenvalue has no unique eigenvector. Tracking only
+        # the first LAPACK vector makes the shape jump between sweeps, even
+        # if the physical eigenspace is unchanged. Rotate WITHIN the first
+        # eigenvalue cluster to maximize mass overlap with the old iterate.
+        eigenvalues, eigvec = eigh(kz, mz, check_finite=True)
         value = float(eigenvalues[0])
-        if on_stage is not None:on_stage("EIGEN_DONE",1,1)
+        cluster_tol = 1.e-9 * max(1., abs(value))
+        multiplicity = int(np.count_nonzero(
+            np.abs(eigenvalues - value) <= cluster_tol))
+        if on_stage is not None:on_stage("EIGEN_DONE",multiplicity,multiplicity)
         if value < -1.e-8 * max(1., abs(value)):
             raise ValueError("MODAL MVI: negative squared frequency")
-        coeff = z @ eigvec[:, 0]
+        selected = eigvec[:, 0]
+        if multiplicity > 1 and current_q is not None:
+            old_coordinates = np.linalg.lstsq(bm, previous_field, rcond=None)[0]
+            old_reduced = z.T @ old_coordinates
+            family = eigvec[:, :multiplicity]
+            weights = family.T @ mz @ old_reduced
+            magnitude = float(np.linalg.norm(weights))
+            if np.isfinite(magnitude) and magnitude > 1.e-12:
+                selected = family @ (weights / magnitude)
+        coeff = z @ selected
         q = bm @ coeff
         p = (None if not self.ne else
              np.zeros(self.ne) if electric_recovery is None else
