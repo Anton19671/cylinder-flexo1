@@ -217,6 +217,13 @@ class ReferenceCaseEditor(tk.Toplevel):
             ('Циклы МВИ','max_sweeps',c.get('reference_mvi',{}).get('max_sweeps',30),None),
             ('Точек Гаусса','n_gauss',c.get('quadrature',{}).get('n_gauss',3),None),
         ])
+        # Main window and editor use one authoritative selector pair.
+        # Rank changes in this editor are propagated immediately, with no
+        # CASE save; changes in the main window update these fields likewise.
+        self._method_syncing=False
+        self.fields['method'].trace_add('write',self._on_method_rank_edit)
+        self.fields['rank'].trace_add('write',self._on_method_rank_edit)
+        self.apply_method_selection(method,c.get('rank',1))
         group('Геометрия и материал (СИ)',[
             ('Длина L, м','L',geo.get('L',''),None),('Радиус R, м','R',geo.get('R',''),None),
             ('Толщина h, м','h',geo.get('h',''),None),('Модуль E, Па','E0',mat.get('E0',''),None),
@@ -277,6 +284,34 @@ class ReferenceCaseEditor(tk.Toplevel):
         ttk.Button(buttons,text='Рассчитать',command=self.run).pack(side='left',padx=4)
         ttk.Button(buttons,text='МВИ 1–8',command=lambda:self.run(series=True)).pack(side='left',padx=4)
         ttk.Button(buttons,text='Закрыть',command=self.destroy).pack(side='right',padx=4)
+
+    def apply_method_selection(self,method,rank=None):
+        """Main selector -> editor; updating Tk variables must not echo back."""
+        self._method_syncing=True
+        try:
+            self.fields['method'].set(str(method).upper())
+            if rank is not None:
+                self.fields['rank'].set(str(rank))
+            self.case['method']=str(method).upper()
+            if method=="MVI":
+                self.case['rank']=int(rank if rank is not None else self.fields['rank'].get())
+            else:
+                self.case.pop('rank',None)
+        finally:
+            self._method_syncing=False
+
+    def _on_method_rank_edit(self,*_):
+        """Editor selector -> main selector without saving the source CASE."""
+        if getattr(self,'_method_syncing',False):
+            return
+        method=self.fields['method'].get().upper()
+        try:
+            rank=int(self.fields['rank'].get()) if method=='MVI' else None
+        except ValueError:
+            return  # rank entry may be temporarily empty while typing
+        if method=='MVI' and not 1<=rank<=8:
+            return
+        self.parent._reference_editor_method_changed(self,method,rank)
 
     def _current_boundary_model(self):
         fields={key:var.get() for key,var in self.fields.items()}
