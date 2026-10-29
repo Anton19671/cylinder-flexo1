@@ -189,3 +189,14 @@ V-1...V-14 и Ж-1...Ж-15: ждут отдельной последовател
 - Локально в архивной рабочей копии перенесена именно эта правка: **13 passed, 3 deselected** по новой регрессии и выбранным старым тестам (`pytest -q tests/test_audit_checkerboard_indicator.py tests/test_electric_face_flux.py -k 'checkerboard or odd_circumferential or constant_gauge or periodic_zero_net_charge_load'`). Не выдавать этот результат за прогон полного актуального main.
 - Отдельный исторический тест `test_face_flux_is_exact_discrete_enthalpy_derivative` на архиве продолжает падать (значения производной и слабой формы различаются); эта ошибка не является результатом изменения флага и остаётся в V-6. Требуется отдельная проверка электрической сильной формы и знака её вариации на актуальной ветке.
 - Важная граница: физические коэффициенты, градиенты и электрическая работа при исправлении Ж-12 не менялись.
+
+## Этап 21 — Ж-9: контроль плохо обусловленной касательной (29.10.2026)
+- Исправлено `numerics/cylinder_variational_fdm.py`: вместо одного `rcond<=epsilon` используется нижняя граница `max(100*n*epsilon, min_reciprocal_condition)` по LU/xGECON; `StaticFDMSettings.min_reciprocal_condition` по умолчанию 0, валидируется и может ужесточать проверку. Нет SVD, псевдообращения и регуляризации.
+- Коммит кода `c51502766403727699bfdb172910b19f5bceb2b3`; новый тест `tests/test_audit_zh9_condition.py`, коммит `03106e08b37395f88fd44951854dfbc42e894c1b`.
+- Локальный архив 27.10 получил тот же алгоритм, `pytest tests/test_audit_zh9_condition.py tests/test_checked_lu_no_svd.py` -> **11 passed** (0.20 с). Совместная выборка с `tests/test_variational_fdm.py`: 11 passed, 1 failed, 15 subtests passed; падение по старому архивному утверждению `load_definition.face=OUTER` (ожидался запрет с `MIDDLE`), не по изменённому LU-контролю.
+- При `diag(1,1e-14)` новая проверка отклоняет касательную; при `diag(1,1e-13)` для n=2 по умолчанию допускает, если это приемлемо по размерно-адаптивному порогу: это диагностический выбор, а не физическая проверка обусловленности. Можно настроить строгость.
+- Полный pytest актуальной ветки после изменений не запускался; Ж-9 закрыт по коду и выборочной проверке, но общая V-6 не закрыта.
+
+## Этап 22 — обследование Ж-13 (НЕ ЗАКРЫТ)
+- Проверены `numerics/cylinder_gauss2_rk.py`, `cylinder_gauss2_mvi.py`, `cylinder_gauss2_variational_fdm.py`. В Gauss2-MVI действительно есть широкий `except (ValueError,FloatingPointError,OverflowError)` в line-search; endpoint-потенциал использует только `newton.absolute_tolerance_scaled`. Нужны отдельные, минимальные безопасные исправления с регрессионными тестами, прежде чем считать пункт закрытым.
+
