@@ -13,6 +13,15 @@ import json
 import sys
 from pathlib import Path
 
+# This file is launched directly by the Tk GUI, not as a package module.
+# In that process sys.path[0] is interface/, so mechanics/ and numerics/
+# must be activated explicitly before importing postprocessing modules.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+from cylinder_paths import activate as _activate_paths
+_activate_paths()
+
 import numpy as np
 
 
@@ -72,11 +81,8 @@ def _modal(root, summary, dest, mode):
     _write_csv(dest / "FREQUENCIES.csv",
                ("mode", "frequency_hz", "omega_rad_s", "omega_squared_rad2_s2"),
                ((i+1, frequency[i], omega[i], eigen[i]) for i in range(len(frequency))))
-    workbook = root / "00_МОДАЛЬНЫЙ_АНАЛИЗ_ЧАСТОТЫ_ФОРМЫ.xlsx"
-    if workbook.is_file():
-        # The solver's original, self-describing Excel workbook is authoritative.
-        import shutil
-        # The single authoritative workbook remains at the RUN root.\n        # Avoid a second, potentially stale, copy in EXPORT/FULL.\n        pass
+    # The original frequency workbook belongs to the result root only.
+    # Older runs may still have 00_MODAL_RESULTS.xlsx. Do not duplicate it.
     # Independent shape inspection is read-only: no modal solve or rerun.
     from cylinder_modal_diagnostics import (
         inspect_modal_shapes, recover_modal_displacements)
