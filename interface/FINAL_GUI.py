@@ -7504,7 +7504,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
                 self._refresh_visibility()
                 return
             self._sync_ranked_method_choice()
-             draft=copy.deepcopy(cfg)
+            draft=copy.deepcopy(cfg)
             draft["method"]=method
             source_grid=draft.get("mvi_grid" if old_method=="MVI" else "fdm_grid",
                                   draft.get("grid",{}))
@@ -7512,6 +7512,13 @@ class FinalSolverGUI(EnhancedSolverGUI):
             draft["mvi_grid" if method=="MVI" else "fdm_grid"]=copy.deepcopy(source_grid)
             draft["fdm_backend"]="DENSE_REFERENCE"
             if method=="MVI":
+                grid=draft["mvi_grid"]
+                grid["nx"]=max(rank,int(grid.get("nx",5)))
+                ns=max(rank,int(grid.get("ns",5)))
+                if str(grid.get("operator_scheme","")).upper() in (
+                        "SBP21_PERIODIC_ODD","SBP21_FOURIER_ODD","SBP21_PERIODIC_ODD_CSR"):
+                    if ns % 2 == 0:ns+=1
+                grid["ns"]=ns
                 draft["rank"]=rank
                 draft["reference_mvi"]=draft.get("reference_mvi") or {"max_sweeps":30}
             else:
