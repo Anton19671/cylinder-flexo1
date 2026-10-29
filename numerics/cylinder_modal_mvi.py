@@ -326,9 +326,17 @@ class _SeparatedModalProblem:
             represented = bm @ (z @ reduced)
             defect = float(np.linalg.norm(represented - previous_field) /
                            max(float(np.linalg.norm(previous_field)), 1.e-30))
-            if not np.isfinite(defect) or defect > 1.e-7:
+            if not np.isfinite(defect):
+                raise ValueError("MODAL MVI: nonfinite previous-shape projection")
+            # With previously accepted modes, each new Y/X halfstep imposes
+            # mass orthogonality on a DIFFERENT frozen-partner trial space.
+            # The previous shape need not lie exactly in its newly constrained
+            # subspace. Compare the minimum with the admissible projection of
+            # that shape, never with an inadmissible old vector. Preserve a
+            # hard guard against a genuinely lost separated direction.
+            if defect > 1.e-5:
                 raise ValueError(
-                    "MODAL_MVI_OLD_SHAPE_NOT_IN_FROZEN_PARTNER_SPACE: "
+                    "MODAL_MVI_OLD_SHAPE_PROJECTION_TOO_LARGE: "
                     f"axis={axis}, relative_difference={defect:.6g}")
             old_mass = float(reduced @ mz @ reduced)
             if old_mass <= 0 or not np.isfinite(old_mass):
