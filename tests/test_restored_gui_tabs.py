@@ -55,12 +55,14 @@ class RestoredGuiTabsTests(TestCase):
         app=self.app
         records=[]
         for level in ("BASIC","EXPERT"):
-            for kind in ("STATIC","DYNAMIC"):
+            for kind in ("STATIC","DYNAMIC","MODAL"):
                 app._v("ui_level").set(level)
                 app._v("calculation_kind").set(kind)
                 app._apply_ui_level_layout();app._on_calculation_kind_change();self.pump()
                 tabs=app.notebook.tabs()
-                self.assertEqual(len(tabs), (6 if level=="BASIC" else 9)+(kind=="DYNAMIC"))
+                self.assertEqual(len(tabs), (6 if level=="BASIC" else 9)+(kind!="STATIC"))
+                self.assertEqual(str(app.tab_modal_setup) in tabs,kind=="MODAL")
+                self.assertEqual(str(app.tab_dynamic_setup) in tabs,kind=="DYNAMIC")
                 self.assertEqual(app.tab_menu.index("end")+1,len(tabs))
                 for index,page in enumerate(tabs):
                     app.tab_menu.invoke(index);self.pump()
@@ -74,6 +76,36 @@ class RestoredGuiTabsTests(TestCase):
                     records.append((level,kind,app.notebook.tab(page,"text"),len(buttons)))
         self.assertFalse(self.errors,self.errors)
         print("TAB_AUDIT",json.dumps(records,ensure_ascii=False))
+
+    def test_modal_page_reads_saved_eigenfrequencies(self):
+        app=self.app
+        source=Path(__file__).resolve().parents[1]/"config/CASE_REFERENCE_MODAL_SEVEN_THEORIES.json"
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            case=json.loads(source.read_text(encoding="utf-8"))
+            case["output_dir"]="MODAL_RESULTS"
+            case_path=root/"case.json"
+            case_path.write_text(json.dumps(case),encoding="utf-8")
+            app._v("case_path").set(str(case_path));self.pump()
+            self.assertEqual(app._v("calculation_kind").get(),"MODAL")
+            self.assertEqual(app.notebook.select(),str(app.tab_modal_setup))
+            self.assertNotIn(str(app.tab_dynamic_setup),app.notebook.tabs())
+            self.assertEqual(len(app.modal_frequency_tree.get_children()),0)
+            out=root/"MODAL_RESULTS"
+            out.mkdir()
+            summary={"calculation_kind":"MODAL","status":"MODAL_COMPLETED",
+                     "frequencies_hz":[123.4,456.7],"omega_rad_s":[775.345,2869.52]}
+            (out/"FINAL_RUN_SUMMARY.json").write_text(json.dumps(summary),encoding="utf-8")
+            app._refresh_modal_results()
+            rows=app.modal_frequency_tree.get_children()
+            self.assertEqual(len(rows),2)
+            self.assertEqual(app.modal_frequency_tree.item("2","values")[1],"456.7")
+            summary["status"]="FAILED"
+            (out/"FINAL_RUN_SUMMARY.json").write_text(json.dumps(summary),encoding="utf-8")
+            app._refresh_modal_results()
+            self.assertFalse(app.modal_frequency_tree.get_children())
+            app._v("case_path").set("");self.pump()
+        self.assertFalse(self.errors,self.errors)
 
     def test_integrator_widget_persistence_and_series_state(self):
         app=self.app
