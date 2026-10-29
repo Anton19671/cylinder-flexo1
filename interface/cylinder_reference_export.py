@@ -62,6 +62,8 @@ def _modal(root, summary, dest, mode):
         fields = np.asarray(file["mechanical_modes"], dtype=float)
         x = np.asarray(file["x_m"], dtype=float)
         s = np.asarray(file["s_m"], dtype=float)
+        electric = (np.asarray(file["electrical_modes"], dtype=float)
+                    if "electrical_modes" in file else None)
     if (frequency.ndim != 1 or len(frequency) == 0 or
             not np.isfinite(frequency).all() or fields.ndim != 4 or
             fields.shape[0] != len(frequency) or
@@ -74,7 +76,7 @@ def _modal(root, summary, dest, mode):
     if workbook.is_file():
         # The solver's original, self-describing Excel workbook is authoritative.
         import shutil
-        shutil.copy2(workbook, dest / "00_MODAL_RESULTS.xlsx")
+        # The single authoritative workbook remains at the RUN root.\n        # Avoid a second, potentially stale, copy in EXPORT/FULL.\n        pass
     # Independent shape inspection is read-only: no modal solve or rerun.
     from cylinder_modal_diagnostics import (
         inspect_modal_shapes, recover_modal_displacements)
@@ -124,6 +126,10 @@ def _modal(root, summary, dest, mode):
                     for k in range(len(frequency))
                     for iz in range(len(z))
                     for ix in range(len(x)) for js in range(len(s))))
+    if mode == "FULL":
+        from cylinder_modal_full_export import export_modal_full
+        export_modal_full(root, dest, summary, frequency, fields, electric,
+                          x, s, diagnostic)
     if mode == "FAST":
         return
     from matplotlib import pyplot as plt
