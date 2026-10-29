@@ -117,7 +117,9 @@ def _read_completed_run(folder, method):
                 "full_residual", "constraint_reaction"}
     last_time = -math.inf
     for idx, step in enumerate(steps, 1):
-        if not isinstance(step, dict) or step.get("index") != idx or             step.get("converged") is not True or             step.get("full_equilibrium_satisfied") is not True:
+        if (not isinstance(step, dict) or step.get("index") != idx or
+                step.get("converged") is not True or
+                step.get("full_equilibrium_satisfied") is not True):
             raise ValueError(f"{method} step {idx}: equilibrium or indexing invalid")
         for key in ("admissible_residual_scaled", "residual_relative_to_initial",
                     "constraint_defect_scaled"):
