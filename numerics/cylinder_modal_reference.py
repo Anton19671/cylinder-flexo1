@@ -329,7 +329,7 @@ def run_modal_case(case, case_path):
         "mechanical_free_dofs": int(result["n_mechanical_free_dofs"]),
         "electric_free_dofs": int(result["n_electric_free_dofs"]),
         "modes_file": "REFERENCE_MODAL_MODES.npz",
-        "excel_file": "00_MODAL_RESULTS.xlsx",
+        "excel_file": "00_МОДАЛЬНЫЙ_АНАЛИЗ_ЧАСТОТЫ_ФОРМЫ.xlsx",
         "output_dir": str(out), "reference_only": True,
         "mesh_convergence_verified": False,
         "benchmark_validation_verified": False,
@@ -342,7 +342,7 @@ def run_modal_case(case, case_path):
     }
     # Human-readable tables for frequencies, parameters and all modal fields.
     from cylinder_excel_tables import LabeledWorkbook, write_labeled_table
-    with LabeledWorkbook(str(out / "00_MODAL_RESULTS.xlsx")) as wb:
+    with LabeledWorkbook(str(out / "00_МОДАЛЬНЫЙ_АНАЛИЗ_ЧАСТОТЫ_ФОРМЫ.xlsx")) as wb:
         write_labeled_table(wb,"FREQUENCIES",
             ("mode","frequency_hz","omega_rad_s","omega_squared_rad2_s2"),
             ((i+1,float(result["frequencies_hz"][i]),
