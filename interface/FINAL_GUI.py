@@ -6813,7 +6813,8 @@ class FinalSolverGUI(EnhancedSolverGUI):
             raise ValueError(f"Папка результатов не пуста: {result_dir}")
         self.run_output_dir=result_dir
         loads=cfg.get("reference_loads") or cfg.get("load_definition") or {}
-        self.expected_steps=(8 if series else int(cfg.get("dynamics",{}).get("n_steps",0))
+        self.expected_steps=(8 if series else int(cfg.get("modal",{}).get("n_modes",0))
+                             if plan.calculation_kind=="MODAL" else int(cfg.get("dynamics",{}).get("n_steps",0))
                              if plan.calculation_kind=="DYNAMIC" else len(loads.get("load_factors",[])))
         self.run_kind="REFERENCE_SERIES" if series else "REFERENCE_CASE"
         self._stop_requested=False;self._paused=False;self._paused_pids=[]
@@ -6861,8 +6862,12 @@ class FinalSolverGUI(EnhancedSolverGUI):
             if not isinstance(cfg,dict):raise ValueError("CASE должен содержать JSON-объект")
             from cylinder_reference_case import selected_backend, BACKEND
             if selected_backend(cfg)==BACKEND:
-                from cylinder_reference_case import prepare_reference_case
-                prepare_reference_case(cfg)
+                if str(cfg.get("calculation_kind","")).upper()=="MODAL":
+                    from cylinder_modal_reference import prepare_modal_case
+                    prepare_modal_case(cfg,base_dir=Path(p).parent)
+                else:
+                    from cylinder_reference_case import prepare_reference_case
+                    prepare_reference_case(cfg,base_dir=Path(p).parent)
                 self._v("case_path").set(p)
                 self.open_reference_case(cfg,p)
                 self._log(f"Вариационный CASE загружен: {p}\n")
