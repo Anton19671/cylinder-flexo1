@@ -115,7 +115,7 @@ class _SeparatedModalProblem:
                                 np.zeros(self.ne), directions=de).basis
         return bm, be
 
-    def halfstep(self, x, y, axis, previous):
+    def halfstep(self, x, y, axis, previous, *, on_stage=None):
         """Rayleigh--Ritz on one frozen-factor test space; no FDM eigenmodes."""
         bm, be = self.projected_bases(x, y, axis)
         nm, ne = bm.shape[1], be.shape[1]
@@ -124,8 +124,11 @@ class _SeparatedModalProblem:
         if ne:
             b[self.nm:, nm:] = be
         k = np.empty((nm + ne, nm + ne))
+        if on_stage is not None:on_stage("K_BEGIN",0,nm+ne)
         for j in range(nm + ne):
+            if on_stage is not None:on_stage("K_COLUMN_START",j+1,nm+ne)
             k[:, j] = b.T @ self.stiffness(b[:, j])
+            if on_stage is not None:on_stage("K_COLUMN_DONE",j+1,nm+ne)
         if not np.isfinite(k).all():
             raise ValueError("nonfinite MODAL MVI tangent")
         asym = float(np.linalg.norm(k - k.T, ord=np.inf)) / max(
@@ -134,8 +137,11 @@ class _SeparatedModalProblem:
             raise ValueError("MODAL MVI tangent is not symmetric")
         k = 0.5 * (k + k.T)
         m = np.empty((nm, nm))
+        if on_stage is not None:on_stage("M_BEGIN",0,nm)
         for j in range(nm):
+            if on_stage is not None:on_stage("M_COLUMN_START",j+1,nm)
             m[:, j] = bm.T @ self.mass(bm[:, j])
+            if on_stage is not None:on_stage("M_COLUMN_DONE",j+1,nm)
         if not np.isfinite(m).all():
             raise ValueError("nonfinite MODAL MVI mass matrix")
         if np.linalg.norm(m - m.T, ord=np.inf) > (
@@ -157,17 +163,23 @@ class _SeparatedModalProblem:
             raise ValueError("MODAL MVI rank insufficient for additional orthogonal modes")
         kz, mz = z.T @ keff @ z, z.T @ m @ z
         cholesky(mz, lower=True, check_finite=True)
+        if on_stage is not None:on_stage("EIGEN_BEGIN",0,1)
         eigenvalues, eigvec = eigh(kz, mz, subset_by_index=(0, 0),
                                   driver="gvx", check_finite=True)
         value = float(eigenvalues[0])
+        if on_stage is not None:on_stage("EIGEN_DONE",1,1)
         if value < -1.e-8 * max(1., abs(value)):
             raise ValueError("MODAL MVI: negative squared frequency")
         coeff = z @ eigvec[:, 0]
+        ritz_m = m @ coeff
+        ritz_k = keff @ coeff
+        ritz_relative = float(np.linalg.norm(ritz_k - value*ritz_m) /
+            max(np.linalg.norm(ritz_k) + abs(value)*np.linalg.norm(ritz_m), 1.e-30))
         q = bm @ coeff
         p = (None if not self.ne else
              np.zeros(self.ne) if electric_recovery is None else
              be @ (electric_recovery @ coeff))
-        return q, p, max(0., value)
+        return q, p, max(0., value), ritz_relative
 
     def fit(self, x, y, axis, q, p):
         """Exact rank-preserving X/Y factor recovery, no nodal lift."""
@@ -192,7 +204,7 @@ class _SeparatedModalProblem:
 
 
 def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
-                    sweep_callback=None, eigen_tolerance=1.e-7,
+                    sweep_callback=None, detail_callback=None, eigen_tolerance=1.e-7,
                     mode_tolerance=1.e-5):
     """Alternating constrained generalized eigenproblems at one fixed rank.
 
@@ -211,12 +223,29 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
         last_lambda, last_q = None, None
         converged = False
         for sweep in range(1, max_sweeps + 1):
+            if detail_callback is not None:
+                detail_callback(stage="MVI_SWEEP_START",mode=mode+1,
+                    n_modes=requested,rank=rank,sweep=sweep,max_sweeps=max_sweeps)
             # X comes first: otherwise an initial non-clamped X factor can
             # make the clamped Y test-space identically zero.
             for axis in ("X", "Y"):
+                if detail_callback is not None:
+                    detail_callback(stage="MVI_HALFSTEP_START",mode=mode+1,
+                        n_modes=requested,rank=rank,sweep=sweep,
+                        max_sweeps=max_sweeps,axis=axis)
                 x, y = _normalize_partner(x, y, axis)
-                q, p, _ = operator.halfstep(x, y, axis, qmodes)
+                def trace(stage, column, total):
+                    if detail_callback is not None:
+                        detail_callback(stage=stage,mode=mode+1,n_modes=requested,
+                            rank=rank,sweep=sweep,max_sweeps=max_sweeps,
+                            axis=axis,column=column,total_columns=total)
+                q, p, _, ritz_relative = operator.halfstep(
+                    x, y, axis, qmodes, on_stage=trace)
                 x, y = operator.fit(x, y, axis, q, p)
+                if detail_callback is not None:
+                    detail_callback(stage="MVI_HALFSTEP_DONE",mode=mode+1,
+                        n_modes=requested,rank=rank,sweep=sweep,axis=axis,
+                        ritz_relative=ritz_relative)
             value = operator.eigenvalue(q, p)
             if not np.isfinite(value) or value < 0.:
                 raise ValueError("MODAL MVI: invalid Rayleigh quotient")
@@ -233,6 +262,15 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
                     1., abs(value), abs(last_lambda))
             if sweep_callback is not None:
                 sweep_callback(mode + 1, requested, sweep, max_sweeps, value)
+            if detail_callback is not None:
+                detail_callback(stage="MVI_SWEEP_DONE",mode=mode+1,
+                    n_modes=requested,rank=rank,sweep=sweep,max_sweeps=max_sweeps,
+                    frequency_hz=float(np.sqrt(value)/(2.0*np.pi)),
+                    omega_rad_s=float(np.sqrt(value)),
+                    modal_amplitude_max=float(np.max(abs(q),initial=0.)),
+                    frequency_squared_change_relative=(None if last_lambda is None else relative),
+                    shape_change_relative=(None if last_q is None else float(change)),
+                    ritz_relative=ritz_relative)
             if relative <= eigen_tolerance and change <= mode_tolerance:
                 converged = True
                 break
@@ -250,6 +288,13 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
         pmodes.append(None if p is None else p.copy())
         eigs.append(value)
         cycles.append(sweep)
+        if detail_callback is not None:
+            detail_callback(stage="MVI_MODE_DONE",mode=mode+1,
+                n_modes=requested,rank=rank,sweep=sweep,
+                frequency_hz=float(np.sqrt(value)/(2.0*np.pi)),
+                omega_rad_s=float(np.sqrt(value)),
+                modal_amplitude_max=float(np.max(abs(q),initial=0.)),
+                ritz_relative=ritz_relative)
         if progress_callback is not None:
             progress_callback(mode + 1, requested)
     order = np.argsort(eigs)
