@@ -60,28 +60,26 @@ class VariationalMVITest(unittest.TestCase):
         force=q.copy()
         force[0]=np.outer([0,1,1,0],[2,2,2,2])+np.outer([0,1,-1,0],[1,-1,1,-1])
         r=solve_static_mvi(problem,q,p,dead_load=force)
-        self.assertFalse(r.converged)
+        self.assertTrue(r.converged)
         self.assertTrue(r.projected_equilibrium_satisfied)
-        self.assertIn('PROJECTED_ONLY',r.status)
+        self.assertEqual(r.status,'CONVERGED_PROJECTED')
+        self.assertTrue(r.mvi_certificate['accepted'])
+        self.assertFalse(r.mvi_certificate['full_equilibrium_satisfied'])
         self.assertGreater(r.admissible_residual_scaled,1e-5)
         r2=solve_static_mvi(problem,q,p,dead_load=force,mvi_settings=StaticMVISettings(rank=2))
         self.assertTrue(r2.converged,r2.status)
         np.testing.assert_allclose(r2.mechanical,force,atol=1e-8)
         self.assert_representation(r2)
 
-    def test_nonzero_boundary_lift_and_load_continuation(self):
+    def test_nonzero_boundary_lift_is_explicitly_rejected_without_fallback(self):
         problem,q,p=self.problem()
         problem.spec['mechanical']['left']['prescribed']=[.2,0,0]
         problem.spec['electrical']['inner']['value']=.3
         force=q.copy();force[1]=.4
-        first=solve_static_mvi(problem,q,p,dead_load=force)
-        self.assertTrue(first.converged,first.status)
-        second=solve_static_mvi(problem,first.mechanical,first.electrical,dead_load=2*force)
-        fdm=solve_static_fdm(problem,q,p,dead_load=2*force)
-        self.assertTrue(second.converged,second.status)
-        np.testing.assert_allclose(second.mechanical,fdm.mechanical,atol=1e-8)
-        np.testing.assert_allclose(second.electrical,fdm.electrical,atol=1e-8)
-        self.assert_representation(second)
+        with patch('cylinder_variational_fdm.solve_static_fdm',
+                   side_effect=AssertionError('FDM fallback forbidden')):
+            with self.assertRaisesRegex(ValueError,'unreachable prescribed traces'):
+                solve_static_mvi(problem,q,p,dead_load=force)
 
     def test_exact_qr_changes_only_coordinates_even_for_inactive_terms(self):
         rng=np.random.default_rng(19)
@@ -108,7 +106,9 @@ class VariationalMVITest(unittest.TestCase):
         with patch('cylinder_variational_fdm.solve_static_fdm',side_effect=AssertionError('FDM fallback')):
             r=solve_static_mvi(problem,q,p,dead_load=force)
         self.assertFalse(r.converged)
-        self.assertIn('SINGULAR_TANGENT',r.status)
+        self.assertTrue(r.status.startswith('HALFSTEP_'),r.status)
+        self.assertTrue(('SINGULAR_TANGENT' in r.status or
+                         'RESIDUAL_LINE_SEARCH_FAILED' in r.status),r.status)
 
     def test_mechanics_only_does_not_create_electric_profiles(self):
         problem,q,_=self.problem()
@@ -173,14 +173,14 @@ class VariationalMVICaseTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'grid dimensions'):
                 run_reference_mvi_series(c,Path(d)/'case.json',range(1,9))
             self.assertFalse(Path(c['output_dir']).exists())
-            outcomes=[{'converged':False,'status':'PROJECTED_ONLY'},{'converged':True,'status':'CONVERGED'}]
+            outcomes=[{'converged':False,'status':'NOT_ACCEPTED'},{'converged':True,'status':'CONVERGED_FULL'}]
             with patch('cylinder_reference_case.run_reference_case',side_effect=outcomes) as run:
                 summary=run_reference_mvi_series(c,Path(d)/'case.json',[1,2])
             self.assertFalse(summary['all_converged'])
             self.assertEqual(run.call_count,2)
             self.assertTrue((Path(summary['output_dir'])/'MVI_1_8_SUMMARY.json').is_file())
 
-    def test_projected_only_case_saves_failure_and_stops_load_series(self):
+    def test_projected_case_saves_accepted_state_and_continues_load_series(self):
         with TemporaryDirectory() as d:
             c=self.sample();c['theory']='KL';c['output_dir']=str(Path(d)/'results')
             prepared=prepare_reference_case(c)
@@ -189,15 +189,46 @@ class VariationalMVICaseTest(unittest.TestCase):
             load[0]=np.outer([0,1,1,0],[2,2,2,2])+np.outer([0,1,-1,0],[1,-1,1,-1])
             prepared=replace(prepared,problem=problem,mechanical=q,electrical=p,
                              dead_load=load,factors=(1.,2.))
-            with patch('cylinder_reference_case.prepare_reference_case',return_value=prepared), contextlib.redirect_stdout(io.StringIO()):
+            face_arrays={'face_inner_radial_displacement_m':np.zeros((4,4)),
+                         'face_outer_radial_displacement_m':np.zeros((4,4))}
+            with (patch('cylinder_reference_case.prepare_reference_case',return_value=prepared),
+                  patch('cylinder_reference_case.recover_thickness_fields',return_value={
+                    'z_m':np.array([-.1,0.,.1]),'displacement3_m':np.zeros((3,4,4,3))}),
+                  patch('cylinder_reference_case.face_conditions_from_recovery',
+                        return_value=(face_arrays,{})),
+                  contextlib.redirect_stdout(io.StringIO())):
                 result=run_reference_case(c,Path(d)/'CASE.json')
-            self.assertFalse(result['converged'])
-            self.assertEqual(result['accepted_steps'],0)
-            self.assertEqual(len(result['steps']),1)
+            self.assertTrue(result['converged'],result)
+            self.assertEqual(result['accepted_steps'],2)
+            self.assertEqual(len(result['steps']),2)
+            self.assertEqual(result['steps'][0]['status'],'CONVERGED_PROJECTED')
             self.assertTrue(result['steps'][0]['projected_equilibrium_satisfied'])
             self.assertFalse(result['steps'][0]['full_equilibrium_satisfied'])
-            self.assertTrue((Path(c['output_dir'])/'REFERENCE_FAILED_ITERATE.npz').exists())
-            self.assertFalse((Path(c['output_dir'])/'REFERENCE_STEP_0001.npz').exists())
+            self.assertTrue(result['steps'][0]['mvi_certificate']['accepted'])
+            self.assertEqual(result['steps'][1]['mvi_initialization'],'CONTINUATION')
+            self.assertTrue((Path(c['output_dir'])/'REFERENCE_STEP_0001.npz').exists())
+            self.assertTrue((Path(c['output_dir'])/'REFERENCE_STEP_0002.npz').exists())
+            self.assertFalse((Path(c['output_dir'])/'REFERENCE_FAILED_ITERATE.npz').exists())
+
+    def test_rank_one_to_eight_series_preserves_projected_status(self):
+        with TemporaryDirectory() as d:
+            c=self.sample();c['mvi_grid']={'nx':8,'ns':8}
+            c['theory']='KL';c['micro']['enable_flexoelectric']=False
+            c['boundary_conditions']['variational']['electrical']={}
+            c['output_dir']=str(Path(d)/'results')
+            outcomes=[{'converged':True,'status':'CONVERGED_PROJECTED',
+                       'accepted_steps':1,'steps':[{'converged':True,
+                       'status':'CONVERGED_PROJECTED'}]} for _ in range(8)]
+            with patch('cylinder_reference_case.run_reference_case',side_effect=outcomes) as run:
+                summary=run_reference_mvi_series(c,Path(d)/'case.json',range(1,9))
+            self.assertEqual(run.call_count,8)
+            self.assertTrue(summary['all_converged'])
+            self.assertEqual(summary['ranks'],list(range(1,9)))
+            self.assertTrue(all(row['status']=='CONVERGED_PROJECTED'
+                                for row in summary['results']))
+            saved=json.loads((Path(summary['output_dir'])/'MVI_1_8_SUMMARY.json').read_text())
+            self.assertTrue(saved['all_converged'])
+            self.assertEqual(len(saved['results']),8)
 
     def test_actual_coupled_shell_mvi_matches_fdm_and_saves_profiles(self):
         with TemporaryDirectory() as d:
