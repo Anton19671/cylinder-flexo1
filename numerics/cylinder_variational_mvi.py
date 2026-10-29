@@ -268,16 +268,13 @@ def solve_static_mvi(problem, mechanical, electrical=None, *, dead_load=None,
         field_change_tolerance=change_tolerance)
     if converged and not certificate["accepted"]:
         converged=False
-        status=("PROJECTED_ONLY" if not certificate["full_equilibrium_satisfied"] and certificate["projected_equilibrium_satisfied"] else
-                "MVI_PROFILE_RECONSTRUCTION_DRIFT"
+        status=("MVI_PROFILE_RECONSTRUCTION_DRIFT"
                 if not certificate["profile_reconstruction_satisfied"]
                 else "BOUNDARY_CONSTRAINT_DRIFT"
                 if not certificate["boundary_constraint_satisfied"]
                 else "MVI_PROJECTED_OR_FIELD_CHANGE_NOT_CONVERGED")
-    if converged and not certificate["accepted"]:
-        converged=False
-        status=("PROJECTED_ONLY" if certificate["projected_accepted"]
-                else certificate["solution_status"])
+    elif converged:
+        status=certificate["solution_status"]
     scaled_r=scales*r
     reaction=(scaled_r-full.basis@(full.basis.T@scaled_r))/scales
     norm=certificate["full_admissible_residual_scaled"]
