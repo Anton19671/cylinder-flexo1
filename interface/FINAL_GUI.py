@@ -5518,6 +5518,8 @@ class FinalSolverGUI(EnhancedSolverGUI):
         except Exception:pass
         try:self.top_run_btn.configure(state="disabled" if running or not self._active_reference_case() else "normal")
         except Exception:pass
+        try:self.modal_case_btn.configure(state="disabled" if running else "normal")
+        except Exception:pass
         try:self.top_stop_btn.configure(state="normal" if running else "disabled")
         except Exception:pass
         try:
@@ -6763,7 +6765,8 @@ class FinalSolverGUI(EnhancedSolverGUI):
             widget=stack.pop()
             try:stack.extend(widget.winfo_children())
             except tk.TclError:continue
-            if widget is getattr(self,"time_integrator_combo",None):continue
+            if widget in (getattr(self,"time_integrator_combo",None),
+                          getattr(self,"modal_case_btn",None)):continue
             if isinstance(widget,(ttk.Entry,ttk.Combobox,ttk.Button,ttk.Radiobutton,ttk.Checkbutton,tk.Entry,tk.Text,tk.Button,tk.Checkbutton,tk.Radiobutton)):
                 yield widget
 
@@ -6794,6 +6797,56 @@ class FinalSolverGUI(EnhancedSolverGUI):
     def open_reference_case(self,case=None,path=None):
         from cylinder_reference_gui import ReferenceCaseEditor
         return ReferenceCaseEditor(self,case,path)
+
+    def open_modal_case(self):
+        """Open a genuine editable free-vibration CASE for any of seven theories.
+
+        Never run the solver just by pressing this button. If a saved MODAL
+        CASE is already active, edit that file; otherwise create an unsaved
+        MODAL draft for the currently displayed theory.
+        """
+        if self.proc is not None and self.proc.poll() is None:
+            messagebox.showwarning("Модальный анализ",
+                                   "Завершите или остановите текущий расчёт.")
+            return
+        try:
+            active=self._active_reference_case()
+            if active is not None and str(
+                    active[1].get("calculation_kind","")).upper()=="MODAL":
+                return self.open_reference_case(active[1],active[0])
+            template=APP_DIR/"config"/"CASE_REFERENCE_MODAL_SEVEN_THEORIES.json"
+            case=json.loads(template.read_text(encoding="utf-8"))
+            # An active reference CASE has authoritative model and geometry.
+            # Ordinary legacy GUI values may have a different unit system,
+            # so never silently interpret their dimensions as SI metres.
+            original=active[1] if active is not None else None
+            theory=str((original or {}).get("theory") or
+                       self._v("theory","CUF").get()).upper()
+            if theory not in ("KL","FSDT","REDDY","CUF"):
+                raise ValueError("Выберите KL, FSDT, REDDY или CUF.")
+            model=str((original or {}).get("cuf_model") or
+                      self._v("cuf_model","TE4").get()).upper()
+            if theory=="CUF" and model not in ("TE1","TE2","TE3","TE4"):
+                raise ValueError("Выберите CUF TE1–TE4.")
+            case["theory"]=theory
+            if theory=="CUF":
+                case["cuf_model"]=model
+            else:
+                case.pop("cuf_model",None)
+            if original is not None:
+                for field in ("geometry","material"):
+                    if isinstance(original.get(field),dict):
+                        case[field]=copy.deepcopy(original[field])
+                if original.get("scale_model")=="MICRO":
+                    case["scale_model"]="MICRO"
+                    case["micro"]=copy.deepcopy(original["micro"])
+                    if "rho_kg_m3" in case["micro"]:
+                        case["modal"]["density_kg_m3"]=case["micro"]["rho_kg_m3"]
+            case["output_dir"]="../OUTPUT_REFERENCE_MODAL_"+(
+                "CUF_"+model if theory=="CUF" else theory)
+            return self.open_reference_case(case)
+        except (OSError,ValueError,KeyError,TypeError) as exc:
+            messagebox.showerror("Модальный анализ",str(exc))
 
     def save_case(self):
         active=self._active_reference_case()
@@ -7393,7 +7446,14 @@ class FinalSolverGUI(EnhancedSolverGUI):
                         value="DYNAMIC",
                         variable=self._v("calculation_kind","STATIC"),
                         command=self._on_calculation_kind_change).pack(side="left",padx=(0,12))
-        ttk.Label(timebar,text="Связанный G3D/флексо — в вариационном CASE.",foreground="#52687a").pack(side="left")
+        # Always visible in both BASIC and EXPERT. Opens the MODAL editor,
+        # not the legacy STATIC/DYNAMIC launch route.
+        self.modal_case_btn=ttk.Button(
+            timebar,text="МОДАЛЬНЫЙ АНАЛИЗ…",
+            command=self.open_modal_case,style="Accent.TButton")
+        self.modal_case_btn.pack(side="right",padx=(8,0))
+        ttk.Label(timebar,text="Связанный G3D/флексо — в вариационном CASE.",
+                  foreground="#52687a").pack(side="left")
         # Dynamic inputs now live in their own scrollable notebook page.
         # Keeping them here above the notebook squeezed the problem geometry
         # and boundary editors to an unusable strip on scaled Windows screens.
