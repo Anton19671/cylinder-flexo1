@@ -23,6 +23,7 @@ from scipy.linalg import qr, solve_triangular
 
 from cylinder_functional_assembly import _basis_moments
 from cylinder_variational_boundary import combine_functional_and_boundary
+from cylinder_constraint_row import combined_constraint_entries
 
 
 def _array(value, shape, label):
@@ -143,19 +144,14 @@ def affine_trace_space(matrix, target, base, *, directions=None, labels=(),
             lift = np.zeros(t.shape[1])
         z = q_rows[:, rank:]
     mismatch = a@lift-rhs
-    # Use each row's uncancelled arithmetic scale. An exactly admissible
-    # electrode can have C*u ~ roundoff although its individual potentials
-    # are nonzero; scaling by |C*u| incorrectly rejects such MVI half-steps.
-    tol = 1.e-10*np.maximum(1.e-12, abs(d)+abs(c)@abs(u)+abs(a)@abs(lift))
-    # Account for QR backward error at machine precision.
-    tol += 20*np.finfo(float).eps*max(a.shape)*float(np.max(abs(rhs), initial=0))
-    # A previous constrained solve or an exact profile QR coordinate change
-    # can leave roundoff at a zero prescribed trace. Its backward-error scale
-    # is the whole represented state, not only the tiny constrained entries.
-    tol += 20*np.finfo(float).eps*max(a.shape)*float(np.max(abs(u), initial=0))
-    if np.any(abs(mismatch) > tol):
+    # No tolerance may grow with the magnitude of an unstable lift/base.
+    target_scale=max(1.,float(np.max(np.abs(d),initial=0)))
+    tol=256.*np.finfo(float).eps*target_scale
+    origin=u+t@lift
+    physical_defect=c@origin-d
+    if np.any(abs(mismatch)>tol) or np.any(abs(physical_defect)>tol):
         raise ValueError("inconsistent/unreachable prescribed traces in spatial subspace")
-    return AffineTraceSpace(u+t@lift, t@z, c, d, scale, tuple(labels))
+    return AffineTraceSpace(origin,t@z,c,d,scale,tuple(labels))
 
 
 def separated_profile_directions(x, y, direction):
@@ -285,7 +281,9 @@ class BoundarySpatialProblem:
         for row in constraints:
             c = np.zeros(state.size)
             offset = 0 if row.field == "mechanical" else q.size
-            c[np.asarray(row.indices)+offset] = row.weights
+            count=q.size if row.field == "mechanical" else state.size-q.size
+            indexes,weights=combined_constraint_entries(row.indices,row.weights,count,offset=offset)
+            c[indexes]=weights
             rows.append(c)
             values.append(row.prescribed)
             labels.append(row.label)
