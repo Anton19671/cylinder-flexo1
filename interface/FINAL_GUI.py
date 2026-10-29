@@ -7432,6 +7432,63 @@ class FinalSolverGUI(EnhancedSolverGUI):
             reverse={v:k for k,v in mapping.items()}
             val=self._v(key).get()
             if val in reverse and display.get()!=reverse[val]:display.set(reverse[val])
+        self._sync_ranked_method_choice()
+
+    def _sync_ranked_method_choice(self):
+        display=getattr(self,"method_choice_display",None)
+        if display is None:return
+        if self._v("method","FDM").get()=="MVI":
+            try:rank=int(self._v("rank","1").get())
+            except (ValueError,TypeError):rank=1
+            caption=f"МВИ-{max(1,min(8,rank))}"
+        else:
+            caption="МКР"
+        if display.get()!=caption:display.set(caption)
+
+    def _on_ranked_method_choice(self):
+        selected=self.method_choice_display.get()
+        if selected=="МКР":
+            method,rank="FDM",None
+        elif selected.startswith("МВИ-") and selected[4:].isdigit():
+            rank=int(selected[4:])
+            if not 1<=rank<=8:raise ValueError("МВИ: ранг 1–8")
+            method="MVI"
+        else:
+            messagebox.showerror("Численный метод","Выберите МКР или МВИ-1…МВИ-8.")
+            self._sync_ranked_method_choice()
+            return
+        active=self._active_reference_case()
+        if active is not None:
+            path,cfg=active
+            old_method=str(cfg.get("method","FDM")).upper()
+            old_rank=int(cfg.get("rank") or 1) if old_method=="MVI" else None
+            if old_method==method and old_rank==rank:
+                self._sync_ranked_method_choice()
+                self._refresh_visibility()
+                return
+            self._sync_ranked_method_choice()
+            if str(cfg.get("calculation_kind","")).upper()=="MODAL":
+                messagebox.showinfo("Численный метод",
+                    "MODAL использует МКР (FDM); для МВИ-1…8 откройте статический или динамический CASE.")
+                return
+            draft=copy.deepcopy(cfg)
+            draft["method"]=method
+            source_grid=draft.get("mvi_grid" if old_method=="MVI" else "fdm_grid",
+                                  draft.get("grid",{}))
+            draft.pop("mvi_grid",None);draft.pop("fdm_grid",None);draft.pop("grid",None)
+            draft["mvi_grid" if method=="MVI" else "fdm_grid"]=copy.deepcopy(source_grid)
+            draft["fdm_backend"]="DENSE_REFERENCE"
+            if method=="MVI":
+                draft["rank"]=rank
+                draft["reference_mvi"]=draft.get("reference_mvi") or {"max_sweeps":30}
+            else:
+                draft.pop("rank",None)
+                draft.pop("reference_mvi",None)
+            self.open_reference_case(draft,path)
+            return
+        self._v("method").set(method)
+        if rank is not None:self._v("rank").set(str(rank))
+        self._refresh_visibility()
 
     def _selector(self,parent,column,title,key,width,callback=None,row=0):
         box=ttk.Frame(parent)
@@ -7498,13 +7555,25 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self.material_model_combo.pack(fill="x",pady=(3,0))
         self.material_model_combo.bind("<<ComboboxSelected>>",lambda _e:self._on_geometry_material_change())
 
-        self.method_combo=self._selector(model,0,"Численный метод","method",25,self._on_method_choice,row=1)
+        methodbox=ttk.Frame(model);methodbox.grid(row=1,column=0,sticky="ew",padx=(0,10),pady=(0,6))
+        ttk.Label(methodbox,text="Численный метод",font=("Segoe UI Semibold",9)).pack(anchor="w")
+        self.method_choice_display=tk.StringVar(value="МКР")
+        self.method_combo=ttk.Combobox(
+            methodbox,textvariable=self.method_choice_display,
+            values=("МКР",)+tuple(f"МВИ-{i}" for i in range(1,9)),
+            state="readonly",width=25)
+        self.method_combo.pack(fill="x",pady=(3,0))
+        self.method_combo.bind("<<ComboboxSelected>>",lambda _e:self._on_ranked_method_choice())
+        self._sync_ranked_method_choice()
 
         rankbox=ttk.Frame(model);rankbox.grid(row=1,column=1,sticky="ew",padx=(0,10),pady=(0,6))
         self.rank_selector_box=rankbox
         ttk.Label(rankbox,text="Порядок МВИ",font=("Segoe UI Semibold",9)).pack(anchor="w")
         self.rank_combo=ttk.Combobox(rankbox,textvariable=self._v("rank","1"),values=[str(i) for i in range(1,9)],state="readonly",width=8)
         self.rank_combo.pack(fill="x",pady=(3,0))
+        # Kept internally for CASE fields and compatibility; one combined
+        # dropdown "МКР, МВИ-1 ... МВИ-8" is the user-facing control.
+        rankbox.grid_remove()
 
         self.unit_combo=self._selector(model,2,"Единицы","unit_system",14,self._update_units,row=1)
         namebox=ttk.Frame(model);namebox.grid(row=1,column=3,sticky="ew",pady=(0,6))
@@ -8572,7 +8641,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
             self.rank_combo.configure(state="readonly" if mvi_active else "disabled")
             if mvi_active or expert:
                 if not self.series_btn.winfo_manager():self.series_btn.pack(side="left",padx=5)
-                self.rank_selector_box.grid()
+                self.rank_selector_box.grid_remove()
             else:
                 self.series_btn.pack_forget();self.rank_selector_box.grid_remove()
             if cuf_active:self.cuf_selector_box.grid()
