@@ -22,6 +22,7 @@ _TIME_CODES = {
     TIME_INTEGRATOR_CHOICES[1]: "GAUSS2_IRK4",
     "NEWMARK": "NEWMARK",
     "GAUSS2_IRK4": "GAUSS2_IRK4",
+    "MODAL": "NEWMARK",  # modal runner token; modal CASE never time-integrated
 }
 
 
