@@ -15,6 +15,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import time
 from pathlib import Path
 
 import numpy as np
@@ -147,7 +148,7 @@ def _modal_bases(c, target, scales, mechanical_size):
     return bm * scales[:nm, None], be * scales[nm:, None]
 
 
-def _linear_matrices(prepared, density, *, progress_callback=None):
+def _linear_matrices(prepared, density, *, progress_callback=None, detail_callback=None):
     problem = prepared.problem
     f = problem.functional
     q0, p0 = prepared.mechanical, prepared.electrical
@@ -179,10 +180,12 @@ def _linear_matrices(prepared, density, *, progress_callback=None):
     # theory-specific kinematic kernels remain exclusively in CylinderFunctional.
     k = np.empty((n_m + n_e, n_m + n_e), float)
     for j in range(k.shape[1]):
+        if detail_callback:detail_callback(stage='K_COLUMN_START',column=j+1,total_columns=k.shape[1])
         direction = directions[:, j]
         derivative = (residual(step * direction)
                       - residual(-step * direction)) / (2. * step)
         k[:, j] = directions.T @ derivative
+        if detail_callback:detail_callback(stage='K_COLUMN_DONE',column=j+1,total_columns=k.shape[1])
         if progress_callback is not None:
             progress_callback(j + 1, k.shape[1])
     if not np.isfinite(k).all():
@@ -197,11 +200,13 @@ def _linear_matrices(prepared, density, *, progress_callback=None):
     # for FSDT/Reddy, or through-thickness TE mass moments for CUF.
     m = np.empty((n_m, n_m), float)
     for j in range(n_m):
+        if detail_callback:detail_callback(stage='M_COLUMN_START',column=j+1,total_columns=n_m)
         acceleration = bm[:, j].reshape(q0.shape)
         mass_column = f.mass_action(
             acceleration, density_kg_m3=density,
             mechanical=q0, velocity=np.zeros_like(q0))
         m[:, j] = bm.T @ mass_column.ravel()
+        if detail_callback:detail_callback(stage='M_COLUMN_DONE',column=j+1,total_columns=n_m)
     if not np.isfinite(m).all():
         raise ValueError("nonfinite MODAL mass")
     mass_asymmetry = float(np.linalg.norm(m - m.T, ord=np.inf))
@@ -212,15 +217,15 @@ def _linear_matrices(prepared, density, *, progress_callback=None):
     return k, m, bm, be, q0.shape, None if p0 is None else p0.shape
 
 
-def solve_modal_case(case, *, base_dir=None, progress_callback=None):
+def solve_modal_case(case, *, base_dir=None, progress_callback=None, detail_callback=None):
     """Compute consistent small-grid modes in Hz, with massless electric DOFs condensed."""
     prepared, density, requested = _modal_spec(case, base_dir=base_dir)
     if prepared.method == "MVI":
         from cylinder_modal_mvi import solve_modal_mvi
         return solve_modal_mvi(prepared, density, requested,
-                               progress_callback=progress_callback)
+                               progress_callback=progress_callback,detail_callback=detail_callback)
     k, m, bm, be, q_shape, p_shape = _linear_matrices(
-        prepared, density, progress_callback=progress_callback)
+        prepared, density, progress_callback=progress_callback,detail_callback=detail_callback)
     n_m = bm.shape[1]
     if requested > n_m:
         raise ValueError("requested modes exceed free mechanical DOFs")
@@ -235,6 +240,7 @@ def solve_modal_case(case, *, base_dir=None, progress_callback=None):
         electric_recovery = -solve(k_pp, k_pq, assume_a="sym", check_finite=True)
         k_mech = k_mech + k_qp @ electric_recovery
         k_mech = (k_mech + k_mech.T) * 0.5
+    if detail_callback:detail_callback(stage='EIGEN_BEGIN',n_modes=requested)
     eigenvalues, eigvec = eigh(
         k_mech, m, subset_by_index=(0, requested - 1),
         check_finite=True, driver="gvx")
@@ -247,6 +253,11 @@ def solve_modal_case(case, *, base_dir=None, progress_callback=None):
     frequencies_hz = omega / (2. * np.pi)
     q_modes = np.stack([(bm @ eigvec[:, j]).reshape(q_shape)
                         for j in range(requested)])
+    if detail_callback:
+        for j in range(requested):
+            detail_callback(stage='FDM_MODE_DONE',mode=j+1,n_modes=requested,
+                frequency_hz=float(frequencies_hz[j]),omega_rad_s=float(omega[j]),
+                modal_amplitude_max=float(np.max(abs(q_modes[j]),initial=0.)))
     p_modes = (None if electric_recovery is None else np.stack([
         (be @ (electric_recovery @ eigvec[:, j])).reshape(p_shape)
         for j in range(requested)]))
@@ -261,7 +272,10 @@ def solve_modal_case(case, *, base_dir=None, progress_callback=None):
 def run_modal_case(case, case_path):
     """Write a standalone, reproducible MODAL output; never run transient dynamics."""
     path = Path(case_path).expanduser().resolve()
+    started=time.monotonic()
+    print('MODAL PREPARE: checking geometry and boundary conditions',flush=True)
     prepare_modal_case(case, base_dir=path.parent)
+    print(f'MODAL PREPARE DONE elapsed_s={time.monotonic()-started:.3f}',flush=True)
     out = Path(case["output_dir"]).expanduser()
     if not out.is_absolute():
         out = path.parent / out
@@ -270,10 +284,17 @@ def run_modal_case(case, case_path):
         raise ValueError("OUTPUT_DIR_NOT_EMPTY: MODAL results must be separate")
 
     def report(current, total):
-        if current == 1 or current == total or current % max(1, total // 10) == 0:
-            print(f"MODAL {'mode' if case['method']=='MVI' else 'tangent column'} {current}/{total}", flush=True)
+        print(f"MODAL STEP {current}/{total} elapsed_s={time.monotonic()-started:.3f}",flush=True)
 
-    result = solve_modal_case(case, base_dir=path.parent, progress_callback=report)
+    def details(**event):
+        # Real solver stages, including all MVI X/Y substeps and K/M columns.
+        event["elapsed_s"]=round(time.monotonic()-started,3)
+        print("MODAL_EVENT "+json.dumps(event,ensure_ascii=False,allow_nan=False),flush=True)
+
+    print("MODAL ASSEMBLY START",flush=True)
+    result = solve_modal_case(case,base_dir=path.parent,
+                              progress_callback=report,detail_callback=details)
+    print(f"MODAL SOLVE DONE elapsed_s={time.monotonic()-started:.3f}",flush=True)
     out.mkdir(parents=True, exist_ok=True)
     arrays = {
         "frequencies_hz": result["frequencies_hz"],
