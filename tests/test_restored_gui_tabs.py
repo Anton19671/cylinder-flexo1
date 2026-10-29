@@ -150,6 +150,23 @@ class RestoredGuiTabsTests(TestCase):
         app._cylinder_popup.destroy()
         self.assertFalse(self.errors,self.errors)
 
+    def test_calculate_button_visible_at_narrow_window_widths(self):
+        """Run stays visible independently of the CASE/file action row."""
+        app=self.app
+        for width in (960, 1080, 1280, 1640):
+            app.geometry(f"{width}x950")
+            self.pump()
+            button=app.top_run_btn
+            self.assertTrue(button.winfo_ismapped(), f"Calculate hidden at {width}")
+            self.assertEqual(button.master,app.calculation_toolbar)
+            self.assertGreater(button.winfo_width(),50)
+            self.assertGreaterEqual(button.winfo_rootx(),app.winfo_rootx())
+            self.assertLessEqual(
+                button.winfo_rootx()+button.winfo_width(),
+                app.winfo_rootx()+app.winfo_width()+2,
+                f"Calculate clipped at {width}")
+        self.assertFalse(self.errors,self.errors)
+
     def test_scroll_pages_and_file_parameters_round_trip(self):
         app=self.app
         self.assertEqual(len(app._scroll_pages),3)
