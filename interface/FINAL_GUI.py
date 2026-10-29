@@ -1228,6 +1228,16 @@ class SolverGUI(tk.Tk):
             messagebox.showerror("Экспорт вариационных результатов",str(exc))
 
     def _run_postprocess(self,mode="FAST",full=None):
+        # Route by the saved physical result, not an old process/session flag.
+        out=self._result_output_dir()
+        if out is not None and (out/"FINAL_RUN_SUMMARY.json").is_file():
+            try:
+                summary=json.loads((out/"FINAL_RUN_SUMMARY.json").read_text(encoding="utf-8"))
+                if (summary.get("solver_backend")=="VARIATIONAL_REFERENCE" and
+                    summary.get("calculation_kind") in ("STATIC","DYNAMIC","MODAL")):
+                    return self._run_reference_export(mode)
+            except (OSError, ValueError, TypeError) as exc:
+                self._log(f"EXPORT SUMMARY invalid: {exc}\\n")
         if self.run_kind in ("REFERENCE_CASE","REFERENCE_SERIES"):
             return self._run_reference_export(mode)
         """Run postprocessing only on explicit user request.
@@ -4725,6 +4735,19 @@ class FinalSolverGUI(EnhancedSolverGUI):
 
     def _result_output_dir(self):
         p=self.run_output_dir
+        # Prefer the exact saved modal CASE location after a program restart.
+        # A selected result folder is valid only if it actually contains data.
+        active=self._active_reference_case()
+        if active is not None and str(active[1].get("calculation_kind","")).upper()=="MODAL":
+            case_path,cfg=active
+            raw=cfg.get("output_dir")
+            if isinstance(raw,str) and raw.strip():
+                candidate=Path(raw).expanduser()
+                if not candidate.is_absolute():
+                    candidate=case_path.parent/candidate
+                candidate=candidate.resolve()
+                if (candidate/"FINAL_RUN_SUMMARY.json").is_file():
+                    return candidate
         if p is None:
             txt=self.vars.get("output_dir",tk.StringVar()).get().strip(); p=Path(txt) if txt else None
         return None if p is None else Path(p).resolve()
