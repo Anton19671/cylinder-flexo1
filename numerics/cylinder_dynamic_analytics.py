@@ -24,6 +24,7 @@ import numpy as np
 from scipy.signal import detrend, find_peaks
 from scipy.spatial import cKDTree
 import xlsxwriter
+from cylinder_excel_tables import LabeledWorkbook, write_labeled_table
 
 import matplotlib
 matplotlib.use("Agg")
@@ -384,36 +385,7 @@ def lyapunov_qr_spectrum(transition_maps, dt, *, discard_steps=0):
 
 
 def _worksheet(wb, name, headers, rows, *, chart=None, chart_title=None):
-    sh=wb.add_worksheet(name[:31])
-    heading=wb.add_format({"bold":True,"bg_color":"#E7E7E7","border":1,"text_wrap":True})
-    scientific=wb.add_format({"num_format":"0.000000E+00"})
-    for col,title in enumerate(headers):
-        sh.write(0,col,title,heading)
-        sh.set_column(col,col,22,scientific)
-    count=0
-    for count,row in enumerate(rows,start=1):
-        for col,val in enumerate(row):
-            if val is None:
-                continue
-            if isinstance(val,(int,float,np.floating,np.integer)) and not isinstance(val,bool):
-                if np.isfinite(val):
-                    sh.write_number(count,col,float(val))
-            else:
-                sh.write_string(count,col,str(val))
-    sh.freeze_panes(1,0)
-    if count:
-        sh.autofilter(0,0,count,len(headers)-1)
-    if chart and count>=2:
-        chart_type,xx,yy=chart
-        plot=wb.add_chart({"type":"scatter" if chart_type=="scatter" else "line",
-                           "subtype":"straight" if chart_type=="scatter" else None})
-        plot.add_series({"name":str(headers[yy]),"categories":[sh.name,1,xx,count,xx],
-                         "values":[sh.name,1,yy,count,yy],"marker":{"type":"none"}})
-        plot.set_title({"name":chart_title or name})
-        plot.set_x_axis({"name":headers[xx]})
-        plot.set_y_axis({"name":headers[yy]})
-        sh.insert_chart(2,len(headers)+1,plot)
-    return sh
+    return write_labeled_table(wb,name,headers,rows,chart=chart,chart_title=chart_title)
 
 
 def _safe_plot(path, x, y, xlabel, ylabel, title, *, scatter=False):
@@ -455,7 +427,7 @@ def export_dynamic_analytics(run_dir, *, output_dir=None,transient_fraction=.2,
 
     # 01: physical fixed-point time series and per-probe Excel time charts.
     path=target/"01_SIGNALS.xlsx"
-    with xlsxwriter.Workbook(str(path)) as wb:
+    with LabeledWorkbook(str(path)) as wb:
         for pt in run.probes:
             series=run.signals[pt.name]
             headers=["time_s","load_factor",*series.keys()]
@@ -467,7 +439,7 @@ def export_dynamic_analytics(run_dir, *, output_dir=None,transient_fraction=.2,
 
     # 02: windowed one-sided FFT with physically normalized amplitude and PSD.
     path=target/"02_FOURIER_FFT_PSD.xlsx"
-    with xlsxwriter.Workbook(str(path)) as wb:
+    with LabeledWorkbook(str(path)) as wb:
         for pt in run.probes:
             transform=fourier_spectrum(run.signals[pt.name]["w_m"],dt,
                                         transient_fraction=transient_fraction)
@@ -484,7 +456,7 @@ def export_dynamic_analytics(run_dir, *, output_dir=None,transient_fraction=.2,
 
     # 03: fixed-point phase trajectories; no claims of chaotic attractors.
     path=target/"03_PHASE_ATTRACTORS.xlsx"
-    with xlsxwriter.Workbook(str(path)) as wb:
+    with LabeledWorkbook(str(path)) as wb:
         for pt in run.probes:
             s=run.signals[pt.name]
             y=s["w_m"][first:]
@@ -504,7 +476,7 @@ def export_dynamic_analytics(run_dir, *, output_dir=None,transient_fraction=.2,
 
     # 04: forced-period section; never use an inferred natural FFT peak as the forcing.
     path=target/"04_POINCARE.xlsx"
-    with xlsxwriter.Workbook(str(path)) as wb:
+    with LabeledWorkbook(str(path)) as wb:
         for pt in run.probes:
             s=run.signals[pt.name]
             section=poincare_section(run.time_s,s["w_m"],s["dw_dt_m_s"],freq,
@@ -522,19 +494,17 @@ def export_dynamic_analytics(run_dir, *, output_dir=None,transient_fraction=.2,
 
     # 05: one embedding-based maximal LE ESTIMATE for each distinct probe.
     path=target/"05_LYAPUNOV.xlsx"
-    with xlsxwriter.Workbook(str(path)) as wb:
-        sh=wb.add_worksheet("ESTIMATES")
+    with LabeledWorkbook(str(path)) as wb:
         head=["probe","method","status","lambda_est_1_per_s","fit_R2","neighbor_pairs",
               "delay_samples","theiler_samples"]
-        for j,h in enumerate(head):sh.write(0,j,h)
+        estimate_rows=[]
         for i,pt in enumerate(run.probes,start=1):
             res=rosenstein_lyapunov(run.signals[pt.name]["w_m"],dt,
                                     transient_fraction=transient_fraction)
             statuses[pt.name]["lyapunov"]=res["status"]
             vals=[pt.name,"ROSENSTEIN_SCALAR_MAX_ESTIMATE",res["status"],res["lambda_per_s"],
                   res["r_squared"],res["pairs"],res["delay_samples"],res["theiler_samples"]]
-            for col,val in enumerate(vals):
-                if val is not None:sh.write(i,col,val)
+            estimate_rows.append(vals)
             _worksheet(wb,pt.name,["evolution_s","mean_log_distance","linear_fit"],
                        zip(res["time_s"],res["log_separation"],res["fit"]),
                        chart=("line",0,1),chart_title="Rosenstein log-distance evolution")
@@ -542,6 +512,7 @@ def export_dynamic_analytics(run_dir, *, output_dir=None,transient_fraction=.2,
                 _safe_plot(plots/f"05_LYAPUNOV_{pt.name}.png",res["time_s"],
                            res["log_separation"],"evolution time, s","mean log separation",
                            pt.name+" (Rosenstein estimate)")
+        _worksheet(wb,"ESTIMATES",head,estimate_rows)
         if tangent_npz is not None:
             with np.load(tangent_npz,allow_pickle=False) as raw:
                 maps=_finite_array(raw["state_transition_maps"],"tangent maps")
@@ -556,7 +527,7 @@ def export_dynamic_analytics(run_dir, *, output_dir=None,transient_fraction=.2,
 
     # 00: complete provenance and explicit interpretation for the artifacts.
     path=target/"00_DYNAMIC_INDEX.xlsx"
-    with xlsxwriter.Workbook(str(path)) as wb:
+    with LabeledWorkbook(str(path)) as wb:
         _worksheet(wb,"RUN",["property","value"],[
             ("theory",run.summary["theory"]),("method",run.summary.get("method")),
             ("rank",run.summary.get("rank")),("complete",run.complete),
@@ -646,7 +617,7 @@ def export_bifurcation_study(manifest_csv, *, output_dir=None, parameter_name="p
         summary_rows.append((value,len(peaks),len(points),float(np.mean(q)),float(np.std(q)),
                              lyap["lambda_per_s"],lyap["status"]))
     dest=output/"06_BIFURCATION.xlsx"
-    with xlsxwriter.Workbook(str(dest)) as wb:
+    with LabeledWorkbook(str(dest)) as wb:
         _worksheet(wb,"PEAK_BRANCHES",[parameter_name,"peak_time_s","radial_peak_m"],
                    peak_rows,chart=("scatter",0,2),chart_title="Bifurcation from post-transient maxima")
         _worksheet(wb,"POINCARE_BRANCHES",[parameter_name,"strobe_time_s","w_m","dw_dt_m_s"],
