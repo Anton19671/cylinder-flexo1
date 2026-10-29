@@ -166,6 +166,7 @@ def solve_static_mvi(problem, mechanical, electrical=None, *, dead_load=None,
         return norms
 
     history=[];iterations=0;sweeps=0;status="MAX_SWEEPS";converged=False
+    previous_sweep_change=None
     v,qm,pm,energy,r,g=evaluate()
     # For an exact zero separated component, the original constant partner
     # cannot see a zero-mean circumferential load. Align its *inactive* Y
@@ -181,7 +182,13 @@ def solve_static_mvi(problem, mechanical, electrical=None, *, dead_load=None,
     change_tolerance=max(1.e-8,0.5*settings.relative_tolerance)
 
     def record_sweep(sweep,previous_v=None):
+        nonlocal previous_sweep_change
         metrics=admissible_nodal_metrics(full.basis,g,q.size)
+        current_change=field_change if sweep else None
+        ratio=(current_change/previous_sweep_change if
+               current_change is not None and previous_sweep_change is not None
+               and previous_sweep_change>0 else None)
+        if current_change is not None: previous_sweep_change=current_change
         row={"event":"sweep","sweep":sweep,"iteration":iterations,
              "mvi_initialization":initialization,
              "residual_scaled":metrics["full"],
@@ -194,6 +201,8 @@ def solve_static_mvi(problem, mechanical, electrical=None, *, dead_load=None,
              "projected_y_residual_scaled":projected_parts["Y"],
              "sweep_field_change_relative":field_change,
              "sweep_field_change_tolerance":change_tolerance,
+             "sweep_field_change_ratio":ratio,
+             "sweep_stagnation_warning":bool(ratio is not None and ratio>=.95),
              "projected_diagnostic_applicable":bool(
                  np.max(np.abs(full.defect(v)),initial=0)<=1.e-9),
              "potential_j":energy,
