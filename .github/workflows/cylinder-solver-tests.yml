@@ -1,10 +1,17 @@
 name: Cylinder Flexoelectric G3D/Gz
-# Manual until runner quota permits scheduled/push verification.
+# Run on every main code change; documentation-only commits do not
+# rerun the full numerical suite. Runner availability is independent of CI.
 on:
   workflow_dispatch:
   push:
-    paths:
-      - "docs/AUDIT_TEST_TRIGGER_20261029.txt"
+    branches:
+      - main
+    paths-ignore:
+      - "docs/**"
+      - "*.md"
+concurrency:
+  group: cylinder-verify-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
