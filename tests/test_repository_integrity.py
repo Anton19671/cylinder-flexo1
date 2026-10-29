@@ -34,7 +34,10 @@ class TestElasticRepositoryIntegrity(unittest.TestCase):
             if not path.is_file():continue
             if any(name in path.name.lower() for name in retired):
                 self.fail(f"Retired filename: {path.relative_to(ROOT)}")
-            if path.suffix not in (".py",".json",".md",".txt",".yml",".yaml"):
+            # Runtime source and configuration must stay elastic-only. Audit
+            # journals and documentation may accurately describe retired
+            # models; those mentions are not active solver capabilities.
+            if path.suffix not in (".py",".json",".yml",".yaml"):
                 continue
             data=path.read_text(encoding="utf-8-sig").lower()
             for name in retired:
