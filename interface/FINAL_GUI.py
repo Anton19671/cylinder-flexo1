@@ -6939,8 +6939,21 @@ class FinalSolverGUI(EnhancedSolverGUI):
                     case["micro"]=copy.deepcopy(original["micro"])
                     if "rho_kg_m3" in case["micro"]:
                         case["modal"]["density_kg_m3"]=case["micro"]["rho_kg_m3"]
+            selected_method=str((original or {}).get("method") or
+                self._v("method","FDM").get()).upper()
+            if selected_method=="MVI":
+                try:rank=int((original or {}).get("rank") or self._v("rank","1").get())
+                except (TypeError,ValueError):rank=1
+                rank=max(1,min(8,rank))
+                case["method"]="MVI"
+                case["rank"]=rank
+                case["reference_mvi"]={"max_sweeps":30}
+                case["mvi_grid"]=copy.deepcopy(case.pop("fdm_grid"))
+                case["mvi_grid"]["nx"]=max(rank,case["mvi_grid"]["nx"])
+                case["mvi_grid"]["ns"]=max(rank,case["mvi_grid"]["ns"])
             case["output_dir"]="../OUTPUT_REFERENCE_MODAL_"+(
-                "CUF_"+model if theory=="CUF" else theory)
+                "CUF_"+model if theory=="CUF" else theory)+"_"+(
+                "MVI"+str(case["rank"]) if case["method"]=="MVI" else "FDM")
             return self.open_reference_case(case)
         except (OSError,ValueError,KeyError,TypeError) as exc:
             messagebox.showerror("Модальный анализ",str(exc))
@@ -7487,11 +7500,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
                 self._refresh_visibility()
                 return
             self._sync_ranked_method_choice()
-            if str(cfg.get("calculation_kind","")).upper()=="MODAL":
-                messagebox.showinfo("Численный метод",
-                    "MODAL использует МКР (FDM); для МВИ-1…8 откройте статический или динамический CASE.")
-                return
-            draft=copy.deepcopy(cfg)
+             draft=copy.deepcopy(cfg)
             draft["method"]=method
             source_grid=draft.get("mvi_grid" if old_method=="MVI" else "fdm_grid",
                                   draft.get("grid",{}))
