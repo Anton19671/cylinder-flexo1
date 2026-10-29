@@ -1,4 +1,4 @@
-"""Archive a stopped Cylinder-Flexo1 run without making up solver results.
+"""Archive stopped/failed Cylinder-Flexo1 runs without making up solver results.
 
 Called only AFTER the solver process has exited. The solver owns all accepted
 NPZ states and FINAL_RUN_SUMMARY.json; this module never edits those files.
@@ -12,10 +12,13 @@ from pathlib import Path
 import shutil
 
 
-def archive_stopped_run(output_dir, *, case_path=None, journal_path=None,
-                        calculation_kind=None, method=None, rank=None,
-                        expected_steps=None, run_kind=None,
-                        last_modal_event=None, exit_code=None):
+def archive_terminated_run(output_dir, *, status, case_path=None, journal_path=None,
+                           calculation_kind=None, method=None, rank=None,
+                           expected_steps=None, run_kind=None,
+                           last_modal_event=None, exit_code=None,
+                           error_type=None, error_detail=None, traceback_text=None):
+    if status not in ("STOPPED_BY_USER", "FAILED"):
+        raise ValueError("status must be STOPPED_BY_USER or FAILED")
     root = Path(output_dir).expanduser().resolve()
     if root.exists() and not root.is_dir():
         raise ValueError(f"Result destination is not a directory: {root}")
@@ -39,7 +42,7 @@ def archive_stopped_run(output_dir, *, case_path=None, journal_path=None,
         if source.is_file():
             destdir = root / "INPUT"
             destdir.mkdir(exist_ok=True)
-            dest = destdir / ("STOPPED_CASE" + (source.suffix.lower() or ".json"))
+            dest = destdir / ("STOPPED_CASE" if status == "STOPPED_BY_USER" else "FAILED_CASE") + (source.suffix.lower() or ".json")
             if source != dest:
                 shutil.copy2(source, dest)
             files["case"] = str(dest.relative_to(root))
@@ -64,7 +67,7 @@ def archive_stopped_run(output_dir, *, case_path=None, journal_path=None,
         if key in event and isinstance(event[key], (str, int, float, type(None)))
     }
     record = {
-        "status": "STOPPED_BY_USER",
+        "status": status,
         "completed": False,
         "saved_at": datetime.now(timezone.utc).astimezone().isoformat(),
         "output_dir": str(root),
@@ -74,6 +77,8 @@ def archive_stopped_run(output_dir, *, case_path=None, journal_path=None,
         "requested_steps_or_modes": expected_steps,
         "run_kind": run_kind,
         "process_exit_code": exit_code,
+        "error_type": error_type,
+        "error_detail": error_detail,
         "accepted_steps_verified": len(accepted),
         "accepted_state_files": [row["state_file"] for row in accepted],
         "last_modal_event": last_stage,
@@ -82,15 +87,29 @@ def archive_stopped_run(output_dir, *, case_path=None, journal_path=None,
                  "Any accepted STATIC/DYNAMIC states remain in their original files. "
                  "An interrupted MODAL solve may have no stored modal fields."),
     }
-    target = root / "STOPPED_RUN.json"
-    tmp = root / "STOPPED_RUN.json.tmp"
+    filename = "STOPPED_RUN.json" if status == "STOPPED_BY_USER" else "FAILED_RUN.json"
+    target = root / filename
+    tmp = root / (filename + ".tmp")
     with tmp.open("w", encoding="utf-8") as handle:
         json.dump(record, handle, indent=2, ensure_ascii=False, allow_nan=False)
         handle.write("\n")
         handle.flush()
         os.fsync(handle.fileno())
     os.replace(tmp, target)
+    if traceback_text:
+        trace_target = root / "FAILED_TRACEBACK.txt"
+        trace_tmp = root / "FAILED_TRACEBACK.txt.tmp"
+        trace_tmp.write_text(str(traceback_text), encoding="utf-8")
+        os.replace(trace_tmp, trace_target)
     return record
 
 
-__all__ = ("archive_stopped_run",)
+def archive_stopped_run(output_dir, **kwargs):
+    return archive_terminated_run(output_dir, status="STOPPED_BY_USER", **kwargs)
+
+
+def archive_failed_run(output_dir, **kwargs):
+    return archive_terminated_run(output_dir, status="FAILED", **kwargs)
+
+
+__all__ = ("archive_stopped_run", "archive_failed_run", "archive_terminated_run")
