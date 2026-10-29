@@ -267,6 +267,16 @@ def export(root, mode):
             _physical(root, summary, kind, target, mode)
     else:
         raise ValueError(f"Unknown export mode: {mode}")
+    # Never announce success unless the promised files actually exist.
+    if kind == "MODAL" and mode == "FULL":
+        from cylinder_modal_full_export import (
+            CHARACTERISTICS_XLSX, FIELDS_XLSX, PLOTS_DIR)
+        required = (root / CHARACTERISTICS_XLSX,
+                    root / FIELDS_XLSX,
+                    target / PLOTS_DIR / "ФОРМА_01" / "01_3D_ФОРМА.png")
+        missing = [str(p) for p in required if not p.is_file()]
+        if missing:
+            raise RuntimeError("MODAL_FULL_EXPORT_INCOMPLETE: " + "; ".join(missing))
     print(f"REFERENCE EXPORT {kind} {mode} SAVED: {target}", flush=True)
     return target
 
