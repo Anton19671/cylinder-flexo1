@@ -7396,6 +7396,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self.reference_bar=ttk.Frame(self,padding=(12,3,12,3))
         self.reference_message=ttk.Label(self.reference_bar,text="",foreground="#8a4b00")
         self.reference_message.pack(side="left",fill="x",expand=True)
+        ttk.Button(self.reference_bar,text="Краевые условия…",command=self._edit_variational_bc).pack(side="left",padx=5)
         ttk.Button(self.reference_bar,text="Редактировать CASE…",command=self._edit_active_reference_case).pack(side="left",padx=5)
         ttk.Button(self.reference_bar,text="Закрыть CASE",command=self._close_active_reference_case).pack(side="left")
         actions=ttk.Frame(self,padding=(12,0,12,7));actions.pack(fill="x")
