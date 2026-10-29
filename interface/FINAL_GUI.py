@@ -8380,9 +8380,33 @@ class FinalSolverGUI(EnhancedSolverGUI):
                     label+=f" | f={float(event['frequency_hz']):.8g} Гц"
                 if event.get("modal_amplitude_max") is not None:
                     label+=f" | max|форма|={float(event['modal_amplitude_max']):.6g}"
-                if event.get("ritz_relative") is not None:
-                    label+=f" | Ritz={float(event['ritz_relative']):.3e}"
+                if event.get("frequency_squared_change_relative") is not None:
+                    label+=f" | Δλ={float(event['frequency_squared_change_relative']):.3e}"
+                if event.get("shape_change_relative") is not None:
+                    label+=f" | Δформа={float(event['shape_change_relative']):.3e}"
                 if elapsed is not None:label+=f" | t={float(elapsed):.2f} с"
+                # MODAL has eigenmodes, not load steps or static deflections.
+                if mode is not None and hasattr(self,"online_tree"):
+                    iid=f"modal_mode_{int(mode):04d}"
+                    status=("ПРИНЯТА" if stage in ("MVI_MODE_DONE","FDM_MODE_DONE")
+                            else f"цикл {event.get('sweep','-')} {event.get('axis','')}"
+                            if stage.startswith("MVI_") else stage)
+                    freq=event.get("frequency_hz")
+                    old=list(self.online_tree.item(iid,"values")) if self.online_tree.exists(iid) else [""]*9
+                    while len(old)<9:old.append("")
+                    old[0]=str(mode)
+                    old[2]=status
+                    if freq is not None:old[1]=f"{float(freq):.8g}"
+                    if event.get("modal_amplitude_max") is not None:
+                        old[3]=f"{float(event['modal_amplitude_max']):.6g}"
+                    if event.get("sweep") is not None:old[4]=str(event["sweep"])
+                    if event.get("shape_change_relative") is not None:
+                        old[5]=f"{float(event['shape_change_relative']):.3e}"
+                    if elapsed is not None:old[8]=f"{float(elapsed):.2f}"
+                    if self.online_tree.exists(iid):self.online_tree.item(iid,values=tuple(old))
+                    else:self.online_tree.insert("","end",iid=iid,values=tuple(old))
+                if stage in ("MVI_MODE_DONE","FDM_MODE_DONE"):
+                    self._online_set("stage",f"Принята форма {mode}/{event.get('n_modes','?')} · f={float(event.get('frequency_hz',0)):.6g} Гц")
                 self._online_set("stage",label[:150])
                 if mode is not None:self._online_set("step",f"{mode}/{event.get('n_modes','?')}")
                 if elapsed is not None:self._online_set("elapsed",f"{float(elapsed):.1f} s")
