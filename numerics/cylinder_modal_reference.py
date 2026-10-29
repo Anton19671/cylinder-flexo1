@@ -38,14 +38,22 @@ def _modal_spec(case, *, base_dir=None):
         raise ValueError("MODAL requires calculation_kind=MODAL")
     if str(case.get("mode", "")).upper() != "LINEAR_ELASTIC":
         raise ValueError("MODAL linearization requires mode=LINEAR_ELASTIC")
-    if str(case.get("method", "")).upper() != "FDM":
-        raise ValueError("MODAL uses the full variational FDM space, not MVI ranks")
+    method = str(case.get("method", "")).upper()
+    if method not in ("FDM", "MVI"):
+        raise ValueError("MODAL method must be FDM or MVI")
+    if method == "MVI":
+        rank = _integer(case.get("rank"), "MODAL MVI rank", 1)
+        if rank > 8:
+            raise ValueError("MODAL MVI rank must be 1..8")
+        options = case.get("reference_mvi", {})
+        if not isinstance(options, dict) or set(options) - {"max_sweeps"}:
+            raise ValueError("MODAL MVI reference_mvi accepts only max_sweeps")
+    elif case.get("rank") is not None or case.get("reference_mvi") is not None:
+        raise ValueError("FDM MODAL cannot contain MVI rank or settings")
     if str(case.get("fdm_backend", "DENSE_REFERENCE")).upper() != "DENSE_REFERENCE":
         raise ValueError("MODAL is a small-grid dense reference, not matrix-free")
-    if case.get("dynamics") is not None or case.get("rank") is not None:
-        raise ValueError("MODAL has neither time integration nor MVI rank")
-    if case.get("reference_mvi") is not None:
-        raise ValueError("MODAL must not contain reference_mvi")
+    if case.get("dynamics") is not None:
+        raise ValueError("MODAL has no time integration")
     if case.get("load_definition") is not None or case.get("reference_loads") is not None:
         raise ValueError("MODAL free vibrations require an unloaded CASE")
     raw = case.get("modal", {})
@@ -90,14 +98,24 @@ def prepare_modal_case(case, *, base_dir=None):
     first = prepared.problem.assemble(q, p)
     if np.max(np.abs(first.space.origin), initial=0.) > 1.e-10:
         raise ValueError("MODAL supports only homogeneous essential BC")
-    if first.space.basis.shape[1] > prepared.settings.max_free_dofs:
-        raise ValueError("MODAL exceeds reference_newton.max_free_dofs")
+    if prepared.method == "FDM" and first.space.basis.shape[1] > prepared.settings.max_free_dofs:
+        raise ValueError("MODAL FDM exceeds reference_newton.max_free_dofs")
     scales = state_scales(f, q, p, prepared.settings)
     mechanical_basis, electric_basis = _modal_bases(
         first.space.matrix, first.space.target, scales, q.size)
     if mechanical_basis.shape[1] < requested:
         raise ValueError("modal.n_modes exceeds unconstrained mechanical DOFs")
-    return {"theory": f.theory, "method": "FDM",
+    if prepared.method == "MVI":
+        from cylinder_modal_mvi import MAX_PROJECTED_DIRECTIONS
+        rank = prepared.mvi_settings.rank
+        component_count = q.shape[0] + (0 if p is None else p.shape[0])
+        direction_count = component_count * rank * max(q.shape[1:])
+        if direction_count > MAX_PROJECTED_DIRECTIONS:
+            raise ValueError("MODAL MVI projected direction limit exceeded")
+        if rank > min(q.shape[1:]):
+            raise ValueError("MODAL MVI rank exceeds grid dimensions")
+    return {"theory": f.theory, "method": prepared.method,
+            **({"rank": prepared.mvi_settings.rank} if prepared.method == "MVI" else {}),
             "calculation_kind": "MODAL", "density_kg_m3": density,
             "n_modes": requested, "mechanical_free_dofs": int(mechanical_basis.shape[1]),
             "electric_free_dofs": int(electric_basis.shape[1]),
@@ -197,6 +215,10 @@ def _linear_matrices(prepared, density, *, progress_callback=None):
 def solve_modal_case(case, *, base_dir=None, progress_callback=None):
     """Compute consistent small-grid modes in Hz, with massless electric DOFs condensed."""
     prepared, density, requested = _modal_spec(case, base_dir=base_dir)
+    if prepared.method == "MVI":
+        from cylinder_modal_mvi import solve_modal_mvi
+        return solve_modal_mvi(prepared, density, requested,
+                               progress_callback=progress_callback)
     k, m, bm, be, q_shape, p_shape = _linear_matrices(
         prepared, density, progress_callback=progress_callback)
     n_m = bm.shape[1]
@@ -249,7 +271,7 @@ def run_modal_case(case, case_path):
 
     def report(current, total):
         if current == 1 or current == total or current % max(1, total // 10) == 0:
-            print(f"MODAL tangent column {current}/{total}", flush=True)
+            print(f"MODAL {'mode' if case['method']=='MVI' else 'tangent column'} {current}/{total}", flush=True)
 
     result = solve_modal_case(case, base_dir=path.parent, progress_callback=report)
     out.mkdir(parents=True, exist_ok=True)
@@ -272,7 +294,10 @@ def run_modal_case(case, case_path):
     os.replace(tmp, out / "REFERENCE_MODAL_MODES.npz")
     summary = {
         "solver_backend": BACKEND, "calculation_kind": "MODAL",
-        "method": "FDM", "mode": "LINEAR_ELASTIC", "theory": result["theory"],
+        "method": result.get("method", "FDM"), "mode": "LINEAR_ELASTIC", "theory": result["theory"],
+        **({"rank": result["rank"], "mvi_sweeps": result["mvi_sweeps"],
+            "mvi_modal_algorithm": result["mvi_modal_algorithm"]}
+           if "rank" in result else {}),
         "scale_model": case["scale_model"], "material_model": "HOOKE",
         "status": "MODAL_COMPLETED", "converged": True,
         "accepted_steps": int(len(result["frequencies_hz"])),
@@ -304,7 +329,8 @@ def run_modal_case(case, case_path):
               float(result["omega_squared_rad2_s2"][i]))
              for i in range(len(result["frequencies_hz"]))))
         geo=case["geometry"];mat=case["material"]
-        grid=case.get("fdm_grid",case.get("grid",{}))
+        grid=case.get("mvi_grid" if case["method"]=="MVI" else "fdm_grid",
+                      case.get("grid",{}))
         mech_bc=case["boundary_conditions"]["variational"].get("mechanical",{})
         parameters=[("theory",result["theory"]),("density_kg_m3",result["density_kg_m3"]),
             ("L_m",geo["L"]),("R_m",geo["R"]),("h_m",geo["h"]),
@@ -312,6 +338,7 @@ def run_modal_case(case, case_path):
             ("nx",grid["nx"]),("ns",grid["ns"]),
             ("n_gauss",case["quadrature"]["n_gauss"]),
             ("n_modes",len(result["frequencies_hz"])),
+            ("method",case["method"]),("rank",case.get("rank","")),
             ("support_left",mech_bc.get("left",{}).get("support","FREE")),
             ("support_right",mech_bc.get("right",{}).get("support","FREE"))]
         write_labeled_table(wb,"PARAMETERS",("code","value"),parameters)
