@@ -7645,6 +7645,11 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self.top_pause_btn.pack(side="right",padx=5)
         self.top_run_btn=ttk.Button(actions,text="Рассчитать",command=self.run_case,style="Accent.TButton")
         self.top_run_btn.pack(side="right",padx=5)
+        # Visible in the main toolbar, not buried in the Files tab.
+        # This uses the same Windows folder picker for static, dynamic and MODAL.
+        self.top_choose_output_btn=ttk.Button(
+            actions,text="Папка результатов…",command=self._choose_results_folder)
+        self.top_choose_output_btn.pack(side="right",padx=5)
         self.run_btn=self.top_run_btn
         # Keep calculation progress on its own row.  VIDEO/3D and other action
         # buttons can make the toolbar wider; the old inline label was clipped
