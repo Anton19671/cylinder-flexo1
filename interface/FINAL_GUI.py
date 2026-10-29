@@ -7013,6 +7013,11 @@ class FinalSolverGUI(EnhancedSolverGUI):
         if result_dir.exists() and any(result_dir.iterdir()):
             raise ValueError(f"Папка результатов не пуста: {result_dir}")
         self.run_output_dir=result_dir
+        self._reference_launched_case_path=Path(path).resolve()
+        self._reference_launched_kind=str(plan.calculation_kind)
+        self._reference_launched_method=str(plan.spatial_method)
+        self._reference_launched_rank=plan.mvi_rank
+        self._reference_last_modal_event=None
         loads=cfg.get("reference_loads") or cfg.get("load_definition") or {}
         self.expected_steps=(8 if series else int(cfg.get("modal",{}).get("n_modes",0))
                              if plan.calculation_kind=="MODAL" else int(cfg.get("dynamics",{}).get("n_steps",0))
@@ -7040,7 +7045,30 @@ class FinalSolverGUI(EnhancedSolverGUI):
             if rc == 0 and not completion["success"]:
                 rc = 2
                 self._log("=== REFERENCE SUMMARY NOT ACCEPTED; forcing failure ===\\n")
+        stopped=reference and bool(getattr(self,"_stop_requested",False))
         super()._on_process_done(rc)
+        if stopped:
+            try:
+                from cylinder_stop_archive import archive_stopped_run
+                archived=archive_stopped_run(
+                    self.run_output_dir,
+                    case_path=getattr(self,"_reference_launched_case_path",None),
+                    journal_path=getattr(self,"_live_journal_path",None),
+                    calculation_kind=getattr(self,"_reference_launched_kind",None),
+                    method=getattr(self,"_reference_launched_method",None),
+                    rank=getattr(self,"_reference_launched_rank",None),
+                    expected_steps=self.expected_steps,
+                    run_kind=self.run_kind,
+                    last_modal_event=getattr(self,"_reference_last_modal_event",None),
+                    exit_code=rc,
+                )
+                self._log(f"STOP archive saved: {self.run_output_dir / 'STOPPED_RUN.json'}; accepted states={archived['accepted_steps_verified']}\\n")
+                if hasattr(self,"progress_status_label"):
+                    self.progress_status_label.configure(text="Остановлено: журнал и CASE сохранены")
+            except Exception as exc:
+                self._log(f"STOP archive FAILED: {type(exc).__name__}: {exc}\\n")
+                messagebox.showerror("Сохранение остановленного расчёта",str(exc))
+            return
         if reference and completion is not None:
             accepted = completion["accepted"]
             requested = completion["requested"] or self.expected_steps
@@ -8370,6 +8398,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         if message.startswith("MODAL_EVENT "):
             try:
                 event=json.loads(message[len("MODAL_EVENT "):])
+                self._reference_last_modal_event=dict(event)
                 stage=str(event.get("stage","MODAL"))
                 mode=event.get("mode")
                 column=event.get("column")
