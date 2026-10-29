@@ -6935,7 +6935,28 @@ class FinalSolverGUI(EnhancedSolverGUI):
 
     def open_reference_case(self,case=None,path=None):
         from cylinder_reference_gui import ReferenceCaseEditor
-        return ReferenceCaseEditor(self,case,path)
+        # Do not open independent conflicting selector windows. A single
+        # editor shares the method/rank state with the main window.
+        old=getattr(self,"_reference_editor",None)
+        if old is not None:
+            try:
+                if old.winfo_exists():
+                    old.lift()
+                    old.focus_set()
+                    return old
+            except tk.TclError:
+                pass
+        if case is not None and path is not None:
+            pending=getattr(self,"_pending_reference_case",None)
+            if pending is not None and pending[0]==Path(path).resolve():
+                case=copy.deepcopy(pending[1])
+        editor=ReferenceCaseEditor(self,case,path)
+        self._reference_editor=editor
+        def disconnected(event):
+            if event.widget is editor and getattr(self,"_reference_editor",None) is editor:
+                self._reference_editor=None
+        editor.bind("<Destroy>",disconnected,add="+")
+        return editor
 
     def open_modal_case(self):
         """Open a genuine editable free-vibration CASE for any of seven theories.
@@ -6950,15 +6971,19 @@ class FinalSolverGUI(EnhancedSolverGUI):
             return
         try:
             active=self._active_reference_case()
+            pending=getattr(self,"_pending_reference_case",None)
+            current=(pending[1] if active is not None and pending is not None
+                     and pending[0]==active[0].resolve() else
+                     active[1] if active is not None else None)
             if active is not None and str(
-                    active[1].get("calculation_kind","")).upper()=="MODAL":
-                return self.open_reference_case(active[1],active[0])
+                    current.get("calculation_kind","")).upper()=="MODAL":
+                return self.open_reference_case(current,active[0])
             template=APP_DIR/"config"/"CASE_REFERENCE_MODAL_SEVEN_THEORIES.json"
             case=json.loads(template.read_text(encoding="utf-8"))
             # An active reference CASE has authoritative model and geometry.
             # Ordinary legacy GUI values may have a different unit system,
             # so never silently interpret their dimensions as SI metres.
-            original=active[1] if active is not None else None
+            original=current
             theory=str((original or {}).get("theory") or
                        self._v("theory","CUF").get()).upper()
             if theory not in ("KL","FSDT","REDDY","CUF"):
@@ -7600,39 +7625,69 @@ class FinalSolverGUI(EnhancedSolverGUI):
             messagebox.showerror("Численный метод","Выберите МКР или МВИ-1…МВИ-8.")
             self._sync_ranked_method_choice()
             return
-        active=self._active_reference_case()
-        if active is not None:
-            if self.proc is not None and self.proc.poll() is None:
-                messagebox.showwarning("Численный метод","Остановите текущий расчёт перед сменой метода.")
-                self._sync_ranked_method_choice()
-                return
-            from cylinder_reference_method_switch import selected_case
-            path,cfg=active
-            try:
-                draft=selected_case(cfg,method,rank)
-                # Validate the proposed method before selecting it. No files are written.
-                from cylinder_final_stage11a_dispatcher import validate_final_case
-                from cylinder_modal_reference import prepare_modal_case
-                from cylinder_reference_case import prepare_reference_case
-                if str(draft.get("calculation_kind","")).upper()=="MODAL":
-                    prepare_modal_case(draft,base_dir=path.parent)
-                else:
-                    prepare_reference_case(draft,base_dir=path.parent)
-            except Exception as exc:
-                self._log(f"Смена метода отклонена: {exc}\\n")
-                messagebox.showerror("Численный метод",str(exc))
-                self._sync_ranked_method_choice()
-                return
-            self._pending_reference_case=(path.resolve(),draft)
-            self._v("method").set(method)
-            if rank is not None:self._v("rank").set(str(rank))
-            self._sync_ranked_method_choice()
-            self._refresh_visibility()
-            self._log(f"Выбран {method + (str(rank) if rank else '')}; исходный CASE не изменён.\\n")
+        self._select_reference_method(method,rank)
+
+    def _reference_editor_method_changed(self,editor,method,rank):
+        """Modal/CASE editor -> main window, without saving or recomputing."""
+        if getattr(self,"_reference_editor",None) is not editor:
             return
+        self._select_reference_method(method,rank,origin=editor)
+
+    def _select_reference_method(self,method,rank=None,*,origin=None):
+        """One source of truth for all MVI-1..8 / MKR GUI selectors."""
+        original_method=self._v("method","FDM").get()
+        try:original_rank=int(self._v("rank","1").get())
+        except (ValueError,TypeError):original_rank=1
+        try:
+            if self.proc is not None and self.proc.poll() is None:
+                raise ValueError("Остановите текущий расчёт перед сменой метода.")
+            active=self._active_reference_case()
+            if active is not None:
+                from cylinder_reference_method_switch import selected_case
+                path,cfg=active
+                pending=getattr(self,"_pending_reference_case",None)
+                base=(pending[1] if pending is not None
+                      and pending[0]==path.resolve() else cfg)
+                draft=selected_case(base,method,rank)
+                # Changing a selector must not run validation/assembly or
+                # resize grids. Validate the complete CASE only at save/run.
+                if (draft.get("method"),draft.get("rank"))==(
+                        cfg.get("method"),cfg.get("rank")):
+                    self._pending_reference_case=None
+                else:
+                    self._pending_reference_case=(path.resolve(),draft)
+            elif method=="MVI" and (type(rank) is not int or not 1<=rank<=8):
+                raise ValueError("Ранг МВИ должен быть от 1 до 8.")
+            elif method not in ("FDM","MVI"):
+                raise ValueError("Метод должен быть МКР или МВИ-1…8.")
+        except Exception as exc:
+            self._log(f"Смена метода отклонена: {exc}\\n")
+            messagebox.showerror("Численный метод",str(exc))
+            self._v("method").set(original_method)
+            self._v("rank").set(str(original_rank))
+            self._sync_ranked_method_choice()
+            editor=getattr(self,"_reference_editor",None)
+            if editor is not None:
+                try:
+                    if editor.winfo_exists():
+                        editor.apply_method_selection(original_method,original_rank)
+                except tk.TclError:
+                    pass
+            return False
         self._v("method").set(method)
-        if rank is not None:self._v("rank").set(str(rank))
+        if rank is not None:
+            self._v("rank").set(str(rank))
+        self._sync_ranked_method_choice()
         self._refresh_visibility()
+        editor=getattr(self,"_reference_editor",None)
+        if editor is not None and editor is not origin:
+            try:
+                if editor.winfo_exists():
+                    editor.apply_method_selection(method,rank)
+            except tk.TclError:
+                pass
+        self._log(f"Выбран {'МКР' if method=='FDM' else 'МВИ-'+str(rank)}; исходный CASE не изменён.\\n")
+        return True
 
     def _selector(self,parent,column,title,key,width,callback=None,row=0):
         box=ttk.Frame(parent)
