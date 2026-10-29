@@ -4049,6 +4049,20 @@ class FinalSolverGUI(EnhancedSolverGUI):
 
     def _online_refresh_steps(self):
         if self.run_output_dir is None:return
+        if self.run_kind in ("REFERENCE_CASE","REFERENCE_SERIES"):
+            from cylinder_reference_progress_adapter import accepted_reference_steps
+            if self.run_kind=="REFERENCE_CASE":
+                rows=accepted_reference_steps(self.run_output_dir)
+                if self.expected_steps:self._progress_update(len(rows),self.expected_steps)
+                for row in rows:
+                    idx=int(row["index"])
+                    iid=f"reference_step_{idx:04d}"
+                    if hasattr(self,"online_tree") and not self.online_tree.exists(iid):
+                        vals=(idx, f'{float(row.get("load_factor",0)):.6g}',
+                              "CONVERGED",f'{float(row.get("w_middle_abs_max_m",0)):.6g}',
+                              row.get("iterations",""),"","","","")
+                        self.online_tree.insert("","end",iid=iid,values=vals)
+            return
         out=Path(self.run_output_dir)
         if not out.exists():return
         # Accepted STATE files are authoritative. STEP JSON may legitimately lag
@@ -4264,6 +4278,32 @@ class FinalSolverGUI(EnhancedSolverGUI):
         except Exception:pass
 
     def _online_update_event(self,j):
+        if self.run_kind in ("REFERENCE_CASE","REFERENCE_SERIES"):
+            from cylinder_reference_progress_adapter import normalize_reference_event
+            normalized=normalize_reference_event(j)
+            if normalized is not None:
+                seq=int(j.get("seq",-1))
+                if seq<=getattr(self,"_online_last_seq",-1):return
+                self._online_last_seq=seq
+                self._online_last_event_wall=time.monotonic()
+                step=normalized["step_index"]
+                it=normalized["iteration"]
+                event=normalized["solver_event"]
+                self._online_set("stage",event)
+                self._online_set("step",f"{step} / {self.expected_steps}")
+                if it is not None:self._online_set("newton",f"iter {it}")
+                if normalized["residual_value"] is not None:
+                    try:self._online_set("residual",f'{float(normalized["residual_value"]):.3e}')
+                    except (TypeError,ValueError):pass
+                self._online_update_live_tree_row({
+                    "step_index":step,"iteration":it,"event":event,
+                    "elapsed_s":normalized["elapsed_s"],
+                    "load_factor":normalized["load_factor"]},
+                    status=f"{normalized['method']} {event}")
+                if hasattr(self,"progress_status_label"):
+                    self.progress_status_label.configure(
+                        text=f"Считается шаг {step}; {event}; итерация {it}")
+                return
         if not isinstance(j,dict):return
         seq=int(j.get("seq",-1))
         if seq<=getattr(self,"_online_last_seq",-1):return
@@ -4511,6 +4551,12 @@ class FinalSolverGUI(EnhancedSolverGUI):
                 if self.proc is not None and self.proc.poll() is None:
                     if self.run_kind=="MVI_SERIES":
                         completed=len(list(out.glob("MVI_*_SUMMARY.json"))) if out.exists() else 0
+                    elif self.run_kind=="REFERENCE_CASE":
+                        from cylinder_reference_progress_adapter import accepted_reference_steps
+                        completed=len(accepted_reference_steps(out))
+                    elif self.run_kind=="REFERENCE_SERIES":
+                        from restored_gui_runner import reference_completion_on_disk
+                        completed=reference_completion_on_disk(out,series=True)["accepted"]
                     else:
                         completed=self._online_completed_requested_count()
                     if self.expected_steps:self._progress_update(completed,self.expected_steps)
