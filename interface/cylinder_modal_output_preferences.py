@@ -35,7 +35,7 @@ def load_modal_folder(case_path=None) -> str | None:
         value = data.get('last_folder')
     else:
         choices = data.get('by_case', {})
-        value = choices.get(_key(case_path)) if isinstance(choices, dict) else None
+        value = choices.get(_key(case_path), data.get('last_folder')) if isinstance(choices, dict) else data.get('last_folder')
     return value if isinstance(value, str) and value.strip() else None
 
 
