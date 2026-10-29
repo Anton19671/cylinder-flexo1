@@ -6883,7 +6883,10 @@ class FinalSolverGUI(EnhancedSolverGUI):
             ("dyn_load_freq_end","frequency_end_hz"),("dyn_load_center","center_time_s"),
             ("dyn_load_sigma","sigma_s")):
             put(key,law.get(source))
-        put("output_dir",cfg.get("output_dir"))
+        selected_modal_folder=(
+            self._modal_results_folder(self._v("case_path").get().strip() or None)
+            if str(cfg.get("calculation_kind","")).upper()=="MODAL" else None)
+        put("output_dir",selected_modal_folder or cfg.get("output_dir"))
         self._sync_display_selectors();self._update_units();self._update_grid_info()
         self._schedule_problem_scheme_redraw(20)
 
@@ -6921,13 +6924,22 @@ class FinalSolverGUI(EnhancedSolverGUI):
 
     @staticmethod
     def _modal_folder_key(path):
-        return str(Path(path).expanduser().resolve()) if path is not None else None
+        return str(Path(path).expanduser().resolve()).casefold() if path is not None else None
 
     def _modal_results_folder(self,path=None):
-        return getattr(self,"_modal_results_folders",{}).get(self._modal_folder_key(path))
+        key=self._modal_folder_key(path)
+        cached=getattr(self,"_modal_results_folders",{}).get(key)
+        if cached:
+            return cached
+        try:
+            from cylinder_modal_output_preferences import load_modal_folder
+            return load_modal_folder(path)
+        except OSError as exc:
+            self._log(f"Не удалось прочитать настройки модальной папки: {exc}\n")
+            return None
 
     def _remember_modal_results_folder(self,folder,path=None):
-        """Keep unsaved modal output selection in this GUI session, not JSON."""
+        """Keep the modal folder across editor close and program restart."""
         folder=str(folder).strip()
         if not folder:return
         cache=getattr(self,"_modal_results_folders",None)
@@ -6937,36 +6949,59 @@ class FinalSolverGUI(EnhancedSolverGUI):
         key=self._modal_folder_key(path)
         cache[key]=folder
         cache[None]=folder
-        if path is None:
-            if self._active_reference_case() is None:self._v("output_dir").set(folder)
-            return
+        try:
+            from cylinder_modal_output_preferences import save_modal_folder
+            save_modal_folder(folder,path)
+        except OSError as exc:
+            self._log(f"Не удалось сохранить настройку папки: {exc}\n")
+        self._v("output_dir").set(folder)
+        if path is None:return
         active=self._active_reference_case()
         if active is None or self._modal_folder_key(active[0])!=key:return
+        if str(active[1].get("calculation_kind","")).upper()!="MODAL":return
         pending=getattr(self,"_pending_reference_case",None)
         base=(pending[1] if pending is not None and
               self._modal_folder_key(pending[0])==key else active[1])
         draft=copy.deepcopy(base)
         draft["output_dir"]=folder
         self._pending_reference_case=(active[0].resolve(),draft) if draft!=active[1] else None
-        self._v("output_dir").set(folder)
 
     def _choose_results_folder(self):
-        """Select a real local output folder; edit saved CASE without silent changes."""
-        current=self._v("output_dir").get().strip()
+        """Apply the folder to the live editor, not just its discarded draft."""
+        editor=getattr(self,"_reference_editor",None)
+        if editor is not None:
+            try:
+                if not editor.winfo_exists():editor=None
+            except tk.TclError:
+                editor=None
+        if editor is not None and "output_dir" in editor.fields:
+            current=editor.fields["output_dir"].get().strip()
+        else:
+            current=self._v("output_dir").get().strip()
         initial=Path(current).expanduser() if current else Path.home()
         if not initial.is_dir():initial=Path.home()
         chosen=filedialog.askdirectory(parent=self,
             title="Выбрать папку результатов",initialdir=str(initial),mustexist=True)
         if not chosen:return
+        folder=str(Path(chosen).resolve())
         active=self._active_reference_case()
-        if active:
+        kind=(editor.fields["calculation_kind"].get().upper()
+              if editor is not None and "calculation_kind" in editor.fields
+              else str(active[1].get("calculation_kind","")).upper() if active else
+              self._v("calculation_kind","STATIC").get().upper())
+        if kind=="MODAL":
+            self._remember_modal_results_folder(
+                folder, getattr(editor,"path",None) if editor is not None else
+                active[0] if active is not None else None)
+        elif active:
             path,cfg=active
             draft=copy.deepcopy(cfg)
-            draft["output_dir"]=str(Path(chosen).resolve())
+            draft["output_dir"]=folder
             self.open_reference_case(draft,path)
-        else:
-            self._v("output_dir").set(str(Path(chosen).resolve()))
-            self._log(f"Выбрана папка результатов: {chosen}\n")
+        self._v("output_dir").set(folder)
+        if editor is not None and "output_dir" in editor.fields:
+            editor.fields["output_dir"].set(folder)
+        self._log(f"Выбрана папка результатов: {folder}\n")
 
     def _release_reference_locks(self):
         for widget,state in getattr(self,"_reference_widget_states",{}).items():
@@ -6990,6 +7025,12 @@ class FinalSolverGUI(EnhancedSolverGUI):
         if old is not None:
             try:
                 if old.winfo_exists():
+                    # An already opened modal editor must receive an updated
+                    # folder; focusing the old dialog alone used to lose it.
+                    incoming=(case or {}).get("output_dir") if isinstance(case,dict) else None
+                    if incoming and "output_dir" in getattr(old,"fields",{}):
+                        old.fields["output_dir"].set(
+                            self._modal_results_folder(path) or str(incoming))
                     old.lift()
                     old.focus_set()
                     return old
