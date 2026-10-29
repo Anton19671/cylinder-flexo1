@@ -200,3 +200,9 @@ V-1...V-14 и Ж-1...Ж-15: ждут отдельной последовател
 ## Этап 22 — обследование Ж-13 (НЕ ЗАКРЫТ)
 - Проверены `numerics/cylinder_gauss2_rk.py`, `cylinder_gauss2_mvi.py`, `cylinder_gauss2_variational_fdm.py`. В Gauss2-MVI действительно есть широкий `except (ValueError,FloatingPointError,OverflowError)` в line-search; endpoint-потенциал использует только `newton.absolute_tolerance_scaled`. Нужны отдельные, минимальные безопасные исправления с регрессионными тестами, прежде чем считать пункт закрытым.
 
+
+## Этап 23 — Ж-13: Gauss2 конец шага и line-search (29.10.2026; ВЫБОРОЧНО ИСПРАВЛЕНО)
+- В `numerics/cylinder_gauss2_mvi.py` line-search больше не скрывает любой `ValueError`: повторный поиск шага допускается только для кодов `INVALID_`; остальные ошибки пробрасываются. Защита от `FloatingPointError` и `OverflowError` оставлена. Коммит `8739384aab6e1f028bff14ddc609a1a608706965`.
+- В `numerics/cylinder_gauss2_variational_fdm.py` endpoint электрического решения теперь проверяет `absolute_tolerance_scaled + relative_tolerance * initial_norm` вместо только абсолютного 1e-12. Одинаковый порог применяется при остановке и приёмке шага line-search. Коммит `f31952be3d6536266d2f1fd6a42fa08aa472a62d`.
+- Локально обе правки перенесены в архивный код от 27.10 и протестированы: `tests/test_gauss2_mvi_small_modes.py tests/test_gauss2_variational_fdm.py tests/test_cylinder_gauss2_mvi.py`: **12 passed** (0.25 с). Это не полный прогон актуального main. Отдельного теста с инъекцией произвольной ValueError и доказанной масштабной независимости электрического endpoint пока нет.
+- Неиспользуемые переменные, остальные математические вопросы Gauss2 и общий V-6 ещё требуют проверки. Не считать весь Gauss2 физически аттестованным.
