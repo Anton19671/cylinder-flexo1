@@ -1131,9 +1131,14 @@ class SolverGUI(tk.Tk):
         self.log_queue.put(("__DONE__",rc))
 
     def _poll_log_queue(self):
+        # A dense modal run can emit thousands of K/M-column events. Tk must
+        # return to its event loop regularly to keep Stop, Pause and tabs alive.
+        started=time.monotonic()
+        processed=0
         try:
-            while True:
+            while processed < 64 and time.monotonic()-started < 0.025:
                 item=self.log_queue.get_nowait()
+                processed+=1
                 if isinstance(item,tuple) and item and item[0]=="__DONE__":
                     self._on_process_done(item[1])
                 elif isinstance(item,tuple) and item and item[0]=="__STOP_FAIL__":
@@ -1152,7 +1157,9 @@ class SolverGUI(tk.Tk):
                     self._log(str(item))
         except queue.Empty:
             pass
-        self.after(150,self._poll_log_queue)
+        # Catch up quickly after a burst but never monopolize Tk's main loop.
+        delay=10 if not self.log_queue.empty() else 150
+        self.after(delay,self._poll_log_queue)
 
     def _poll_progress_files(self):
         try:
@@ -4687,9 +4694,14 @@ class FinalSolverGUI(EnhancedSolverGUI):
                             try:self._online_update_event(json.loads(line))
                             except Exception:pass
                         self._online_progress_pos=f.tell()
-                self._online_refresh_steps()
+                if getattr(self,"_live_run_calculation_kind",None)!="MODAL":
+                    self._online_refresh_steps()
                 if self.proc is not None and self.proc.poll() is None:
-                    if self.run_kind=="MVI_SERIES":
+                    if self.run_kind=="REFERENCE_CASE" and getattr(self,"_live_run_calculation_kind",None)=="MODAL":
+                        # Mode events are provisional until the final summary is
+                        # written; do not pass them off as saved load steps.
+                        completed=int(getattr(self,"_modal_modes_found",0))
+                    elif self.run_kind=="MVI_SERIES":
                         completed=len(list(out.glob("MVI_*_SUMMARY.json"))) if out.exists() else 0
                     elif self.run_kind=="REFERENCE_CASE":
                         from cylinder_reference_progress_adapter import accepted_reference_steps
@@ -4699,7 +4711,13 @@ class FinalSolverGUI(EnhancedSolverGUI):
                         completed=reference_completion_on_disk(out,series=True)["accepted"]
                     else:
                         completed=self._online_completed_requested_count()
-                    if self.expected_steps:self._progress_update(completed,self.expected_steps)
+                    if self.expected_steps:
+                        self._progress_update(completed,self.expected_steps)
+                        if self.run_kind=="REFERENCE_CASE" and getattr(self,"_live_run_calculation_kind",None)=="MODAL":
+                            total=int(self.expected_steps)
+                            status=f"Найдено форм {completed}/{total} · до сохранения"
+                            self.progress_label.configure(text=status)
+                            self.progress.set_text(status)
         except Exception:
             pass
         self.after(350,self._poll_progress_files)
@@ -7063,6 +7081,8 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self._reference_launched_method=str(plan.spatial_method)
         self._reference_launched_rank=plan.mvi_rank
         self._reference_last_modal_event=None
+        self._modal_column_display_times={}
+        self._modal_modes_found=0
         loads=cfg.get("reference_loads") or cfg.get("load_definition") or {}
         self.expected_steps=(8 if series else int(cfg.get("modal",{}).get("n_modes",0))
                              if plan.calculation_kind=="MODAL" else int(cfg.get("dynamics",{}).get("n_steps",0))
@@ -8487,9 +8507,45 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self._log(f"Папка результатов: {self.run_output_dir}\\n")
         self._online_set("stage","Запуск решателя")
 
+    def _append_live_journal(self,text):
+        path=getattr(self,"_live_journal_path",None)
+        if path is not None:
+            try:
+                with Path(path).open("a",encoding="utf-8") as fh:
+                    fh.write(text if text.endswith("\n") else text+"\n")
+            except OSError:
+                # The UI must remain usable if disk logging becomes unavailable.
+                self._live_journal_path=None
+
     def _log(self,text):
         message=str(text)
         archive_message=message  # Preserve the complete machine-readable event.
+        if message.startswith("MODAL_EVENT "):
+            try:
+                raw_event=json.loads(message[len("MODAL_EVENT "):])
+                stage=str(raw_event.get("stage", ""))
+                if stage in ("K_COLUMN_START","K_COLUMN_DONE","M_COLUMN_START","M_COLUMN_DONE"):
+                    self._reference_last_modal_event=dict(raw_event)
+                    now=time.monotonic()
+                    self._online_last_event_wall=now
+                    group=(raw_event.get("mode"),raw_event.get("sweep"),
+                           raw_event.get("axis"),stage.split("_COLUMN")[0])
+                    times=getattr(self,"_modal_column_display_times",None)
+                    if times is None:
+                        times={}
+                        self._modal_column_display_times=times
+                    col=int(raw_event.get("column") or 0)
+                    total=int(raw_event.get("total_columns") or 0)
+                    last=times.get(group)
+                    if (last is not None and now-last < 0.35
+                            and col not in (1,total)):
+                        # Every solver event still reaches the archived journal;
+                        # only redundant repainting of Tk widgets is skipped.
+                        self._append_live_journal(archive_message)
+                        return
+                    times[group]=now
+            except (ValueError,TypeError,KeyError):
+                pass
         if message.startswith("MODAL_EVENT "):
             try:
                 event=json.loads(message[len("MODAL_EVENT "):])
@@ -8535,6 +8591,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
                     if self.online_tree.exists(iid):self.online_tree.item(iid,values=tuple(old))
                     else:self.online_tree.insert("","end",iid=iid,values=tuple(old))
                 if stage in ("MVI_MODE_DONE","FDM_MODE_DONE"):
+                    self._modal_modes_found=max(int(getattr(self,"_modal_modes_found",0)),int(mode))
                     self._online_set("stage",f"Принята форма {mode}/{event.get('n_modes','?')} · f={float(event.get('frequency_hz',0)):.6g} Гц")
                 self._online_set("stage",label[:150])
                 if mode is not None:self._online_set("step",f"{mode}/{event.get('n_modes','?')}")
@@ -8558,14 +8615,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
             if message.lstrip().startswith("MODAL"):
                 try:self._online_set("stage",message.strip()[:125])
                 except (tk.TclError,AttributeError):pass
-        path=getattr(self,"_live_journal_path",None)
-        if path is not None:
-            try:
-                with Path(path).open("a",encoding="utf-8") as fh:
-                    fh.write(archive_message if archive_message.endswith("\n") else archive_message+"\n")
-            except OSError:
-                # Show messages live even if an archive folder becomes unavailable.
-                self._live_journal_path=None
+        self._append_live_journal(archive_message)
 
     def _prepare_basic_problem_grid(self):
         if not hasattr(self,"fdm_grid_frame"):return
