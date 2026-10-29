@@ -3,6 +3,7 @@
 from __future__ import annotations
 import json
 from pathlib import Path
+from cylinder_case_io import load_case_file
 from cylinder_reference_case import (
     BACKEND, prepare_reference_case, run_reference_case, run_reference_mvi_series
 )
@@ -15,8 +16,8 @@ class FinalCaseError(ValueError):
 def _load_case(case_json):
     path=Path(case_json).expanduser().resolve()
     try:
-        case=json.loads(path.read_text(encoding="utf-8"))
-    except (OSError,json.JSONDecodeError) as exc:
+        case=load_case_file(path)
+    except (OSError,ValueError,RuntimeError) as exc:
         raise FinalCaseError(f"Cannot read CASE: {path}: {exc}") from exc
     if not isinstance(case,dict):
         raise FinalCaseError("CASE must be a JSON object")
