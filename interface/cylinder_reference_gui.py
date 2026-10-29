@@ -292,11 +292,8 @@ class ReferenceCaseEditor(tk.Toplevel):
             self.fields['method'].set(str(method).upper())
             if rank is not None:
                 self.fields['rank'].set(str(rank))
-            self.case['method']=str(method).upper()
-            if method=="MVI":
-                self.case['rank']=int(rank if rank is not None else self.fields['rank'].get())
-            else:
-                self.case.pop('rank',None)
+            # self.case is the unchanged original editing baseline.
+            # edit_reference_case() converts its grid at collect/save time.
         finally:
             self._method_syncing=False
 
