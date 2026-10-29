@@ -45,12 +45,12 @@ class AutomaticDynamicAnalyticsTests(TestCase):
             self.assertEqual(summary["dynamic_analytics"]["status"],"EXPORTED",
                              summary["dynamic_analytics"])
             output=Path(summary["dynamic_analytics"]["output_dir"])
-            self.assertTrue((output/"00_DYNAMIC_INDEX.xlsx").is_file())
-            self.assertTrue((output/"01_SIGNALS.xlsx").is_file())
-            self.assertTrue((output/"02_FOURIER_FFT_PSD.xlsx").is_file())
-            self.assertTrue((output/"03_PHASE_ATTRACTORS.xlsx").is_file())
-            self.assertTrue((output/"04_POINCARE.xlsx").is_file())
-            self.assertTrue((output/"05_LYAPUNOV.xlsx").is_file())
+            self.assertTrue((output/"00_ДИНАМИКА_ОБЩИЕ_ДАННЫЕ.xlsx").is_file())
+            self.assertTrue((output/"01_ДИНАМИКА_ИСТОРИИ_ПЕРЕМЕЩЕНИЙ.xlsx").is_file())
+            self.assertTrue((output/"02_ДИНАМИКА_ЧАСТОТНЫЙ_АНАЛИЗ.xlsx").is_file())
+            self.assertTrue((output/"03_ДИНАМИКА_ФАЗОВЫЕ_ТРАЕКТОРИИ.xlsx").is_file())
+            self.assertTrue((output/"04_ДИНАМИКА_СЕЧЕНИЯ_ПУАНКАРЕ.xlsx").is_file())
+            self.assertTrue((output/"05_ДИНАМИКА_ПОКАЗАТЕЛИ_ЛЯПУНОВА.xlsx").is_file())
             persisted=json.loads((Path(case["output_dir"])/"FINAL_RUN_SUMMARY.json").read_text())
             self.assertEqual(persisted["dynamic_analytics"]["status"],"EXPORTED")
 
