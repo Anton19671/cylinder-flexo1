@@ -24,19 +24,24 @@ class StaticFDMSettings:
     max_iterations: int = 15
     max_halvings: int = 16
     potential_scale_v: float = 1.
+    min_reciprocal_condition: float = 0.
     max_free_dofs: int = 256
 
     def __post_init__(self):
         for key in ("relative_tolerance", "absolute_tolerance_scaled",
-                    "tangent_step_scaled", "potential_scale_v"):
+                    "tangent_step_scaled", "potential_scale_v",
+                    "min_reciprocal_condition"):
             value=getattr(self,key)
             if isinstance(value,bool):raise ValueError(key+": boolean is not numeric")
             try:value=float(value)
             except (TypeError,ValueError) as exc:raise ValueError(key+": finite number required") from exc
             if not np.isfinite(value) or value<0 or (
-                    key!="absolute_tolerance_scaled" and value==0):
+                    key not in ("absolute_tolerance_scaled",
+                                "min_reciprocal_condition") and value==0):
                 raise ValueError(key+" must be finite and positive (absolute tolerance may be zero)")
             object.__setattr__(self,key,value)
+        if self.min_reciprocal_condition>=1.:
+            raise ValueError("min_reciprocal_condition must be < 1")
         for key in ("max_iterations","max_halvings","max_free_dofs"):
             value=getattr(self,key)
             if isinstance(value,bool) or not isinstance(value,int) or value<1:
@@ -71,18 +76,30 @@ def state_scales(functional, mechanical, electrical, settings):
     return scales
 
 
-def solve_checked_reduced_tangent(tangent, projected_residual):
+def solve_checked_reduced_tangent(tangent, projected_residual, *,
+                                  min_reciprocal_condition=0.):
     """Solve the exact indefinite reduced Newton system with LU, never SVD.
 
     LAPACK xGECON estimates the reciprocal ONE-norm condition from the
     *same LU factors*; no singular values, pseudo-inverse, or regularization.
-    Reject a singular/ill-conditioned system instead of quietly modifying it.
+    Reject singular or numerically untrustworthy systems without
+    modifying the tangent or replacing the physics. The default reciprocal
+    condition floor accounts for at least 100*n floating-point roundoffs;
+    an optional larger floor can be selected by the caller.
     """
     a=np.asarray(tangent,float)
     g=np.asarray(projected_residual,float)
     if a.ndim!=2 or a.shape!=(len(g),len(g)) or not (
             np.isfinite(a).all() and np.isfinite(g).all()):
         raise np.linalg.LinAlgError("invalid reduced tangent/residual")
+    try:
+        floor=float(min_reciprocal_condition)
+    except (TypeError,ValueError) as exc:
+        raise ValueError("invalid minimum reciprocal condition") from exc
+    if (isinstance(min_reciprocal_condition,(bool,np.bool_)) or
+            not np.isfinite(floor) or not 0.<=floor<1.):
+        raise ValueError("invalid minimum reciprocal condition")
+    threshold=max(100.*len(g)*np.finfo(float).eps,floor)
     norm1=float(np.linalg.norm(a,ord=1))
     if norm1<=0 or not np.isfinite(norm1):
         raise np.linalg.LinAlgError("zero or nonfinite reduced tangent")
@@ -95,7 +112,7 @@ def solve_checked_reduced_tangent(tangent, projected_residual):
     gecon=get_lapack_funcs("gecon",(a,))
     rcond,info=gecon(lu,norm1)
     if (info!=0 or not np.isfinite(rcond) or
-            rcond<=np.finfo(float).eps):
+            rcond<=threshold):
         raise np.linalg.LinAlgError("ill-conditioned reduced tangent")
     correction=lu_solve((lu,piv),-g,check_finite=False)
     if not np.isfinite(correction).all():
@@ -189,7 +206,8 @@ def solve_static_subspace(problem, mechanical, electrical=None, *, dead_load=Non
         record["tangent_symmetry_relative"]=float(
             np.linalg.norm(tangent-tangent.T)/max(np.linalg.norm(tangent),1.e-300))
         try:
-            correction,estimate=solve_checked_reduced_tangent(tangent,g)
+            correction,estimate=solve_checked_reduced_tangent(
+                tangent,g,min_reciprocal_condition=settings.min_reciprocal_condition)
             record["tangent_condition"]=estimate
             record["tangent_condition_method"]="LU_1_NORM_ESTIMATE"
         except np.linalg.LinAlgError:
