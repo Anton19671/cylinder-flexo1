@@ -133,6 +133,33 @@ class _SeparatedModalProblem:
     def halfstep(self, x, y, axis, previous, *, current_q=None, on_stage=None):
         """Stationarity of the modal functional on frozen-partner variations."""
         bm, be = self.projected_bases(x, y, axis)
+        # Preserve a valid previous separated direction when numerical
+        # constraint-rank decisions have discarded it from the test basis.
+        if current_q is not None:
+            old_q = np.asarray(current_q, dtype=float).ravel()
+            if old_q.shape != (self.nm,) or not np.isfinite(old_q).all():
+                raise ValueError("MODAL MVI: invalid previous mechanical field")
+            old_norm = float(np.linalg.norm(old_q))
+            if old_norm <= 0.:
+                raise ValueError("MODAL MVI: zero previous mechanical field")
+            trace_error = float(np.linalg.norm(self.cm @ old_q, ord=np.inf))
+            trace_scale = max(1., float(np.linalg.norm(self.cm, ord=np.inf)) * old_norm)
+            if trace_error > 1.e-9 * trace_scale:
+                raise ValueError("MODAL MVI: previous field violates essential traces")
+            raw = separated_profile_directions(
+                x[:self.shape[0]], y[:self.shape[0]], axis)
+            raw_coeff = np.linalg.lstsq(raw, old_q, rcond=None)[0]
+            raw_error = float(np.linalg.norm(raw @ raw_coeff - old_q) / old_norm)
+            if not np.isfinite(raw_error) or raw_error > 1.e-9:
+                raise ValueError(
+                    "MODAL MVI: previous field not in frozen-partner span "
+                    f"axis={axis} difference={raw_error:.6g}")
+            old_coeff = np.linalg.lstsq(bm, old_q, rcond=None)[0]
+            missing = old_q - bm @ old_coeff
+            missing_ratio = float(np.linalg.norm(missing) / old_norm)
+            if missing_ratio > 1.e-9:
+                missing /= np.linalg.norm(missing)
+                bm = np.column_stack((bm, missing))
         nm, ne = bm.shape[1], be.shape[1]
         b = np.zeros((self.nm + self.ne, nm + ne))
         b[:self.nm, :nm] = bm
