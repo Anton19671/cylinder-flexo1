@@ -118,7 +118,8 @@ def _solve_modal_mvi_harmonic_spectrum(prepared, density, requested, *,
     if (requested > 8 or requested < 1 or
             f.electrical_on or f.material.ell_m != 0 or ns % 2 != 1 or nx < 9):
         raise ValueError("MODAL_MVI_HARMONIC_SCAN_REQUIRES_MACRO_AND_UP_TO_8_MODES")
-    operator = _SeparatedModalProblem(prepared, density, prepared.mvi_settings.rank)
+    operator = _SeparatedModalProblem(prepared,density,prepared.mvi_settings.rank,
+                                      harmonic_scan=True)
     candidates = []
     family_summary = []
     for n in range(ns // 2 + 1):

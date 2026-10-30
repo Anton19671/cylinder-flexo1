@@ -129,7 +129,11 @@ def _modal_spec(case, *, base_dir=None):
     surrogate["reference_loads"] = {
         "mechanical": [0.0] * n_mechanical, "load_factors": [0.0]}
     surrogate.pop("modal", None)
-    prepared = prepare_reference_case(surrogate, base_dir=base_dir)
+    grid = case.get("mvi_grid") or {}
+    big_scan = (method=="MVI" and int(grid.get("nx",0))*int(grid.get("ns",0))>256
+                and _use_harmonic_mvi_spectrum(case,n_modes))
+    prepared = prepare_reference_case(surrogate,base_dir=base_dir,
+                                      modal_harmonic_large=big_scan)
     return prepared, density, n_modes
 
 
@@ -155,8 +159,20 @@ def prepare_modal_case(case, *, base_dir=None):
                 "n_modes": requested, "mechanical_free_dofs": available,
                 "electric_free_dofs": 0, "reference_only": True,
                 "fdm_backend": "MATRIX_FREE_GMRES"}
+    large_scan = (prepared.method=="MVI" and q.shape[1]*q.shape[2]>256)
+    if large_scan:
+        from cylinder_modal_large_harmonic import mechanical_fixed_trace_mask
+        fixed=mechanical_fixed_trace_mask(prepared.problem,q)
+        available=int(q.size-np.count_nonzero(fixed))
+        if requested>available:
+            raise ValueError("MODAL_LARGE_HARMONIC_INSUFFICIENT_FREE_DOFS")
+        return {"theory":f.theory,"method":"MVI",
+                "rank":prepared.mvi_settings.rank,"calculation_kind":"MODAL",
+                "density_kg_m3":density,"n_modes":requested,
+                "mechanical_free_dofs":available,"electric_free_dofs":0,
+                "reference_only":True,"operator_scheme":"SBP42_FOURIER_ODD"}
     first = prepared.problem.assemble(q, p)
-    if np.max(np.abs(first.space.origin), initial=0.) > 1.e-10:
+    if np.max(np.abs(first.space.origin), initial=0.) > 1e-10:
         raise ValueError("MODAL supports only homogeneous essential BC")
     if (prepared.method == "FDM" and prepared.fdm_backend == "DENSE_REFERENCE"
             and first.space.basis.shape[1] > prepared.settings.max_free_dofs):

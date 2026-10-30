@@ -174,7 +174,7 @@ class _LocalMechanicalTangent:
 
 
 class _SeparatedModalProblem:
-    def __init__(self, prepared, density, rank):
+    def __init__(self, prepared, density, rank, *, harmonic_scan=False):
         self.prepared = prepared
         self.f = prepared.problem.functional
         self.q0, self.p0 = prepared.mechanical, prepared.electrical
@@ -186,14 +186,24 @@ class _SeparatedModalProblem:
         self.rank = rank
         if not 1 <= rank <= 8 or rank > min(self.nx, self.ns):
             raise ValueError("MODAL MVI rank must be 1..8 and <= min(nx, ns)")
-        count = self.n_components * rank * max(self.nx, self.ns)
+        self.large_harmonic=bool(harmonic_scan and self.nx*self.ns>256
+                                 and not self.ne and self.nx<=17 and self.ns<=17)
+        count=(self.n_components*2*max(self.nx,rank) if self.large_harmonic
+               else self.n_components*rank*max(self.nx,self.ns))
         if count > MAX_PROJECTED_DIRECTIONS:
             raise ValueError("MODAL MVI small-grid limit: projected X/Y family has "
                              f"{count} directions, maximum {MAX_PROJECTED_DIRECTIONS}")
-        first = prepared.problem.assemble(self.q0, self.p0)
-        if np.max(np.abs(first.space.origin), initial=0.) > 1.e-10:
-            raise ValueError("MODAL MVI needs homogeneous essential boundary conditions")
-        c, target = first.space.matrix, first.space.target
+        if self.large_harmonic:
+            from cylinder_modal_large_harmonic import mechanical_fixed_trace_mask
+            self.fixed_mask=mechanical_fixed_trace_mask(prepared.problem,self.q0)
+            c=np.zeros((int(self.fixed_mask.sum()),self.nm))
+            c[np.arange(c.shape[0]),np.flatnonzero(self.fixed_mask)]=1.
+            target=np.zeros(c.shape[0])
+        else:
+            first=prepared.problem.assemble(self.q0,self.p0)
+            if np.max(np.abs(first.space.origin),initial=0.)>1.e-10:
+                raise ValueError("MODAL MVI needs homogeneous essential boundary conditions")
+            c,target=first.space.matrix,first.space.target
         if np.max(np.abs(target), initial=0.) > 1.e-12:
             raise ValueError("MODAL MVI cannot prescribe nonzero supports")
         has_m = np.any(c[:, :self.nm] != 0., axis=1)
@@ -252,12 +262,31 @@ class _SeparatedModalProblem:
             # roundoff in C*T. A relative rank test against that noise alone
             # invents constraints and removes part of the current shape.
             c = constraints * scales[None, :]
+            if self.large_harmonic:
+                d=directions.copy()
+                d[self.fixed_mask,:]=0.
+                norms=np.linalg.norm(d,axis=0)
+                keep=norms>max(1.e-13,1.e-12*float(np.max(norms,initial=0.)))
+                if not np.any(keep):
+                    return np.empty((len(scales),0))
+                d=d[:,keep]
+                norms=np.linalg.norm(d,axis=0)
+                gram=d.T@d
+                if np.max(np.abs(gram-np.diag(norms*norms)))<1.e-10*max(1.,np.max(norms*norms)):
+                    orth=d/norms[None,:]
+                else:
+                    orth,rr,_=qr(d,mode="economic",pivoting=True,check_finite=False)
+                    diag=np.abs(np.diag(rr))
+                    valid=int(np.count_nonzero(diag>1.e-12*np.max(diag,initial=0.)))
+                    orth=orth[:,:valid]
+                if np.max(np.abs(orth[self.fixed_mask,:]),initial=0.)>1.e-11:
+                    raise ValueError("MODAL_LARGE_HARMONIC_TRACE_MISMATCH")
+                return scales[:,None]*orth
             space = affine_trace_space(
                 c, np.zeros(len(c)), np.zeros(len(scales)),
                 directions=directions,
                 constraint_rank_floor=1.e-12 * np.max(
                     np.linalg.norm(directions, axis=0), initial=0.))
-            # Never silently accept a basis that violates real traces.
             if np.max(np.abs(space.matrix @ space.basis), initial=0.) > 1.e-10:
                 raise ValueError("MODAL MVI: inadmissible frozen-partner basis")
             return scales[:, None] * space.basis

@@ -93,7 +93,7 @@ class ReferenceDynamics:
     eta_s: float = 0.0
 
 
-def prepare_reference_case(case, *, base_dir=None):
+def prepare_reference_case(case, *, base_dir=None, modal_harmonic_large=False):
     """Validate without creating directories or substituting another backend."""
     if selected_backend(case)!=BACKEND:raise ValueError("explicit reference backend required")
     _postprocess_options(case)
@@ -109,6 +109,9 @@ def prepare_reference_case(case, *, base_dir=None):
     if method!="FDM" and fdm_backend!="DENSE_REFERENCE":
         raise ValueError("MATRIX_FREE_GMRES currently available for FDM only; MVI unchanged")
     matrix_free=(method=="FDM" and fdm_backend=="MATRIX_FREE_GMRES")
+    large_harmonic = bool(modal_harmonic_large and method=="MVI" and
+        str(case.get("scale_model","")).upper()=="MACRO" and
+        str((case.get("mvi_grid") or {}).get("operator_scheme","")).upper()=="SBP42_FOURIER_ODD")
     from cylinder_kinematic_models import normalized_model
     geometry_model=normalized_model(case.get("geometry_model",""))
     if str(case.get("material_model","")).upper()!="HOOKE":
@@ -170,7 +173,7 @@ def prepare_reference_case(case, *, base_dir=None):
         if nx*ns*(count+potential_fields)>max_dofs:
             raise ValueError("MATRIX_FREE_NODAL_DOF_SAFETY_LIMIT")
     else:
-        max_nodes=256
+        max_nodes=289 if large_harmonic and nx<=17 and ns<=17 else 256
     if nx*ns>max_nodes:
         raise ValueError(f"{fdm_backend}: surface node count exceeds {max_nodes}")
     quad=case.get("quadrature") or {}
@@ -200,7 +203,7 @@ def prepare_reference_case(case, *, base_dir=None):
     q=np.zeros((functional.n_mechanical,nx,ns))
     p=np.zeros((order+1,nx,ns)) if functional.electrical_on else None
     total_dofs=q.size+(0 if p is None else p.size)
-    if not matrix_free and total_dofs>4096:
+    if not matrix_free and total_dofs>(4335 if large_harmonic else 4096):
         raise ValueError("dense reference nodal DOF limit exceeded")
     bc=case.get("boundary_conditions") or {}
     spec=bc.get("variational")
@@ -364,6 +367,10 @@ def prepare_reference_case(case, *, base_dir=None):
                 acceleration=np.zeros_like(q),
                 density_kg_m3=dynamic.density_kg_m3)
             initial_assembly=None
+    elif large_harmonic:
+        from cylinder_modal_large_harmonic import mechanical_fixed_trace_mask
+        mechanical_fixed_trace_mask(problem,q)
+        problem.evaluate_effective_residual(q,p,dead_load=dead,free_charge=charge)
     else:
         # Original dense reference route remains bit-for-bit unchanged.
         if kind=="STATIC":
