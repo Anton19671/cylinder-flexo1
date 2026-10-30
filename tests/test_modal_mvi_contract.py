@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from cylinder_modal_mvi import (_SeparatedModalProblem, _mass_orthogonal_null,
-                                _free_dof_count)
+                                _free_dof_count, _mass_project_previous_mode)
 
 
 def test_modal_direction_order_matches_static_variational_contract():
@@ -141,3 +141,33 @@ def test_termination_archives_case_and_journal(tmp_path):
         assert (out / "INPUT" / (status + "_CASE.json")).read_text() == "{}"
         assert (out / record["files"]["journal"]).read_text() == "trace"
         assert (out / (status + "_RUN.json")).is_file()
+
+
+def test_mass_projection_preserves_old_mode_in_current_admissible_space():
+    bm = np.eye(3)
+    z = np.array([[1., 0.], [0., 1.], [0., 0.]])
+    mz = np.diag([2., 3.])
+    old = np.array([0.4, -0.8, 2.e-5])
+    mass = lambda q: np.array([2., 3., 5.]) * q
+    reduced = _mass_project_previous_mode(bm, z, mz, old, mass)
+    np.testing.assert_allclose(reduced, old[:2], atol=1.e-14)
+    assert np.linalg.norm(bm @ z @ reduced - old) > 1.e-5
+
+
+def test_mass_projection_handles_coupled_physical_mass():
+    bm = np.eye(3)
+    z = np.array([[1.], [0.], [0.]])
+    physical_m = np.array([[2., .5, 0.], [.5, 3., 0.], [0., 0., 1.]])
+    old = np.array([1., 1., 0.])
+    projected = _mass_project_previous_mode(
+        bm, z, np.array([[2.]]), old, lambda q: physical_m @ q)
+    np.testing.assert_allclose(projected, [1.25], rtol=1.e-13)
+
+
+def test_mass_projection_rejects_genuinely_lost_mode():
+    bm = np.eye(3)
+    z = np.array([[1.], [0.], [0.]])
+    with pytest.raises(ValueError, match="OLD_MODE_LOST"):
+        _mass_project_previous_mode(
+            bm, z, np.array([[1.]]), np.array([0., 1., 0.]),
+            lambda q: q)
