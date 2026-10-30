@@ -212,6 +212,13 @@ def _solve_modal_mvi_harmonic_spectrum(prepared, density, requested, *,
     if len(candidates) < requested:
         raise ValueError("MODAL_MVI_INSUFFICIENT_HARMONIC_FAMILIES")
     best = candidates[:requested]
+    # A requested prefix can stop between the two members of a degenerate
+    # rotational pair. Keep the user-selected mode count, but disclose the
+    # incomplete pair rather than presenting the prefix as a closed family.
+    last = best[-1]
+    cutoff_pair_incomplete = bool(
+        last[1] != 0 and
+        sum(c[1] == last[1] and c[2] == last[2] for c in best) == 1)
     for i, mode in enumerate(best):
         for prev in best[:i]:
             if abs(float(mode[3] @ operator.mass(prev[3]))) > 1.e-6:
@@ -248,6 +255,7 @@ def _solve_modal_mvi_harmonic_spectrum(prepared, density, requested, *,
         "mvi_modal_algorithm":"fixed_rank_constrained_variational_YX_stationarity",
         "modal_spectrum_selection":"circumferential_harmonic_axial_families",
         "axial_modes_per_harmonic":axial_modes_per_harmonic,
+        "cutoff_rotational_pair_incomplete":cutoff_pair_incomplete,
         "axial_overtone_search_complete":False,
         "global_spectrum_completeness_verified":False,
     }
