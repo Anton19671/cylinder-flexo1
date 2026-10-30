@@ -231,9 +231,10 @@ def solve_modal_matrixfree(prepared, density, requested, *, modal_options,
             raise ValueError(
                 "MATRIX_FREE_MODAL_EIGENPAIRS_NOT_VERIFIED: "
                 "increase modal.max_iterations or refine the preconditioner")
-    # The extra vectors are internal guards for clustered eigenfrequencies.
+    # Keep mass actions consistent with the final eigenvectors, including
+    # a continued LOBPCG solve. The pre-continuation M*v must not be reused.
     values, vectors = values[:requested], vectors[:, :requested]
-    mv = mv[:, :requested]
+    mv = m @ vectors
     if np.any(values < -1.e-8 * max(1., np.max(np.abs(values)))):
         raise ValueError("negative squared frequency: unstable modal linearization")
     if np.max(np.abs(projector.c @ vectors), initial=0.) > 1.e-7:
