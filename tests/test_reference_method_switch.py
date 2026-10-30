@@ -103,3 +103,57 @@ def test_user_run_name_cannot_escape_results_root(tmp_path):
     _,case=create_launch_case(source,original,run_label="../test:bad?name")
     assert Path(case["output_dir"]).parent==tmp_path/"OUTPUT"
     assert not Path(case["output_dir"]).exists()
+
+
+def test_modal_sbp42_mvi17_switches_to_compatible_matrixfree_fdm():
+    src=fixture()
+    src.update(method="MVI",rank=1,reference_mvi={"max_sweeps":30},
+               scale_model="MACRO",fdm_backend="DENSE_REFERENCE")
+    src.pop("fdm_grid")
+    src["mvi_grid"]={"nx":17,"ns":17,"operator_scheme":"SBP42_FOURIER_ODD"}
+    src["reference_newton"]={"tangent_step_scaled":2.e-6,"max_free_dofs":512}
+    snapshot=copy.deepcopy(src)
+    fdm=selected_case(src,"FDM")
+    assert src==snapshot
+    assert fdm["method"]=="FDM"
+    assert fdm["fdm_grid"]=={"nx":17,"ns":17,
+                             "operator_scheme":"SBP42_FOURIER_ODD_CSR"}
+    assert fdm["fdm_backend"]=="MATRIX_FREE_GMRES"
+    assert fdm["reference_newton"]["max_surface_nodes"]>=289
+    assert "max_free_dofs" not in fdm["reference_newton"]
+    assert "rank" not in fdm and "reference_mvi" not in fdm
+    assert fdm["modal"]==src["modal"]
+    back=selected_case(fdm,"MVI",2)
+    assert back["method"]=="MVI" and back["rank"]==2
+    assert back["fdm_backend"]=="DENSE_REFERENCE"
+    assert back["mvi_grid"]==src["mvi_grid"]
+    assert "max_total_dofs" not in back["reference_newton"]
+    assert "fdm_grid" not in back
+
+
+def test_modal_sbp42_fdm21_switches_and_remains_compatible():
+    src=fixture()
+    src.update(scale_model="MACRO",fdm_backend="MATRIX_FREE_GMRES",
+               reference_newton={"max_total_dofs":100000,
+                                 "max_surface_nodes":8192,
+                                 "max_constraint_rows":20000})
+    src["fdm_grid"]={"nx":21,"ns":21,
+                     "operator_scheme":"SBP42_FOURIER_ODD_CSR"}
+    mvi=selected_case(src,"MVI",8)
+    assert mvi["fdm_backend"]=="DENSE_REFERENCE"
+    assert mvi["mvi_grid"]=={"nx":21,"ns":21,
+                            "operator_scheme":"SBP42_FOURIER_ODD"}
+    assert mvi["rank"]==8
+    assert selected_case(mvi,"FDM")["fdm_grid"]==src["fdm_grid"]
+
+
+def test_unrelated_matrixfree_and_nonmodal_switches_fail_closed():
+    src=fixture()
+    src.update(scale_model="MACRO",fdm_backend="MATRIX_FREE_GMRES")
+    src["fdm_grid"]["operator_scheme"]="SBP21_PERIODIC_ODD_CSR"
+    with pytest.raises(ValueError,match="incompatible matrix-free/CSR"):
+        selected_case(src,"MVI",1)
+    src["fdm_grid"]["operator_scheme"]="SBP42_FOURIER_ODD_CSR"
+    src["calculation_kind"]="STATIC"
+    with pytest.raises(ValueError,match="incompatible matrix-free/CSR"):
+        selected_case(src,"MVI",1)
