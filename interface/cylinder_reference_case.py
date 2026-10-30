@@ -108,12 +108,14 @@ def prepare_reference_case(case, *, base_dir=None):
     if method!="FDM" and fdm_backend!="DENSE_REFERENCE":
         raise ValueError("MATRIX_FREE_GMRES currently available for FDM only; MVI unchanged")
     matrix_free=(method=="FDM" and fdm_backend=="MATRIX_FREE_GMRES")
-    if str(case.get("geometry_model","")).upper()!="GREEN_LAGRANGE":
-        raise ValueError("reference backend requires full GREEN_LAGRANGE")
+    from cylinder_kinematic_models import normalized_model
+    geometry_model=normalized_model(case.get("geometry_model",""))
     if str(case.get("material_model","")).upper()!="HOOKE":
         raise ValueError("reference backend requires HOOKE")
-    if str(case.get("mode","")).upper()!="NONLINEAR_ELASTIC":
-        raise ValueError("reference backend requires mode=NONLINEAR_ELASTIC")
+    mode=str(case.get("mode","")).upper()
+    expected_mode="LINEAR_ELASTIC" if geometry_model=="LINEAR" else "NONLINEAR_ELASTIC"
+    if mode!=expected_mode:
+        raise ValueError(f"{geometry_model} requires mode={expected_mode}")
     if (case.get("units") or {}).get("system")!="SI_N_M_PA":
         raise ValueError("reference backend requires SI_N_M_PA")
     theory=str(case.get("theory","")).upper()
@@ -189,7 +191,7 @@ def prepare_reference_case(case, *, base_dir=None):
              if operator_scheme=="SBP21_FOURIER_ODD"
              else surface_trapezoid(nx,ns,length,radius))
     functional=CylinderFunctional(theory,material,radius_m=radius,thickness_m=thickness,
-        surface_operators=surface,n_gauss=n_gauss)
+        surface_operators=surface,n_gauss=n_gauss,geometry_model=geometry_model)
     q=np.zeros((functional.n_mechanical,nx,ns))
     p=np.zeros((order+1,nx,ns)) if functional.electrical_on else None
     total_dofs=q.size+(0 if p is None else p.size)
@@ -492,7 +494,7 @@ def run_reference_case(case,case_path):
     _write_json(out/"REFERENCE_CASE.json",case)
     summary={"solver_backend":BACKEND,"experimental":True,"calculation_kind":"STATIC",
              "method":prepared.method,"theory":prepared.problem.functional.theory,
-             "geometry_model":"GREEN_LAGRANGE","material_model":"HOOKE",
+             "geometry_model":case["geometry_model"],"material_model":"HOOKE",
              "field_order":"component,x,s","thickness_basis":"(2*z/h)**k",
              "electric_charge_convention":"PLUS_FREE_CHARGE_IN_ENTHALPY_D_N_EQUALS_MINUS_SIGMA",
              "units":{"system":"SI_N_M_PA"},"output_dir":str(out),
@@ -621,7 +623,7 @@ def run_reference_dynamic_case(case,case_path,*,prepared=None):
     dyn=prepared.dynamics;newmark=dyn.settings;f=prepared.problem.functional
     postprocess=_postprocess_options(case)
     summary={"solver_backend":BACKEND,"experimental":True,"calculation_kind":"DYNAMIC",
-        "method":prepared.method,"theory":f.theory,"geometry_model":"GREEN_LAGRANGE",
+        "method":prepared.method,"theory":f.theory,"geometry_model":case["geometry_model"],
         "material_model":"HOOKE","field_order":"component,x,s",
         "thickness_basis":"(2*z/h)**k",
         "electric_charge_convention":"PLUS_FREE_CHARGE_IN_ENTHALPY_D_N_EQUALS_MINUS_SIGMA",
