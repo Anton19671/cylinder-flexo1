@@ -64,7 +64,7 @@ def test_can_restore_cuf_after_switch_to_other_theory():
     assert chosen["cuf_model"] == "TE3"
 
 
-def test_modal_preflight_uses_exact_gl_zero_state_tangent(monkeypatch):
+def test_modal_preflight_keeps_selected_kinematic_branch(monkeypatch):
     """All three modal labels must reach the same unloaded tangent contract."""
     from types import SimpleNamespace
     import cylinder_modal_reference as modal
@@ -74,8 +74,9 @@ def test_modal_preflight_uses_exact_gl_zero_state_tangent(monkeypatch):
         pass
     def fake_prepare(surrogate, *, base_dir=None):
         seen.append(copy.deepcopy(surrogate))
-        assert surrogate["geometry_model"] == "GREEN_LAGRANGE"
-        assert surrogate["mode"] == "NONLINEAR_ELASTIC"
+        assert surrogate["geometry_model"] in ("LINEAR","VON_KARMAN","GREEN_LAGRANGE")
+        assert surrogate["mode"] == ("LINEAR_ELASTIC" if surrogate["geometry_model"]=="LINEAR"
+                                      else "NONLINEAR_ELASTIC")
         assert surrogate["reference_loads"]["load_factors"] == [0.0]
         return DummyPrepared()
 
