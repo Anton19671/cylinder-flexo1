@@ -518,7 +518,8 @@ class CylinderFunctional:
                         self._make_jets(mder,zero_elec,i,j),
                         self._make_jets(vd,zero_elec,i,j),
                         self.material,theory=self.theory,radius_m=self.R,
-                        thickness_m=self.h,eta_s=eta,n_gauss=self.n_gauss)
+                        thickness_m=self.h,eta_s=eta,n_gauss=self.n_gauss,
+                        geometry_model=self.geometry_model)
                     mc[:,:,i,j]+=visc.mechanical.T
                 if is_dynamic and self.theory in ("FSDT","REDDY"):
                     inertia=_director_mass(
@@ -648,7 +649,8 @@ class CylinderFunctional:
                 rate=self._make_jets(jets_v,z_electric,i,j)
                 weak=kelvin_voigt_thickness_weak(state,rate,self.material,
                     theory=self.theory,radius_m=self.R,thickness_m=self.h,
-                    eta_s=eta,n_gauss=self.n_gauss)
+                    eta_s=eta,n_gauss=self.n_gauss,
+                    geometry_model=self.geometry_model)
                 coefficients[:,:,i,j]=weak.mechanical.T
                 power+=self.W[i,j]*weak.power_w_per_m2
         for k,(_,dx,ds) in enumerate(MECHANICAL_DERIVATIVES[:self.n_derivatives]):
