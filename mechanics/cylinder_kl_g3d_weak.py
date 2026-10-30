@@ -177,8 +177,27 @@ def _normal_jets(data,R):
             2*normal[:,3],normal[:,4],2*normal[:,5])
 
 
-def _F_jets_raw(data,R,h,z):
-    n,nx,ns,nxx,nxs,nss=_normal_jets(data,R)
+def _normal_jets_small_rotation(data,R):
+    """Linear KL normal and its first/second material-coordinate derivatives."""
+    a=data
+    zero=lambda: np.zeros(3,dtype=np.result_type(a["q"]))
+    def vec(ax,az):
+        return np.array((ax,az,0.),dtype=np.result_type(a["q"]))
+    n=np.array((-a["qx"][2],a["q"][1]/R-a["qs"][2],1.),
+               dtype=np.result_type(a["q"]))
+    nx=vec(-a["qxx"][2],a["qx"][1]/R-a["qxs"][2])
+    ns=vec(-a["qxs"][2],a["qs"][1]/R-a["qss"][2])
+    nxx=vec(-a["qxxx"][2],a["qxx"][1]/R-a["qxxs"][2])
+    nxs=vec(-a["qxxs"][2],a["qxs"][1]/R-a["qxss"][2])
+    nss=vec(-a["qxss"][2],a["qss"][1]/R-a["qsss"][2])
+    return n,nx,ns,nxx,nxs,nss
+
+
+def _F_jets_raw(data,R,h,z,geometry_model="GREEN_LAGRANGE"):
+    model=normalized_model(geometry_model)
+    n,nx,ns,nxx,nxs,nss=(
+        _normal_jets(data,R) if model=="GREEN_LAGRANGE"
+        else _normal_jets_small_rotation(data,R))
     H=1.+z/R
     u=data["q"]+z*(n-_E_R)
     ux=data["qx"]+z*nx
@@ -231,7 +250,7 @@ def _data(j):
 def kl_point(jets:KLSurfaceJets,*,z_m,radius_m,thickness_m,
              geometry_model="GREEN_LAGRANGE"):
     R,h=_geometry(radius_m,thickness_m,z_m)
-    F,Fx,Fs,Fz=_F_jets_raw(_data(jets),R,h,float(z_m))
+    F,Fx,Fs,Fz=_F_jets_raw(_data(jets),R,h,float(z_m),geometry_model)
     det=float(np.linalg.det(F))
     if not math.isfinite(det) or det<=0:
         raise ValueError(f"INVALID_KL_DEFORMATION_MAPPING: detF={det}")
@@ -277,7 +296,7 @@ def thickness_weak_coefficients(jets:KLSurfaceJets,material:G3DMaterial,*,
     for z,w in zip(zs,ws):
         point=kl_point(jets,z_m=z,radius_m=R,thickness_m=h,
                        geometry_model=geometry_model)
-        F,Fx,Fs,Fz=_F_jets_raw(data,R,h,float(z))
+        F,Fx,Fs,Fz=_F_jets_raw(data,R,h,float(z),geometry_model)
         S,M,D=enthalpy_derivatives(point.strain6,point.gradient6x3,
                                    point.electric3,material)
         energy+=w*point.H*enthalpy_parts(
@@ -287,7 +306,7 @@ def thickness_weak_coefficients(jets:KLSurfaceJets,material:G3DMaterial,*,
             for comp in range(3):
                 perturbed[name][comp]+=1j*step
                 try:
-                    complex_F=_F_jets_raw(perturbed,R,h,float(z))
+                    complex_F=_F_jets_raw(perturbed,R,h,float(z),geometry_model)
                 finally:
                     perturbed[name][comp]-=1j*step
                 dF,dFx,dFs,dFz=[a.imag/step for a in complex_F]
