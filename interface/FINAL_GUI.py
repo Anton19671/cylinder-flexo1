@@ -1593,7 +1593,7 @@ class EnhancedSolverGUI(SolverGUI):
             values=flexoscale.SCALES,state="readonly",width=18
         )
         self.scale_combo.pack(anchor="w")
-        self.scale_combo.bind("<<ComboboxSelected>>",lambda _e:self._refresh_visibility())
+        self.scale_combo.bind("<<ComboboxSelected>>",lambda _e:self._reference_live_edit())
         ttk.Label(scale_box,text="MACRO — классическая упругость; MICRO — G3D (полная) или Gz (усечённая).",
                   wraplength=465).pack(anchor="w",pady=(4,2))
         grad_row=ttk.Frame(scale_box)
@@ -1614,7 +1614,7 @@ class EnhancedSolverGUI(SolverGUI):
         ):
             rb=ttk.Radiobutton(flexo_options,text=label,value=value,
                  variable=self._v("micro_flexoelectric","OFF"),
-                 command=self._refresh_visibility)
+                 command=self._reference_live_edit)
             rb.pack(anchor="w",pady=2)
             self.micro_flexo_radios.append(rb)
         self.scale_note=ttk.Label(scale_box,wraplength=470,justify="left",
@@ -6886,6 +6886,8 @@ class FinalSolverGUI(EnhancedSolverGUI):
             ("micro_rho","rho_kg_m3"),("micro_eta","eta_s"),("micro_potential_order","potential_order")):
             put(key,micro.get(source))
         grid=cfg.get("mvi_grid" if cfg.get("method")=="MVI" else "fdm_grid") or cfg.get("grid") or {}
+        put("reference_operator_scheme",grid.get("operator_scheme","LEGACY_REFERENCE"))
+        put("reference_fdm_backend",cfg.get("fdm_backend","DENSE_REFERENCE"))
         for prefix in ("","mvi_"):
             for key in ("nx","ns"):put(prefix+key,grid.get(key))
         quad=cfg.get("quadrature") or {}
@@ -6938,7 +6940,17 @@ class FinalSolverGUI(EnhancedSolverGUI):
             widget=stack.pop()
             try:stack.extend(widget.winfo_children())
             except tk.TclError:continue
-            if widget in (getattr(self,"time_integrator_combo",None),
+            if isinstance(widget,(ttk.Entry,ttk.Combobox,tk.Entry)) and str(widget.cget("textvariable")) in {
+                    str(self._v(key)) for key in ("nx","ns","mvi_nx","mvi_ns","n_gauss",
+                    "micro_ell_m","micro_mu1","micro_mu2","micro_kappa","micro_rho",
+                    "micro_eta","micro_potential_order")}:
+                continue
+            if widget in (getattr(self,"scale_combo",None),
+                          getattr(self,"reference_backend_combo",None),
+                          getattr(self,"reference_scheme_combo",None),
+                          getattr(self,"reference_apply_btn",None),
+                          *getattr(self,"micro_flexo_radios",()),
+                          getattr(self,"time_integrator_combo",None),
                           getattr(self,"modal_case_btn",None),
                           getattr(self,"method_combo",None),
                           getattr(self,"theory_combo",None),
@@ -8101,6 +8113,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self._build_run_tab()
         self._prepare_basic_problem_grid()
         self._apply_basic_grid_preset()
+        self._prepare_reference_live_controls()
         self._polish_existing_controls()
         self._update_kinematics_labels()
         self._apply_ui_level_layout()
@@ -8859,6 +8872,78 @@ class FinalSolverGUI(EnhancedSolverGUI):
         except Exception:return
         for key in ("nx","ns","mvi_nx","mvi_ns"):self._v(key).set(str(n))
         self._update_grid_info()
+        if self._active_reference_case():self._reference_live_edit()
+
+    def _prepare_reference_live_controls(self):
+        frame=ttk.LabelFrame(self.basic_grid_frame,text="Вариационный CASE · густые сетки",padding=6)
+        frame.grid(row=5,column=0,columnspan=2,sticky="ew",pady=(8,0))
+        self.reference_mesh_controls=frame
+        ttk.Label(frame,text="Схема сетки").grid(row=0,column=0,sticky="w")
+        self.reference_scheme_combo=ttk.Combobox(
+            frame,textvariable=self._v("reference_operator_scheme","SBP21_PERIODIC_ODD"),
+            values=("LEGACY_REFERENCE","SBP21_PERIODIC_ODD","SBP21_FOURIER_ODD",
+                    "SBP21_PERIODIC_ODD_CSR"),state="readonly",width=29)
+        self.reference_scheme_combo.grid(row=0,column=1,sticky="ew",padx=4)
+        ttk.Label(frame,text="FDM backend").grid(row=1,column=0,sticky="w")
+        self.reference_backend_combo=ttk.Combobox(
+            frame,textvariable=self._v("reference_fdm_backend","DENSE_REFERENCE"),
+            values=("DENSE_REFERENCE","MATRIX_FREE_GMRES"),state="readonly",width=29)
+        self.reference_backend_combo.grid(row=1,column=1,sticky="ew",padx=4)
+        self.reference_apply_btn=ttk.Button(
+            frame,text="Применить изменения к черновику CASE",
+            command=self._reference_live_edit)
+        self.reference_apply_btn.grid(row=2,column=0,columnspan=2,sticky="w",pady=5)
+        ttk.Label(frame,text="Исходный CASE сохраняется только через редактор.",
+                  wraplength=450).grid(row=3,column=0,columnspan=2,sticky="w")
+        frame.columnconfigure(1,weight=1)
+        for combo in (self.reference_scheme_combo,self.reference_backend_combo):
+            combo.bind("<<ComboboxSelected>>",lambda _e:self._reference_live_edit())
+        for root in (self.basic_fdm_controls,self.basic_mvi_controls,self.basic_grid_frame):
+            for child in root.winfo_children():
+                if isinstance(child,ttk.Entry):
+                    child.bind("<FocusOut>",lambda _e:self._reference_live_edit(),add="+")
+
+    def _reference_live_edit(self):
+        active=self._active_reference_case()
+        if active is None:
+            self._refresh_visibility()
+            return
+        if getattr(self,"_reference_live_editing",False):return
+        if self.proc is not None and self.proc.poll() is None:return
+        path,original=active
+        pending=getattr(self,"_pending_reference_case",None)
+        base=(pending[1] if pending is not None and pending[0]==path.resolve()
+              else original)
+        self._reference_live_editing=True
+        try:
+            from cylinder_reference_live_controls import selected_grid_case, selected_micro_case
+            prefix="mvi_" if str(base.get("method","FDM")).upper()=="MVI" else ""
+            draft=selected_grid_case(
+                base,nx=self._v(prefix+"nx").get(),
+                ns=self._v(prefix+"ns").get(),n_gauss=self._v("n_gauss").get(),
+                fdm_backend=self._v("reference_fdm_backend").get(),
+                operator_scheme=self._v("reference_operator_scheme").get())
+            scale=self._v("scale_model","MACRO").get()
+            if scale=="MICRO" or draft.get("scale_model")=="MICRO":
+                keys=("micro_ell_m","micro_mu1","micro_mu2","micro_kappa",
+                      "micro_rho","micro_eta","micro_potential_order")
+                values={key:self._v(key).get() for key in keys
+                        if self._v(key).get().strip()}
+                draft=selected_micro_case(
+                    draft,scale_model=scale,
+                    gradient_model=self._v("gradient_model","G3D").get(),
+                    flexo=self._v("micro_flexoelectric","OFF").get()=="ON",
+                    values=values)
+            self._pending_reference_case=(path.resolve(),draft) if draft!=original else None
+            if hasattr(self,"reference_message"):
+                self.reference_message.configure(
+                    text="CASE: изменения в черновике; сохранение — через редактор CASE.")
+            self._refresh_visibility()
+        except (ValueError,TypeError,KeyError) as exc:
+            messagebox.showerror("Настройки CASE",str(exc))
+            self._log(f"CASE draft: {exc}\n")
+        finally:
+            self._reference_live_editing=False
 
     def _polish_existing_controls(self):
         # Translate high-frequency choices while retaining the exact internal
@@ -9430,10 +9515,12 @@ class FinalSolverGUI(EnhancedSolverGUI):
                         "электрический потенциал не решается). "
                         "Численный микрорасчёт пока недоступен.")
             if reference:
-                micro=reference[1].get("micro") or {}
+                pending=getattr(self,"_pending_reference_case",None)
+                displayed=pending[1] if pending is not None and pending[0]==reference[0].resolve() else reference[1]
+                micro=displayed.get("micro") or {}
                 effect="ВКЛ" if micro.get("enable_flexoelectric",False) else "ВЫКЛ"
                 model="Gz" if str(micro.get("gradient_model","G3D")).upper()=="GZ" else "G3D"
-                status=f"Вариационный CASE · {reference[1].get('scale_model')} · {model} · флексо {effect}. Параметры — в редакторе CASE."
+                status=f"Вариационный CASE · {displayed.get('scale_model')} · {model} · флексо {effect}. Параметры — в черновике / редакторе CASE."
             self.scale_note.configure(text=status)
             if hasattr(self,"model_info"):self._update_grid_info()
         retired=self._v("material_model","HOOKE").get()!="HOOKE"
@@ -9649,6 +9736,8 @@ class FinalSolverGUI(EnhancedSolverGUI):
         active=self._active_reference_case()
         if active is not None and hasattr(self,"model_info"):
             cfg=active[1]
+            pending=getattr(self,"_pending_reference_case",None)
+            if pending is not None and pending[0]==active[0].resolve():cfg=pending[1]
             micro=cfg.get("micro") or {}
             flag="ВКЛ" if micro.get("enable_flexoelectric",False) and cfg.get("scale_model")=="MICRO" else "ВЫКЛ"
             self.model_info.configure(text=f"Вариационный CASE · {cfg.get('theory')} "
