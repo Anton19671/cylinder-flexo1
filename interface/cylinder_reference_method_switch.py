@@ -68,8 +68,8 @@ def _safe_run_label(text):
         return "RUN"
     if not isinstance(text, str):
         raise ValueError("Calculation name must be text")
-    value = re.sub(r'[<>:"/\\\\|?*\\x00-\\x1f]', "_", text)
-    value = re.sub(r"\\s+", "_", value).strip(" ._")
+    value = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", text)
+    value = re.sub(r"\s+", "_", value).strip(" ._")
     if not value:
         return "RUN"
     value = value[:48].rstrip(" ._")
