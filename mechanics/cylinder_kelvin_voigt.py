@@ -113,7 +113,8 @@ def viscous_stress_and_power(strain_rate6, material, eta_s):
     return sigma,max(0.,power)
 
 
-def _kl_direction(base, delta, R, h, z):
+def _kl_direction(base, delta, R, h, z,
+                  geometry_model="GREEN_LAGRANGE"):
     """Directional derivative of holomorphic KL geometry only.
 
     Identical complex-step geometric differentiation is already used for
@@ -122,7 +123,7 @@ def _kl_direction(base, delta, R, h, z):
     eps=1.e-26
     perturbed={name:np.asarray(base[name],complex)+
                1j*eps*np.asarray(delta[name],float) for name in _KL_FIELDS}
-    return np.asarray(_kl_F(perturbed,R,h,z)[0].imag/eps,float)
+    return np.asarray(_kl_F(perturbed,R,h,z,geometry_model)[0].imag/eps,float)
 
 
 def kelvin_voigt_thickness_weak(qjets, vjets, material, *, theory,
@@ -183,12 +184,12 @@ def kelvin_voigt_thickness_weak(qjets, vjets, material, *, theory,
             def virtual(comp,k):
                 return _director_F(unit(comp,k),theory,z,R,h,virtual=True)[0]
         else:
-            F=_kl_F(base,R,h,z)[0]
-            Fdot=_kl_direction(base,direction,R,h,z)
+            F=_kl_F(base,R,h,z,geometry_model)[0]
+            Fdot=_kl_direction(base,direction,R,h,z,geometry_model)
             def virtual(comp,k):
                 delta={name:np.zeros_like(base[name]) for name in names}
                 delta[names[k]][comp]=1.
-                return _kl_direction(base,delta,R,h,z)
+                return _kl_direction(base,delta,R,h,z,geometry_model)
         det=float(np.linalg.det(F))
         if not math.isfinite(det) or det<=0:
             raise ValueError("INVALID_DEFORMATION_MAPPING in Kelvin-Voigt shell")
