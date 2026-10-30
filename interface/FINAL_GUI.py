@@ -8780,6 +8780,8 @@ class FinalSolverGUI(EnhancedSolverGUI):
                 if event.get("sweep") is not None:label+=f" | цикл {event['sweep']}"
                 if event.get("axis"):label+=f" | {event['axis']}"
                 if column is not None:label+=f" | столбец {column}/{total}"
+                if stage == "MATRIX_FREE_MODAL_ACTION":
+                    label+=f" | оператор {event.get('operator', '?')} | применений {event.get('actions', '?')}"
                 if event.get("frequency_hz") is not None:
                     label+=f" | f={float(event['frequency_hz']):.8g} Гц"
                 if event.get("modal_amplitude_max") is not None:

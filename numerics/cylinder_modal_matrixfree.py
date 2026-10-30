@@ -60,20 +60,32 @@ def _projected_actions(prepared, density, projector, *, progress_callback=None):
     # perturbed nonlinear evaluations. Retain symmetric differences for the
     # nonlinear geometric branches and do not modify either formulation.
     is_linear = functional.geometry_model == "LINEAR"
-    if is_linear:
+    # CUF coefficients are spatially uniform in this mechanical linear branch.
+    # Reuse the local weak tangent already used by the separated modal solver;
+    # its action includes the same boundary-work derivative as the full path.
+    # Other theories and nonlinear branches retain the established operator.
+    cached_tangent = None
+    if is_linear and functional.theory.startswith("CUF_TE"):
+        from cylinder_modal_mvi import _LocalMechanicalTangent
+        cached_tangent = _LocalMechanicalTangent(
+            prepared.problem, functional, step)
+    if is_linear and cached_tangent is None:
         _, at_zero, _ = prepared.problem.evaluate_effective_residual(
             np.zeros_like(q0), None)
     def k_action(vector):
         direction = projector.project_null(np.asarray(vector, float))
         physical = (scales * direction).reshape(q0.shape)
-        _, right, _ = prepared.problem.evaluate_effective_residual(
-            step * physical, None)
-        if is_linear:
-            tangent_force = (right - at_zero) / step
+        if cached_tangent is not None:
+            tangent_force = cached_tangent.action(physical)
         else:
-            _, left, _ = prepared.problem.evaluate_effective_residual(
-                -step * physical, None)
-            tangent_force = (right - left) / (2. * step)
+            _, right, _ = prepared.problem.evaluate_effective_residual(
+                step * physical, None)
+            if is_linear:
+                tangent_force = (right - at_zero) / step
+            else:
+                _, left, _ = prepared.problem.evaluate_effective_residual(
+                    -step * physical, None)
+                tangent_force = (right - left) / (2. * step)
         action = projector.project_null(
             scales * tangent_force / stiffness_scale)
         calls["K"] += 1
