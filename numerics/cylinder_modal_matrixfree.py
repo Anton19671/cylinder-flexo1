@@ -218,6 +218,38 @@ def solve_modal_matrixfree(prepared, density, requested, *, modal_options,
         max_surface_nodes=prepared.settings.max_surface_nodes,
         detail_callback=detail_callback)
     t = preconditioner.linear_operator()
+    # Remove simple homogeneous fixed-coordinate constraints before LOBPCG.
+    # On the full projected space B has zero eigenvalues, which violates the
+    # positive-definite B requirement of generalized LOBPCG.
+    free_coordinates = None
+    c = projector.c
+    if (projector.count and
+            (c.getnnz(axis=1) == 1).all() and
+            (c.getnnz(axis=0) <= 1).all() and
+            np.max(np.abs(projector.target), initial=0.) < 1.e-12):
+        free_coordinates = np.flatnonzero(c.getnnz(axis=0) == 0)
+        if len(free_coordinates) != n_free:
+            raise ValueError("MATRIX_FREE_MODAL_FREE_COORDINATE_MISMATCH")
+        def reduce_operator(op):
+            def lift(x):
+                a = np.asarray(x, dtype=float)
+                if a.ndim == 1:
+                    v = np.zeros(q0.size)
+                    v[free_coordinates] = a
+                else:
+                    v = np.zeros((q0.size, a.shape[1]))
+                    v[free_coordinates, :] = a
+                return v
+            def matvec(x):
+                return (op @ lift(x))[free_coordinates]
+            return LinearOperator((n_free, n_free), dtype=float,
+                                  matvec=matvec, matmat=matvec)
+        k, m, t = reduce_operator(k), reduce_operator(m), reduce_operator(t)
+        seeds = seeds[free_coordinates, :]
+        if detail_callback is not None:
+            detail_callback(stage="MATRIX_FREE_MODAL_FREE_COORDINATES",
+                            free_dofs=int(n_free),
+                            eliminated_dofs=int(projector.count))
     if detail_callback is not None:
         detail_callback(stage="EIGEN_BEGIN", n_modes=requested,
                         eigen_solver="LOBPCG_PROJECTED")
@@ -248,9 +280,10 @@ def solve_modal_matrixfree(prepared, density, requested, *, modal_options,
                 detail_callback(stage="MATRIX_FREE_MODAL_CONTINUATION",
                                 initial_max_iterations=iterations,
                                 additional_max_iterations=continuation)
-            restart = np.column_stack([
-                projector.project_null(vectors[:, j])
-                for j in range(vectors.shape[1])])
+            restart = (vectors.copy() if free_coordinates is not None else
+                       np.column_stack([
+                           projector.project_null(vectors[:, j])
+                           for j in range(vectors.shape[1])]))
             with warnings.catch_warnings(record=True) as retry_warnings:
                 warnings.simplefilter("always", UserWarning)
                 values, vectors = lobpcg(
@@ -277,7 +310,8 @@ def solve_modal_matrixfree(prepared, density, requested, *, modal_options,
     mv = m @ vectors
     if np.any(values < -1.e-8 * max(1., np.max(np.abs(values)))):
         raise ValueError("negative squared frequency: unstable modal linearization")
-    if np.max(np.abs(projector.c @ vectors), initial=0.) > 1.e-7:
+    if free_coordinates is None and np.max(
+            np.abs(projector.c @ vectors), initial=0.) > 1.e-7:
         raise ValueError("MATRIX_FREE_MODAL_BOUNDARY_CONSTRAINT_DRIFT")
     gram = vectors.T @ mv
     diagonal = np.sqrt(np.diag(gram))
@@ -287,6 +321,10 @@ def solve_modal_matrixfree(prepared, density, requested, *, modal_options,
     gram = gram / diagonal[:, None] / diagonal[None, :]
     if np.max(np.abs(gram - np.eye(requested))) > 1.e-4:
         raise ValueError("MATRIX_FREE_MODAL_MODES_NOT_MASS_ORTHOGONAL")
+    if free_coordinates is not None:
+        full_vectors = np.zeros((q0.size, requested))
+        full_vectors[free_coordinates, :] = vectors
+        vectors = full_vectors
     physical_values = np.maximum(values, 0.) * conversion
     omega = np.sqrt(physical_values)
     frequency = omega / (2. * np.pi)
