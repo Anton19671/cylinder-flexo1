@@ -107,6 +107,81 @@ def periodic_sbp_odd_fourier_gradient(n, perimeter_m):
     return derivative, np.full(n, L/n)
 
 
+
+def _axial_sbp42_rows(n):
+    """Fourth-order interior, second-order boundary diagonal-norm SBP D1.
+
+    Strand's standard SBP(4,2) closure. D^T H + H D = eR*eR^T-eL*eL^T.
+    For a Dirichlet interval, D^T H D couples adjacent node parities,
+    unlike the two-grid-decoupled centered SBP(2,1) elastic operator.
+    """
+    _positive_dimension(n, "SBP42 axial node count", 9)
+    closure = (
+        ((0, -24./17), (1, 59./34), (2, -4./17), (3, -3./34)),
+        ((0, -.5), (2, .5)),
+        ((0, 4./43), (1, -59./86), (3, 59./86), (4, -4./43)),
+        ((0, 3./98), (2, -59./98), (4, 32./49), (5, -4./49)),
+    )
+    for i in range(n):
+        if i < 4:
+            row = closure[i]
+        elif i >= n - 4:
+            row = tuple((n-1-j, -a) for j,a in closure[n-1-i])
+        else:
+            row = ((i-2, 1./12), (i-1, -2./3),
+                   (i+1, 2./3), (i+2, -1./12))
+        yield i, row
+
+
+def _axial_sbp42_weights(n, h):
+    weights = np.ones(n, float)
+    weights[:4] = (17./48, 59./48, 43./48, 49./48)
+    weights[-4:] = weights[:4][::-1]
+    return weights*h
+
+
+def axial_sbp42_gradient(n, length_m):
+    """Non-checkerboard SBP42 axial D and its exact diagonal-norm weights."""
+    _positive_dimension(n, "SBP42 axial node count", 9)
+    length = _positive_length(length_m, "axial length")
+    h = length/(n-1)
+    d = np.zeros((n,n), float)
+    for i,row in _axial_sbp42_rows(n):
+        for j,v in row:
+            d[i,j] = v/h
+    return d, _axial_sbp42_weights(n,h)
+
+
+def axial_sbp42_gradient_sparse(n, length_m):
+    """O(n)-storage canonical CSR version of the same SBP42 axial D."""
+    _positive_dimension(n, "SBP42 axial node count", 9)
+    length = _positive_length(length_m, "axial length")
+    from scipy import sparse
+    h = length/(n-1)
+    rows,cols,vals = [],[],[]
+    for i,row in _axial_sbp42_rows(n):
+        for j,v in row:
+            rows.append(i);cols.append(j);vals.append(v/h)
+    d = sparse.csr_matrix((vals,(rows,cols)),shape=(n,n))
+    return d, _axial_sbp42_weights(n,h)
+
+
+def periodic_sbp_odd_fourier_gradient_sparse(n, perimeter_m):
+    """Canonical odd Fourier D_s as CSR (small/medium circumferential grids).
+
+    This is dense in angular bandwidth; keep an explicit safety ceiling.
+    It gives exact resolved periodic harmonics, not a new constitutive law.
+    """
+    _positive_dimension(n,"periodic node count",5)
+    if n > 129:
+        raise ValueError("FOURIER_CSR_ANGULAR_NODE_SAFETY_LIMIT: ns <= 129")
+    from scipy import sparse
+    dense, weights = periodic_sbp_odd_fourier_gradient(n,perimeter_m)
+    d = sparse.csr_matrix(dense)
+    d.eliminate_zeros()
+    return d, weights
+
+
 def axial_sbp21_gradient_sparse(n,length_m):
     """CSR SBP(2,1) axial derivative with O(n) nonzeros and diagonal norm."""
     _positive_dimension(n,"axial node count",4)
@@ -207,6 +282,8 @@ def require_green_identity(Dx,Ds,wx,ws,*,relative_tolerance=3.e-12):
 
 
 __all__=("SBP_OPERATOR_SCHEME","axial_sbp21_gradient",
+         "axial_sbp42_gradient","axial_sbp42_gradient_sparse",
+         "periodic_sbp_odd_fourier_gradient_sparse",
          "periodic_sbp_odd_gradient",
          "axial_sbp21_gradient_sparse","periodic_sbp_odd_gradient_sparse",
          "green_identity_defects",
