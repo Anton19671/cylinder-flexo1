@@ -154,10 +154,15 @@ def solve_modal_matrixfree(prepared, density, requested, *, modal_options,
                             operator=family, actions=calls)
     k, m, scales, conversion, mass_scale = _projected_actions(
         prepared, density, projector, progress_callback=progress)
+    # Include additional Ritz vectors around the requested spectral cutoff.
+    # With rotational doublets, a block ending exactly at the requested
+    # eigenvalue can converge poorly. Oversampling keeps the physical
+    # operator and boundary projection unchanged.
+    block_size = min(max(requested + 4, 2 * requested), n_free // 5)
     rng = np.random.default_rng(20261030)
     seeds = np.column_stack([
         projector.project_null(rng.normal(size=q0.size))
-        for _ in range(requested)])
+        for _ in range(block_size)])
     seeds, _ = np.linalg.qr(seeds, mode="reduced")
     if np.min(np.linalg.norm(seeds, axis=0)) < .99:
         raise ValueError("MATRIX_FREE_MODAL_NO_INDEPENDENT_START")
@@ -192,7 +197,7 @@ def solve_modal_matrixfree(prepared, density, requested, *, modal_options,
     relative = np.linalg.norm(kv - mv * values[None, :], axis=0) / np.maximum(
         np.linalg.norm(kv, axis=0) +
         np.abs(values) * np.linalg.norm(mv, axis=0), 1.e-14)
-    if np.any(relative > max(5.e-5, 20. * tolerance)):
+    if np.any(relative[:requested] > max(5.e-5, 20. * tolerance)):
         # An initial LOBPCG block can stop before the low modes are ready.
         # Continue from the computed admissible vectors, keeping the exact
         # physical K/M actions, projected boundary conditions and validation.
@@ -222,10 +227,13 @@ def solve_modal_matrixfree(prepared, density, requested, *, modal_options,
             relative = np.linalg.norm(kv - mv * values[None, :], axis=0) / np.maximum(
                 np.linalg.norm(kv, axis=0) +
                 np.abs(values) * np.linalg.norm(mv, axis=0), 1.e-14)
-        if np.any(relative > max(5.e-5, 20. * tolerance)):
+        if np.any(relative[:requested] > max(5.e-5, 20. * tolerance)):
             raise ValueError(
                 "MATRIX_FREE_MODAL_EIGENPAIRS_NOT_VERIFIED: "
                 "increase modal.max_iterations or refine the preconditioner")
+    # The extra vectors are internal guards for clustered eigenfrequencies.
+    values, vectors = values[:requested], vectors[:, :requested]
+    mv = mv[:, :requested]
     if np.any(values < -1.e-8 * max(1., np.max(np.abs(values)))):
         raise ValueError("negative squared frequency: unstable modal linearization")
     if np.max(np.abs(projector.c @ vectors), initial=0.) > 1.e-7:
