@@ -87,7 +87,7 @@ class ModalSparseBlockPreconditioner:
                 except (RuntimeError, ValueError) as exc:
                     raise ValueError("MODAL_SPARSE_PRECONDITIONER_FACTORIZATION_FAILED") from exc
                 if not np.isfinite(lu.U.diagonal()).all() or (
-                        np.min(np.abs(lu.U.diagonal()), initial=0.) <= 0.):
+                        np.min(np.abs(lu.U.diagonal())) <= 0.):
                     raise ValueError("MODAL_SPARSE_PRECONDITIONER_SINGULAR_BLOCK")
                 self.factors[key] = lu
             self.blocks.append((offset, offset+surface_nodes, key))
