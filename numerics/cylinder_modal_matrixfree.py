@@ -193,9 +193,39 @@ def solve_modal_matrixfree(prepared, density, requested, *, modal_options,
         np.linalg.norm(kv, axis=0) +
         np.abs(values) * np.linalg.norm(mv, axis=0), 1.e-14)
     if np.any(relative > max(5.e-5, 20. * tolerance)):
-        raise ValueError(
-            "MATRIX_FREE_MODAL_EIGENPAIRS_NOT_VERIFIED: "
-            "increase modal.max_iterations or refine the preconditioner")
+        # An initial LOBPCG block can stop before the low modes are ready.
+        # Continue from the computed admissible vectors, keeping the exact
+        # physical K/M actions, projected boundary conditions and validation.
+        # Do not accept an unverified eigenpair or change the shell model.
+        continuation = min(max(2 * iterations, 200), 2000)
+        if continuation > iterations:
+            if detail_callback is not None:
+                detail_callback(stage="MATRIX_FREE_MODAL_CONTINUATION",
+                                initial_max_iterations=iterations,
+                                additional_max_iterations=continuation)
+            restart = np.column_stack([
+                projector.project_null(vectors[:, j])
+                for j in range(vectors.shape[1])])
+            with warnings.catch_warnings(record=True) as retry_warnings:
+                warnings.simplefilter("always", UserWarning)
+                values, vectors = lobpcg(
+                    k, restart, B=m, M=t, tol=tolerance,
+                    maxiter=continuation, largest=False)
+            if retry_warnings and detail_callback is not None:
+                detail_callback(stage="MATRIX_FREE_MODAL_CONTINUATION_WARNINGS",
+                                messages=[str(w.message) for w in retry_warnings])
+            if not (np.isfinite(values).all() and np.isfinite(vectors).all()):
+                raise ValueError("MATRIX_FREE_MODAL_NONFINITE_EIGENPAIR")
+            order = np.argsort(values)
+            values, vectors = values[order], vectors[:, order]
+            kv, mv = k @ vectors, m @ vectors
+            relative = np.linalg.norm(kv - mv * values[None, :], axis=0) / np.maximum(
+                np.linalg.norm(kv, axis=0) +
+                np.abs(values) * np.linalg.norm(mv, axis=0), 1.e-14)
+        if np.any(relative > max(5.e-5, 20. * tolerance)):
+            raise ValueError(
+                "MATRIX_FREE_MODAL_EIGENPAIRS_NOT_VERIFIED: "
+                "increase modal.max_iterations or refine the preconditioner")
     if np.any(values < -1.e-8 * max(1., np.max(np.abs(values)))):
         raise ValueError("negative squared frequency: unstable modal linearization")
     if np.max(np.abs(projector.c @ vectors), initial=0.) > 1.e-7:
