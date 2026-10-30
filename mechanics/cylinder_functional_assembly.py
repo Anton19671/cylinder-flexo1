@@ -38,6 +38,8 @@ from cylinder_sbp_derivatives import (
     periodic_sbp_odd_fourier_gradient,
     require_green_identity, axial_sbp21_gradient_sparse,
     periodic_sbp_odd_gradient_sparse,
+    axial_sbp42_gradient, axial_sbp42_gradient_sparse,
+    periodic_sbp_odd_fourier_gradient_sparse,
 )
 from cylinder_surface_linear_algebra import (
     is_sparse_matrix, check_matrix, apply_biaxial,
@@ -136,6 +138,28 @@ def surface_sbp21_fourier(n_axial,n_circumference,length_m,radius_m):
     return SurfaceOperators(Dx,Ds,wx,ws)
 
 
+def surface_sbp42_fourier(n_axial,n_circumference,length_m,radius_m):
+    """SBP42 axial (no parity separation), exact odd periodic Fourier D_s."""
+    R=float(radius_m)
+    if not math.isfinite(R) or R<=0:
+        raise ValueError("R must be finite positive")
+    Dx,wx=axial_sbp42_gradient(n_axial,length_m)
+    Ds,ws=periodic_sbp_odd_fourier_gradient(n_circumference,2*math.pi*R)
+    require_green_identity(Dx,Ds,wx,ws)
+    return SurfaceOperators(Dx,Ds,wx,ws)
+
+
+def surface_sbp42_fourier_csr(n_axial,n_circumference,length_m,radius_m):
+    """CSR-compatible SBP42/Fourier operators for full-node matrix-free FDM."""
+    R=float(radius_m)
+    if not math.isfinite(R) or R<=0:
+        raise ValueError("R must be finite positive")
+    Dx,wx=axial_sbp42_gradient_sparse(n_axial,length_m)
+    Ds,ws=periodic_sbp_odd_fourier_gradient_sparse(n_circumference,2*math.pi*R)
+    require_green_identity(Dx,Ds,wx,ws)
+    return SurfaceOperators(Dx,Ds,wx,ws)
+
+
 def surface_sbp21_csr(n_axial,n_circumference,length_m,radius_m):
     """O(nx+ns) CSR SBP21/odd-periodic reference operators.
 
@@ -182,8 +206,15 @@ class SurfaceOperators:
             # Full dense SVD is forbidden. Accept only the explicit,
             # mathematically characterized SBP21/odd-periodic stencil.
             # Even periodic counts are rejected to avoid checkerboards.
-            refx,refwx=axial_sbp21_gradient_sparse(len(wx),float(np.sum(wx)))
-            refs,refws=periodic_sbp_odd_gradient_sparse(len(ws),float(np.sum(ws)))
+            # Canonical sparse SBP21 or SBP42/Fourier stencils only.
+            is_sbp42=(len(wx)>=9 and np.isclose(wx[0]/wx[4],17./48,rtol=1.e-11))
+            if is_sbp42:
+                refx,refwx=axial_sbp42_gradient_sparse(len(wx),float(np.sum(wx)))
+                refs,refws=periodic_sbp_odd_fourier_gradient_sparse(
+                    len(ws),float(np.sum(ws)))
+            else:
+                refx,refwx=axial_sbp21_gradient_sparse(len(wx),float(np.sum(wx)))
+                refs,refws=periodic_sbp_odd_gradient_sparse(len(ws),float(np.sum(ws)))
             if not (np.allclose(wx,refwx,rtol=2.e-12,atol=0.) and
                     np.allclose(ws,refws,rtol=2.e-12,atol=0.)):
                 raise ValueError("CSR surface weights must match diagonal SBP norm")
@@ -727,6 +758,7 @@ class CylinderFunctional:
 
 __all__=("CylinderFunctional","SurfaceOperators","FunctionalResult",
          "surface_trapezoid","surface_sbp21","surface_sbp21_csr",
+         "surface_sbp42_fourier","surface_sbp42_fourier_csr",
          "periodic_face_gradient","axial_fd_gradient",
          "MECHANICAL_DERIVATIVES","ELECTRICAL_DERIVATIVES")
 
