@@ -7619,8 +7619,8 @@ class FinalSolverGUI(EnhancedSolverGUI):
         "theory":{
             "Carrera CUF":"CUF",
             "Kirchhoff–Love":"KL",
-            "Тимошенко (FSDT) · в разработке":"FSDT",
-            "Редди (TSDT) · в разработке":"REDDY",
+            "Тимошенко–Миндлин (FSDT)":"FSDT",
+            "Редди (TSDT)":"REDDY",
         },
         "method":{
             "МКР / конечные разности":"FDM",
