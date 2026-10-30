@@ -6929,6 +6929,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
             if str(cfg.get("calculation_kind","")).upper()=="MODAL" else None)
         put("output_dir",cfg.get("output_dir") or selected_modal_folder)
         self._sync_display_selectors();self._update_units();self._update_grid_info()
+        self._sync_basic_grid_preset()
         self._schedule_problem_scheme_redraw(20)
 
     def _reference_widgets(self):
@@ -6949,6 +6950,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
                           getattr(self,"reference_backend_combo",None),
                           getattr(self,"reference_scheme_combo",None),
                           getattr(self,"reference_apply_btn",None),
+                          getattr(self,"basic_grid_preset",None),
                           *getattr(self,"micro_flexo_radios",()),
                           getattr(self,"time_integrator_combo",None),
                           getattr(self,"modal_case_btn",None),
@@ -6974,7 +6976,8 @@ class FinalSolverGUI(EnhancedSolverGUI):
             except tk.TclError:pass
         self._reference_widget_states=saved
         for name in ("method_combo","theory_combo","cuf_model_combo",
-                     "geometry_combo","material_model_combo","gradient_model_combo"):
+                     "geometry_combo","material_model_combo","gradient_model_combo",
+                     "basic_grid_preset"):
             widget=getattr(self,name,None)
             if widget is not None:
                 try:widget.configure(state="readonly")
@@ -8848,7 +8851,8 @@ class FinalSolverGUI(EnhancedSolverGUI):
 
         presetrow=ttk.Frame(self.basic_grid_frame);presetrow.grid(row=0,column=0,columnspan=2,sticky="ew",pady=(0,5))
         ttk.Label(presetrow,text="Быстрый выбор").pack(side="left")
-        self.basic_grid_preset=ttk.Combobox(presetrow,textvariable=self._v("basic_grid_preset","41×41 · рабочая"),values=("21×21 · быстро","41×41 · рабочая","61×61 · подробно"),state="readonly",width=21)
+        self.basic_grid_preset=ttk.Combobox(presetrow,textvariable=self._v("basic_grid_preset","41×41 · рабочая"),values=("13×13 · проверка","17×17 · проверка","21×21 · сгущение",
+                "25×25 · сгущение","33×33 · сгущение","41×41 · рабочая","61×61 · подробно"),state="readonly",width=21)
         self.basic_grid_preset.pack(side="left",padx=7)
         self.basic_grid_preset.bind("<<ComboboxSelected>>",lambda _e:self._apply_basic_grid_preset())
         ttk.Label(presetrow,text="Пресет заполняет обе сетки; затем их можно менять независимо.",foreground="#5d7182").pack(side="left",padx=7)
@@ -8883,6 +8887,28 @@ class FinalSolverGUI(EnhancedSolverGUI):
         for key in ("nx","ns","mvi_nx","mvi_ns"):self._v(key).set(str(n))
         self._update_grid_info()
         if self._active_reference_case():self._reference_live_edit()
+
+    def _sync_basic_grid_preset(self):
+        """Keep displayed mesh preset consistent with the loaded CASE grid.
+
+        Preset is descriptive only; do not overwrite the authoritative
+        CASE mesh or the draft when loading a case.
+        """
+        combo=getattr(self,"basic_grid_preset",None)
+        if combo is None:return
+        try:
+            nx=int(self._v("nx").get())
+            ns=int(self._v("ns").get())
+            mx=int(self._v("mvi_nx").get())
+            ms=int(self._v("mvi_ns").get())
+        except (TypeError,ValueError):
+            return
+        if nx==ns==mx==ms:
+            label=next((v for v in combo.cget("values")
+                        if str(v).startswith(f"{nx}×{nx} ·")),"")
+        else:
+            label=""
+        self._v("basic_grid_preset").set(label or "Пользовательская")
 
     def _prepare_reference_live_controls(self):
         frame=ttk.LabelFrame(self.basic_grid_frame,text="Вариационный CASE · густые сетки",padding=6)
