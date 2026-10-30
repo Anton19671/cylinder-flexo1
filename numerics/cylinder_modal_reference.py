@@ -96,6 +96,8 @@ def _modal_spec(case, *, base_dir=None):
                                "modal.axial_modes_per_harmonic", 1)
         if axial_count > 8 or method != "MVI":
             raise ValueError("modal.axial_modes_per_harmonic requires MVI and value <= 8")
+        if axial_count > 1 and not _use_harmonic_mvi_spectrum(case, _integer(raw.get("n_modes"), "modal.n_modes", 1)):
+            raise ValueError("MODAL_MVI_AXIAL_OVERTONES_REQUIRE_FOURIER_HARMONIC_SCAN")
     density = _real(raw.get("density_kg_m3"), "modal.density_kg_m3", True)
     n_modes = _integer(raw.get("n_modes"), "modal.n_modes", 1)
     if n_modes > 32:
