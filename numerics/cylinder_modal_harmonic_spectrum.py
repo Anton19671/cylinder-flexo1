@@ -201,7 +201,7 @@ def _solve_modal_mvi_harmonic_spectrum(prepared, density, requested, *,
                         f"MODAL_MVI_HARMONIC_PURITY_LOST: n={n}, fraction={fraction}")
                 candidates.append((lam, n, m, q, p, sweep, source))
             frequency = float(np.sqrt(max(0., members[0][0]))/(2*np.pi))
-            family_summary.append({"n":n,"axial_mode_index":m,
+            family_summary.append({"n":n,"axial_mode_index":m, "axial_mode_index_verified":False,
                                    "frequency_hz":frequency,
                                    "degeneracy":len(members)})
             if detail_callback is not None:
@@ -250,6 +250,7 @@ def _solve_modal_mvi_harmonic_spectrum(prepared, density, requested, *,
         "mvi_sweeps":[m[5] for m in best],
         "circumferential_wavenumbers":[m[1] for m in best],
         "axial_mode_indices":[m[2] for m in best],
+        "axial_mode_index_interpretation":"frequency_order_within_circumferential_sector_not_verified_axial_half_wave_count",
         "harmonic_family_scan":family_summary,
         "mode_generation":[m[6] for m in best],
         "mvi_modal_algorithm":"fixed_rank_constrained_variational_YX_stationarity",
