@@ -63,6 +63,10 @@ def edit_reference_case(original, fields, boundary, load, newton, dynamics=None,
     kind=str(fields.get('calculation_kind',case.get('calculation_kind','STATIC'))).upper()
     if kind not in ('STATIC','DYNAMIC','MODAL'):raise ValueError('Тип задачи: STATIC / DYNAMIC / MODAL')
     case['calculation_kind']=kind
+    geometry_model=str(fields.get('geometry_model',case.get('geometry_model',''))).upper()
+    if geometry_model not in ('LINEAR','VON_KARMAN','GREEN_LAGRANGE'):
+        raise ValueError('Геометрическая модель: LINEAR / VON_KARMAN / GREEN_LAGRANGE')
+    case['geometry_model']=geometry_model
     if kind=='MODAL':
         fdm_backend='DENSE_REFERENCE'
         case['fdm_backend']=fdm_backend
@@ -120,7 +124,7 @@ def edit_reference_case(original, fields, boundary, load, newton, dynamics=None,
         from cylinder_modal_reference import prepare_modal_case
         prepare_modal_case(case,base_dir=base_dir)
         return case
-    case['mode']='NONLINEAR_ELASTIC'
+    case['mode']='LINEAR_ELASTIC' if geometry_model=='LINEAR' else 'NONLINEAR_ELASTIC'
     case.pop('modal',None)
     if kind=='DYNAMIC':
         factors=load_data.pop('load_factors',None)
@@ -216,6 +220,7 @@ class ReferenceCaseEditor(tk.Toplevel):
         self.theory_settings_group=group('Теория и метод',[
             ('Тип задачи','calculation_kind',c.get('calculation_kind','STATIC'),('STATIC','DYNAMIC','MODAL')),
             ('Теория','theory',c.get('theory','CUF'),('KL','FSDT','REDDY','CUF')),
+            ('Кинематика','geometry_model',c.get('geometry_model','GREEN_LAGRANGE'),('LINEAR','VON_KARMAN','GREEN_LAGRANGE')),
             ('Порядок CUF','cuf_model',c.get('cuf_model','TE1'),('TE1','TE2','TE3','TE4')),
             ('Пространственный метод','method',method,('FDM','MVI')),
             ('Схема операторов','operator_scheme',grid.get('operator_scheme','LEGACY_REFERENCE'),
