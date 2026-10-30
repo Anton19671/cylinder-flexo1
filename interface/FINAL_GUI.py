@@ -6959,6 +6959,8 @@ class FinalSolverGUI(EnhancedSolverGUI):
                           getattr(self,"material_model_combo",None),
                           getattr(self,"gradient_model_combo",None),
                           getattr(self,"output_dir_choose_btn",None)):continue
+            if isinstance(widget,(ttk.Entry,tk.Entry)) and str(widget.cget("textvariable"))==str(self._v("run_label")):
+                continue
             if isinstance(widget,(ttk.Entry,ttk.Combobox,ttk.Button,ttk.Radiobutton,ttk.Checkbutton,tk.Entry,tk.Text,tk.Button,tk.Checkbutton,tk.Radiobutton)):
                 yield widget
 
@@ -7210,7 +7212,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
             self._pending_reference_case=None
             return path,cfg
         from cylinder_reference_method_switch import create_launch_case
-        launch_path,launch_cfg=create_launch_case(path,pending[1])
+        launch_path,launch_cfg=create_launch_case(path,pending[1],run_label=self._v("run_label").get().strip())
         self._log(f"Автоматически сохранён CASE выбранного метода: {launch_path}\\n")
         return launch_path,launch_cfg
 
@@ -7219,12 +7221,20 @@ class FinalSolverGUI(EnhancedSolverGUI):
         if self.proc is not None and self.proc.poll() is None:
             raise ValueError("Расчёт уже выполняется")
         from cylinder_time_integrator_gui import plan_time_integrator_run
+        # Validate the source CASE before allocating the unique run CASE.
+        source_plan=plan_time_integrator_run(path,self.time_integrator.get() if cfg.get("calculation_kind")=="DYNAMIC" else "NEWMARK",series=series)
+        from cylinder_reference_method_switch import create_launch_case
+        # A pending selector already allocated an AUTO CASE with a unique output.
+        # Otherwise always allocate a new CASE and child result folder.
+        if "__AUTO_" not in Path(path).stem:
+            path,cfg=create_launch_case(path,cfg,run_label=self._v("run_label").get().strip())
         plan=plan_time_integrator_run(path,self.time_integrator.get() if cfg.get("calculation_kind")=="DYNAMIC" else "NEWMARK",series=series)
         output=plan.output_dir
         result_dir=output/"MVI_1_8_SERIES" if series else output
         if result_dir.exists() and any(result_dir.iterdir()):
             raise ValueError(f"Папка результатов не пуста: {result_dir}")
         self.run_output_dir=result_dir
+        self._last_reference_result_dir=result_dir
         self._reference_launched_case_path=Path(path).resolve()
         self._reference_launched_kind=str(plan.calculation_kind)
         self._reference_launched_method=str(plan.spatial_method)
@@ -9103,6 +9113,9 @@ class FinalSolverGUI(EnhancedSolverGUI):
         active=self._active_reference_case()
         if not active or str(active[1].get("calculation_kind","")).upper()!="MODAL":return None
         case,cfg=active
+        recent=getattr(self,"_last_reference_result_dir",None)
+        if recent is not None and getattr(self,"_reference_launched_kind","")=="MODAL":
+            return Path(recent).resolve()
         raw=cfg.get("output_dir")
         if not isinstance(raw,str) or not raw.strip():return None
         folder=Path(raw).expanduser()
