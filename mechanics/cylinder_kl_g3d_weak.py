@@ -28,6 +28,7 @@ import math
 import numpy as np
 
 from cuf_g3d_weak import te_basis, gauss_thickness
+from cylinder_kinematic_models import normalized_model, strain_jets, virtual_strain_jets
 from flexo_gradient_g3d import (
     G3DMaterial, covariant_strain_gradients, reference_electric_field,
     enthalpy_parts, enthalpy_derivatives,
@@ -205,13 +206,18 @@ def _eng(t):
                      2*t[0,1],2*t[0,2],2*t[1,2]))
 
 
-def _strain(F,Fx,Fs,Fz):
+def _strain(F,Fx,Fs,Fz,geometry_model="GREEN_LAGRANGE"):
+    if normalized_model(geometry_model)!="GREEN_LAGRANGE":
+        return strain_jets(F,Fx,Fs,Fz,geometry_model)
     e=_eng(.5*(F.T@F-_EYE))
     der=[_eng(.5*(g.T@F+F.T@g)) for g in (Fx,Fs,Fz)]
     return e,der
 
 
-def _variation(F,Fx,Fs,Fz,dF,dFx,dFs,dFz):
+def _variation(F,Fx,Fs,Fz,dF,dFx,dFs,dFz,
+               geometry_model="GREEN_LAGRANGE"):
+    if normalized_model(geometry_model)!="GREEN_LAGRANGE":
+        return virtual_strain_jets(F,Fx,Fs,Fz,dF,dFx,dFs,dFz,geometry_model)
     de=_eng(.5*(dF.T@F+F.T@dF))
     der=[_eng(.5*(dg.T@F+g.T@dF+dF.T@g+F.T@dg))
          for g,dg in zip((Fx,Fs,Fz),(dFx,dFs,dFz))]
@@ -222,13 +228,14 @@ def _data(j):
     return {name:getattr(j,name) for name in FIELDS}
 
 
-def kl_point(jets:KLSurfaceJets,*,z_m,radius_m,thickness_m):
+def kl_point(jets:KLSurfaceJets,*,z_m,radius_m,thickness_m,
+             geometry_model="GREEN_LAGRANGE"):
     R,h=_geometry(radius_m,thickness_m,z_m)
     F,Fx,Fs,Fz=_F_jets_raw(_data(jets),R,h,float(z_m))
     det=float(np.linalg.det(F))
     if not math.isfinite(det) or det<=0:
         raise ValueError(f"INVALID_KL_DEFORMATION_MAPPING: detF={det}")
-    e,der=_strain(F,Fx,Fs,Fz)
+    e,der=_strain(F,Fx,Fs,Fz,geometry_model)
     g=covariant_strain_gradients(e,*der,radius_m=R,z_m=float(z_m))
     G,Gz,_=te_basis(float(z_m),h,jets.potential_order)
     electric=reference_electric_field(
@@ -239,19 +246,22 @@ def kl_point(jets:KLSurfaceJets,*,z_m,radius_m,thickness_m):
 
 
 def thickness_enthalpy(jets:KLSurfaceJets,material:G3DMaterial,*,
-                       radius_m,thickness_m,n_gauss=12):
+                       radius_m,thickness_m,n_gauss=12,
+                       geometry_model="GREEN_LAGRANGE"):
     R,h=_geometry(radius_m,thickness_m)
     result=0.
     z,w=gauss_thickness(h,n_gauss)
     for zz,ww in zip(z,w):
-        p=kl_point(jets,z_m=zz,radius_m=R,thickness_m=h)
+        p=kl_point(jets,z_m=zz,radius_m=R,thickness_m=h,
+                   geometry_model=geometry_model)
         result+=ww*p.H*enthalpy_parts(
             p.strain6,p.gradient6x3,p.electric3,material)["total"]
     return float(result)
 
 
 def thickness_weak_coefficients(jets:KLSurfaceJets,material:G3DMaterial,*,
-                                radius_m,thickness_m,n_gauss=12):
+                                radius_m,thickness_m,n_gauss=12,
+                                geometry_model="GREEN_LAGRANGE"):
     """Thickness-integrated KL virtual work coefficients for all 10 jets.
 
     Complex step is used ONLY on the analytic normal geometry (F and F_i).
@@ -265,7 +275,8 @@ def thickness_weak_coefficients(jets:KLSurfaceJets,material:G3DMaterial,*,
     step=1.e-26
     data=_data(jets)
     for z,w in zip(zs,ws):
-        point=kl_point(jets,z_m=z,radius_m=R,thickness_m=h)
+        point=kl_point(jets,z_m=z,radius_m=R,thickness_m=h,
+                       geometry_model=geometry_model)
         F,Fx,Fs,Fz=_F_jets_raw(data,R,h,float(z))
         S,M,D=enthalpy_derivatives(point.strain6,point.gradient6x3,
                                    point.electric3,material)
@@ -280,7 +291,8 @@ def thickness_weak_coefficients(jets:KLSurfaceJets,material:G3DMaterial,*,
                 finally:
                     perturbed[name][comp]-=1j*step
                 dF,dFx,dFs,dFz=[a.imag/step for a in complex_F]
-                de,der=_variation(F,Fx,Fs,Fz,dF,dFx,dFs,dFz)
+                de,der=_variation(F,Fx,Fs,Fz,dF,dFx,dFs,dFz,
+                                  geometry_model)
                 dg=covariant_strain_gradients(de,*der,radius_m=R,z_m=float(z))
                 mech[comp,k]+=w*point.H*(float(S@de)+float(np.sum(M*dg)))
         G,Gz,_=te_basis(float(z),h,jets.potential_order)
