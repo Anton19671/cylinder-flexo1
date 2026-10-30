@@ -65,7 +65,7 @@ def _modal_spec(case, *, base_dir=None):
         raise ValueError("MODAL FDM backend must be DENSE_REFERENCE or MATRIX_FREE_GMRES")
     if backend == "MATRIX_FREE_GMRES":
         grid = case.get("fdm_grid", {})
-        if grid.get("operator_scheme") != "SBP21_PERIODIC_ODD_CSR":
+        if grid.get("operator_scheme") not in ("SBP21_PERIODIC_ODD_CSR", "SBP42_FOURIER_ODD_CSR"):
             raise ValueError("MATRIX_FREE_MODAL_REQUIRES_SBP21_PERIODIC_ODD_CSR")
         if str(case.get("scale_model", "")).upper() != "MACRO":
             raise ValueError("MATRIX_FREE_MODAL_ELECTRIC_SCHUR_NOT_IMPLEMENTED: MACRO only")
