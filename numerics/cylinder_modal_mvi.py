@@ -519,7 +519,7 @@ class _SeparatedModalProblem:
 def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
                     sweep_callback=None, detail_callback=None, eigen_tolerance=1.e-7,
                     mode_tolerance=1.e-5, harmonic_scan=False,
-                    _cached_operator=None):
+                    _cached_operator=None, axial_modes_per_harmonic=1):
     """Constrained modal stationarity in alternating Y/X profile spaces.
 
     Never fall back to FDM, change rank, or accept a stalled mode as
@@ -535,7 +535,8 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
             progress_callback=progress_callback,
             detail_callback=detail_callback,
             eigen_tolerance=eigen_tolerance,
-            mode_tolerance=mode_tolerance)
+            mode_tolerance=mode_tolerance,
+            axial_modes_per_harmonic=axial_modes_per_harmonic)
     operator = (_cached_operator if _cached_operator is not None else
                 _SeparatedModalProblem(prepared, density, rank))
     qmodes, pmodes, eigs, cycles = [], [], [], []
