@@ -32,6 +32,7 @@ import math
 import numpy as np
 
 from flexo_gradient_g3d import G3DMaterial
+from cylinder_kinematic_models import normalized_model, virtual_strain_jets
 from cuf_g3d_weak import (
     MECHANICAL_VARIATIONS as _CUF_FIELDS,
     _kinematic_matrix_jets as _cuf_F,
@@ -76,8 +77,12 @@ def _real_nonnegative(value, label):
     return x
 
 
-def _de(F,dF):
-    """Engineering-shear Voigt of sym(F.T dF), work conjugate to sigma6."""
+def _de(F,dF,geometry_model="GREEN_LAGRANGE"):
+    """Selected model's engineering virtual strain, work conjugate to sigma6."""
+    if normalized_model(geometry_model)!="GREEN_LAGRANGE":
+        zero=np.zeros((3,3))
+        return virtual_strain_jets(F,zero,zero,zero,dF,zero,zero,zero,
+                                   geometry_model)[0]
     sym=.5*(F.T@dF+dF.T@F)
     return np.array((sym[0,0],sym[1,1],sym[2,2],
                      2*sym[0,1],2*sym[0,2],2*sym[1,2]),float)
@@ -122,7 +127,7 @@ def _kl_direction(base, delta, R, h, z):
 
 def kelvin_voigt_thickness_weak(qjets, vjets, material, *, theory,
                                 radius_m, thickness_m, eta_s,
-                                n_gauss=12):
+                                n_gauss=12,geometry_model="GREEN_LAGRANGE"):
     """Quadrature-exact Kelvin-Voigt local weak coefficients for one model.
 
     All generalized coefficients are first variations with respect to the
@@ -187,11 +192,11 @@ def kelvin_voigt_thickness_weak(qjets, vjets, material, *, theory,
         det=float(np.linalg.det(F))
         if not math.isfinite(det) or det<=0:
             raise ValueError("INVALID_DEFORMATION_MAPPING in Kelvin-Voigt shell")
-        sigma,dissipation=viscous_stress_and_power(_de(F,Fdot),material,eta)
+        sigma,dissipation=viscous_stress_and_power(_de(F,Fdot,geometry_model),material,eta)
         power+=float(w)*H*dissipation
         for k in range(len(names)):
             for comp in range(nfield):
-                delta_e=_de(F,virtual(comp,k))
+                delta_e=_de(F,virtual(comp,k),geometry_model)
                 coefficient[comp,k]+=float(w)*H*float(np.dot(sigma,delta_e))
     if not np.isfinite(coefficient).all() or not math.isfinite(power):
         raise ValueError("INVALID_KELVIN_VOIGT_WEAK_ACTION")
