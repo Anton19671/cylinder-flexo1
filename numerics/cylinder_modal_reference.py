@@ -89,10 +89,11 @@ def _modal_spec(case, *, base_dir=None):
                     else 3 * (int(theory[-1]) + 1))
     surrogate = copy.deepcopy(case)
     surrogate["calculation_kind"] = "STATIC"
-    surrogate["mode"] = "NONLINEAR_ELASTIC"
-    # The GL variational kernel is used ONLY as the linearization source at
-    # q=0. This is not a GL nonlinear solution of a LINEAR/VK CASE.
-    surrogate["geometry_model"] = "GREEN_LAGRANGE"
+    surrogate["mode"] = ("LINEAR_ELASTIC" if geometry_model=="LINEAR"
+                         else "NONLINEAR_ELASTIC")
+    # Use the selected independent kinematic branch when assembling K0.
+    # No conversion to GREEN_LAGRANGE is permitted.
+    surrogate["geometry_model"] = geometry_model
     surrogate["reference_loads"] = {
         "mechanical": [0.0] * n_mechanical, "load_factors": [0.0]}
     surrogate.pop("modal", None)
@@ -345,7 +346,7 @@ def run_modal_case(case, case_path):
         "mesh_convergence_verified": False,
         "benchmark_validation_verified": False,
         "linearization": "undeformed_unloaded_zero_state",
-        "linearization_source": "GREEN_LAGRANGE_TANGENT_AT_ZERO",
+        "linearization_source": str(case["geometry_model"]).upper()+"_TANGENT_AT_ZERO",
         "kinematics_linear_limit": True,
         "mass": "consistent_theory_specific_weak_inertia",
         "electric_inertia": False,
