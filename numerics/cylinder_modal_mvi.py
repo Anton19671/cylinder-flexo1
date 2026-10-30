@@ -20,6 +20,11 @@ from scipy.linalg import cholesky, eigh, qr, solve, solve_triangular
 from cylinder_boundary_spatial import affine_trace_space, separated_profile_directions
 from cylinder_variational_fdm import state_scales
 from cylinder_variational_mvi import _normalize_partner, reconstruct_profiles
+from cylinder_modal_harmonic_spectrum import (
+    _harmonic_phase_basis, _harmonic_variation_directions,
+    _phase_quadrature_partner, _pure_harmonic_fraction,
+    _solve_modal_mvi_harmonic_spectrum,
+)
 
 MAX_PROJECTED_DIRECTIONS = 1600
 
@@ -257,13 +262,18 @@ class _SeparatedModalProblem:
                 raise ValueError("MODAL MVI: inadmissible frozen-partner basis")
             return scales[:, None] * space.basis
 
-        dm = separated_profile_directions(x[:ncm], y[:ncm], axis)
+        harmonic = getattr(self, "circumferential_harmonic", None)
+        dm = (separated_profile_directions(x[:ncm], y[:ncm], axis)
+              if harmonic is None else _harmonic_variation_directions(
+                  x[:ncm], y[:ncm], axis, harmonic))
         bm = constrained_basis(self.cm, self.scales[:self.nm], dm)
         if not bm.shape[1]:
             raise ValueError("MODAL MVI: no admissible mechanical directions in " + axis)
         if not self.ne:
             return bm, np.empty((0, 0))
-        de = separated_profile_directions(x[ncm:], y[ncm:], axis)
+        de = (separated_profile_directions(x[ncm:], y[ncm:], axis)
+              if harmonic is None else _harmonic_variation_directions(
+                  x[ncm:], y[ncm:], axis, harmonic))
         be = constrained_basis(self.ce, self.scales[self.nm:], de)
         return bm, be
 
@@ -283,8 +293,12 @@ class _SeparatedModalProblem:
             trace_scale = max(1., float(np.linalg.norm(self.cm, ord=np.inf)) * old_norm)
             if trace_error > 1.e-9 * trace_scale:
                 raise ValueError("MODAL MVI: previous field violates essential traces")
-            raw = separated_profile_directions(
+            raw = (separated_profile_directions(
                 x[:self.shape[0]], y[:self.shape[0]], axis)
+                if getattr(self, "circumferential_harmonic", None) is None
+                else _harmonic_variation_directions(
+                    x[:self.shape[0]], y[:self.shape[0]], axis,
+                    self.circumferential_harmonic))
             raw_coeff = np.linalg.lstsq(raw, old_q, rcond=None)[0]
             raw_error = float(np.linalg.norm(raw @ raw_coeff - old_q) / old_norm)
             if not np.isfinite(raw_error) or raw_error > 1.e-9:
@@ -396,6 +410,12 @@ class _SeparatedModalProblem:
             magnitude = float(np.linalg.norm(weights))
             if np.isfinite(magnitude) and magnitude > 1.e-12:
                 selected = family @ (weights / magnitude)
+        if (old_projected_value is not None and
+                value > old_projected_value and
+                value - old_projected_value <= 1.e-8 * max(
+                    1., abs(value), abs(old_projected_value))):
+            selected = reduced / np.sqrt(float(reduced @ mz @ reduced))
+            value = old_projected_value
         coeff = z @ selected
         q = bm @ coeff
         p = (None if not self.ne else
@@ -428,6 +448,12 @@ class _SeparatedModalProblem:
         """
         x, y = _initial_factors(self.n_components, self.rank,
                                 self.nx, self.ns, mode)
+        harmonic = getattr(self, "circumferential_harmonic", None)
+        if harmonic is not None:
+            phases = _harmonic_phase_basis(self.ns, harmonic)
+            for c in range(self.n_components):
+                for r in range(self.rank):
+                    y[c, r] = phases[r % len(phases)]
         x, y = _normalize_partner(x, y, "X")
         bm, be = self.projected_bases(x, y, "X")
         constraints = (np.stack([bm.T @ self.previous_mass(q) for q in previous])
@@ -462,7 +488,8 @@ class _SeparatedModalProblem:
 
 def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
                     sweep_callback=None, detail_callback=None, eigen_tolerance=1.e-7,
-                    mode_tolerance=1.e-5):
+                    mode_tolerance=1.e-5, harmonic_scan=False,
+                    _cached_operator=None):
     """Constrained modal stationarity in alternating Y/X profile spaces.
 
     Never fall back to FDM, change rank, or accept a stalled mode as
@@ -472,7 +499,15 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
         raise ValueError("MODAL MVI needs explicit MVI CASE and rank")
     rank = prepared.mvi_settings.rank
     max_sweeps = prepared.mvi_settings.max_sweeps
-    operator = _SeparatedModalProblem(prepared, density, rank)
+    if harmonic_scan:
+        return _solve_modal_mvi_harmonic_spectrum(
+            prepared, density, requested,
+            progress_callback=progress_callback,
+            detail_callback=detail_callback,
+            eigen_tolerance=eigen_tolerance,
+            mode_tolerance=mode_tolerance)
+    operator = (_cached_operator if _cached_operator is not None else
+                _SeparatedModalProblem(prepared, density, rank))
     qmodes, pmodes, eigs, cycles = [], [], [], []
     for mode in range(requested):
         x, y, initial_q, initial_p = operator.admissible_start(mode, qmodes)
