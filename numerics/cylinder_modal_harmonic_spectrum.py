@@ -142,7 +142,8 @@ def _solve_modal_mvi_harmonic_spectrum(prepared, density, requested, *,
         if detail_callback is not None:
             detail_callback(stage="MVI_HARMONIC_DONE", harmonic=n,
                             frequency_hz=frequency, sweeps=partial["mvi_sweeps"][0])
-        family_summary.append({"n":n,"frequency_hz":frequency,
+        family_summary.append({"n":n,"axial_mode_index":1,
+                               "frequency_hz":frequency,
                                "degeneracy":1 if n==0 else 2})
         candidates.append((lam, n, q, p, partial["mvi_sweeps"][0], "MVI_YX"))
         if n:
@@ -196,6 +197,7 @@ def _solve_modal_mvi_harmonic_spectrum(prepared, density, requested, *,
         "n_electric_free_dofs":operator.n_electric_free_dofs,
         "mvi_sweeps":[m[4] for m in best],
         "circumferential_wavenumbers":[m[1] for m in best],
+        "axial_mode_indices":[1 for _ in best],
         "harmonic_family_scan":family_summary,
         "mode_generation":[m[5] for m in best],
         "mvi_modal_algorithm":"fixed_rank_constrained_variational_YX_stationarity",
