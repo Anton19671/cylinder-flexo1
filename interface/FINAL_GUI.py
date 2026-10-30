@@ -8892,7 +8892,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self.reference_scheme_combo=ttk.Combobox(
             frame,textvariable=self._v("reference_operator_scheme","SBP21_PERIODIC_ODD"),
             values=("LEGACY_REFERENCE","SBP21_PERIODIC_ODD","SBP21_FOURIER_ODD",
-                    "SBP21_PERIODIC_ODD_CSR"),state="readonly",width=29)
+                    "SBP21_PERIODIC_ODD_CSR","SBP42_FOURIER_ODD","SBP42_FOURIER_ODD_CSR"),state="readonly",width=29)
         self.reference_scheme_combo.grid(row=0,column=1,sticky="ew",padx=4)
         ttk.Label(frame,text="FDM backend").grid(row=1,column=0,sticky="w")
         self.reference_backend_combo=ttk.Combobox(
