@@ -1,0 +1,60 @@
+{
+  "solver_backend": "VARIATIONAL_REFERENCE",
+  "theory": "KL",
+  "method": "FDM",
+  "fdm_backend": "MATRIX_FREE_GMRES",
+  "calculation_kind": "MODAL",
+  "scale_model": "MACRO",
+  "mode": "LINEAR_ELASTIC",
+  "geometry_model": "LINEAR",
+  "material_model": "HOOKE",
+  "units": {
+    "system": "SI_N_M_PA"
+  },
+  "geometry": {
+    "L": 2,
+    "R": 1,
+    "h": 0.05
+  },
+  "material": {
+    "E0": 210000000000,
+    "nu0": 0.3
+  },
+  "fdm_grid": {
+    "nx": 25,
+    "ns": 25,
+    "operator_scheme": "SBP21_PERIODIC_ODD_CSR"
+  },
+  "quadrature": {
+    "type": "GAUSS",
+    "n_gauss": 9
+  },
+  "boundary_conditions": {
+    "variational": {
+      "mechanical": {
+        "left": {
+          "support": "CLAMPED",
+          "higher": "NATURAL"
+        },
+        "right": {
+          "support": "CLAMPED",
+          "higher": "NATURAL"
+        }
+      },
+      "electrical": {}
+    }
+  },
+  "modal": {
+    "density_kg_m3": 7850,
+    "n_modes": 6,
+    "eigen_tolerance": 0.000001,
+    "max_iterations": 400
+  },
+  "reference_newton": {
+    "tangent_step_scaled": 0.000002,
+    "max_total_dofs": 100000,
+    "max_surface_nodes": 8192,
+    "max_constraint_rows": 20000
+  },
+  "output_dir": "../../../../OUTPUT_RAWAT2016_KL_FDM_25x25"
+}
