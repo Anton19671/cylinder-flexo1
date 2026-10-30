@@ -29,8 +29,23 @@ from cylinder_reference_case import BACKEND, prepare_reference_case, _integer, _
 THEORIES = ("KL", "FSDT", "REDDY", "CUF_TE1", "CUF_TE2", "CUF_TE3", "CUF_TE4")
 
 
+def _effective_modal_case(case):
+    """Replace the checkerboard-prone SBP21 modal grid with SBP42/Fourier."""
+    if not isinstance(case, dict):
+        return case
+    effective = copy.deepcopy(case)
+    key = "mvi_grid" if str(case.get("method", "")).upper() == "MVI" else "fdm_grid"
+    grid = effective.get(key)
+    if isinstance(grid, dict) and str(grid.get("operator_scheme", "")).upper() == "SBP21_PERIODIC_ODD":
+        if isinstance(grid.get("nx"), int) and grid["nx"] < 9:
+            raise ValueError("MODAL SBP42_FOURIER_ODD requires nx >= 9")
+        grid["operator_scheme"] = "SBP42_FOURIER_ODD"
+    return effective
+
+
 def _modal_spec(case, *, base_dir=None):
     """Strict, read-only preflight using the same physics and BC as STATIC."""
+    case = _effective_modal_case(case)
     if not isinstance(case, dict):
         raise ValueError("MODAL CASE must be an object")
     if str(case.get("solver_backend", "")).upper() != BACKEND:
@@ -321,6 +336,10 @@ def solve_modal_case(case, *, base_dir=None, progress_callback=None, detail_call
 
 def run_modal_case(case, case_path):
     """Write a standalone, reproducible MODAL output; never run transient dynamics."""
+    original_case = case
+    case = _effective_modal_case(case)
+    if case != original_case:
+        print("MODAL GRID: SBP21_PERIODIC_ODD replaced by SBP42_FOURIER_ODD to prevent axial checkerboard modes", flush=True)
     path = Path(case_path).expanduser().resolve()
     started=time.monotonic()
     print('MODAL PREPARE: checking geometry and boundary conditions',flush=True)
@@ -365,6 +384,8 @@ def run_modal_case(case, case_path):
     os.replace(tmp, out / "REFERENCE_MODAL_MODES.npz")
     summary = {
         "solver_backend": BACKEND, "calculation_kind": "MODAL",
+        "requested_operator_scheme": (original_case.get("mvi_grid" if original_case.get("method") == "MVI" else "fdm_grid") or {}).get("operator_scheme"),
+        "effective_operator_scheme": (case.get("mvi_grid" if case.get("method") == "MVI" else "fdm_grid") or {}).get("operator_scheme"),
         "method": result.get("method", "FDM"), "mode": "LINEAR_ELASTIC", "theory": result["theory"],
         "fdm_backend": result.get("fdm_backend", "DENSE_REFERENCE"),
         **({"rank": result["rank"], "mvi_sweeps": result["mvi_sweeps"],
