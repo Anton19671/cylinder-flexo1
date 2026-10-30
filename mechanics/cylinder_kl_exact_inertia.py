@@ -27,6 +27,7 @@ import numpy as np
 from cylinder_surface_linear_algebra import (
     is_sparse_matrix, apply_axial, apply_periodic,
 )
+from cylinder_kinematic_models import normalized_model
 
 
 def _state(value, expected, label):
@@ -78,8 +79,8 @@ def _normal_data(q, v, a, Dx, Ds, R):
 
 def kl_inertial_jet_coefficients(mechanical, velocity, acceleration, *,
                                   Dx, Ds, wx, ws, radius_m, thickness_m,
-                                  density_kg_m3):
-    """Return exact KL inertial virtual-work coefficients before surface IBP.
+                                  density_kg_m3,geometry_model="GREEN_LAGRANGE"):
+    """Return KL inertial virtual-work coefficients before surface IBP.
 
     Order: (q,q_x,q_s), each coefficient (3,nx,ns). They are the
     *unweighted* local density per unit reference midsurface area.
@@ -108,11 +109,32 @@ def kl_inertial_jet_coefficients(mechanical, velocity, acceleration, *,
     q=_state(mechanical,shape,"KL displacement")
     v=_state(velocity,shape,"KL velocity")
     a=_state(acceleration,shape,"KL acceleration")
-    n,nt,ntt,A,B,mag=_normal_data(q,v,a,Dx,Ds,R)
+    model=normalized_model(geometry_model)
     a_vec=np.moveaxis(a,0,-1)
     m0=rho*h
     m1=rho*h**3/(12.*R)
     m2=rho*h**3/12.
+    if model!="GREEN_LAGRANGE":
+        # The LINEAR / von Karman KL director is the small-rotation map
+        # n=(-w_x,v/R-w_s,1); its acceleration has no quadratic velocity term.
+        ax=apply_axial(a,Dx)
+        ass=apply_periodic(a,Ds)
+        ntt=np.stack((-ax[2],a[1]/R-ass[2],np.zeros_like(a[0])),axis=-1)
+        g0=m0*a_vec+m1*ntt
+        gn=m1*a_vec+m2*ntt
+        gq=g0.copy()
+        gq[...,1]+=gn[...,1]/R
+        gx=np.zeros_like(g0)
+        gs=np.zeros_like(g0)
+        gx[...,2]=-gn[...,0]
+        gs[...,2]=-gn[...,1]
+        out=np.stack((np.moveaxis(gq,-1,0),
+                      np.moveaxis(gx,-1,0),
+                      np.moveaxis(gs,-1,0)),axis=0)
+        if not np.isfinite(out).all():
+            raise ValueError("INVALID_KL_SMALL_ROTATION_INERTIA")
+        return out
+    n,nt,ntt,A,B,mag=_normal_data(q,v,a,Dx,Ds,R)
     g0=m0*a_vec+m1*ntt
     gn=m1*a_vec+m2*ntt
     projected=(gn-n*np.sum(n*gn,axis=-1)[...,None])/mag[...,None]
@@ -131,8 +153,8 @@ def kl_inertial_jet_coefficients(mechanical, velocity, acceleration, *,
 
 def kl_inertial_weak_action(mechanical, velocity, acceleration, *,
                             Dx, Ds, wx, ws, radius_m, thickness_m,
-                            density_kg_m3):
-    """Assemble the same full finite-rotation inertial virtual work by adjoints.
+                            density_kg_m3,geometry_model="GREEN_LAGRANGE"):
+    """Assemble KL inertial virtual work by the selected director map.
 
     This and natural end diagnostics share one exact local inertial
     coefficient map: no separately approximated KL inertia is introduced.
@@ -140,7 +162,7 @@ def kl_inertial_weak_action(mechanical, velocity, acceleration, *,
     coefficients=kl_inertial_jet_coefficients(
         mechanical,velocity,acceleration,Dx=Dx,Ds=Ds,wx=wx,ws=ws,
         radius_m=radius_m,thickness_m=thickness_m,
-        density_kg_m3=density_kg_m3)
+        density_kg_m3=density_kg_m3,geometry_model=geometry_model)
     W=np.asarray(wx,float)[:,None]*np.asarray(ws,float)[None,:]
     Dx=Dx if is_sparse_matrix(Dx) else np.asarray(Dx,float)
     Ds=Ds if is_sparse_matrix(Ds) else np.asarray(Ds,float)
@@ -153,8 +175,9 @@ def kl_inertial_weak_action(mechanical, velocity, acceleration, *,
 
 
 def kl_kinetic_energy(mechanical, velocity, *, Dx, Ds, wx, ws,
-                      radius_m,thickness_m,density_kg_m3):
-    """Exact KL finite-rotation kinetic energy from the SAME director map."""
+                      radius_m,thickness_m,density_kg_m3,
+                      geometry_model="GREEN_LAGRANGE"):
+    """KL kinetic energy using the same selected director kinematics."""
     q=np.asarray(mechanical,float);v=np.asarray(velocity,float)
     zeros=np.zeros_like(v)
     # Reuse the validated map and return an integral scalar in joules.
@@ -168,7 +191,12 @@ def kl_kinetic_energy(mechanical, velocity, *, Dx, Ds, wx, ws,
     q=_state(q,shape,"KL displacement")
     v=_state(v,shape,"KL velocity")
     z=_state(zeros,shape,"KL zero acceleration")
-    _,nt,_,_,_,_=_normal_data(q,v,z,Dx,Ds,R)
+    model=normalized_model(geometry_model)
+    if model=="GREEN_LAGRANGE":
+        _,nt,_,_,_,_=_normal_data(q,v,z,Dx,Ds,R)
+    else:
+        vx=apply_axial(v,Dx);vs=apply_periodic(v,Ds)
+        nt=np.stack((-vx[2],v[1]/R-vs[2],np.zeros_like(v[0])),axis=-1)
     vec=np.moveaxis(v,0,-1)
     m0,m1,m2=rho*h,rho*h**3/(12.*R),rho*h**3/12.
     local=.5*(m0*np.sum(vec*vec,axis=-1)+
