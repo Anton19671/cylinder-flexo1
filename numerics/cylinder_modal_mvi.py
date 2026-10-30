@@ -187,7 +187,7 @@ class _SeparatedModalProblem:
         if not 1 <= rank <= 8 or rank > min(self.nx, self.ns):
             raise ValueError("MODAL MVI rank must be 1..8 and <= min(nx, ns)")
         self.large_harmonic=bool(harmonic_scan and self.nx*self.ns>256
-                                 and not self.ne and self.nx<=17 and self.ns<=17)
+                                 and not self.ne and self.nx<=21 and self.ns<=21)
         count=(self.n_components*2*max(self.nx,rank) if self.large_harmonic
                else self.n_components*rank*max(self.nx,self.ns))
         if count > MAX_PROJECTED_DIRECTIONS:
@@ -212,8 +212,9 @@ class _SeparatedModalProblem:
             raise ValueError("MODAL MVI cannot separate mixed mechanical/electric constraints")
         self.cm = c[has_m, :self.nm]
         self.ce = c[has_e, self.nm:]
-        self.n_mechanical_free_dofs = _free_dof_count(self.cm)
-        self.n_electric_free_dofs = _free_dof_count(self.ce)
+        self.n_mechanical_free_dofs = (self.nm-int(self.fixed_mask.sum())
+                                      if self.large_harmonic else _free_dof_count(self.cm))
+        self.n_electric_free_dofs = (0 if self.large_harmonic else _free_dof_count(self.ce))
         self.step = prepared.settings.tangent_step_scaled
         self.scales = state_scales(self.f, self.q0, self.p0, prepared.settings)
         self.velocity0 = np.zeros_like(self.q0)
