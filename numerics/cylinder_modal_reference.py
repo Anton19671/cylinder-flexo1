@@ -58,19 +58,36 @@ def _modal_spec(case, *, base_dir=None):
             raise ValueError("MODAL MVI reference_mvi accepts only max_sweeps")
     elif case.get("rank") is not None or case.get("reference_mvi") is not None:
         raise ValueError("FDM MODAL cannot contain MVI rank or settings")
-    if str(case.get("fdm_backend", "DENSE_REFERENCE")).upper() != "DENSE_REFERENCE":
-        raise ValueError("MODAL is a small-grid dense reference, not matrix-free")
+    backend = str(case.get("fdm_backend", "DENSE_REFERENCE")).upper()
+    if method == "MVI" and backend != "DENSE_REFERENCE":
+        raise ValueError("MODAL MVI uses the independent dense separated solver")
+    if method == "FDM" and backend not in ("DENSE_REFERENCE", "MATRIX_FREE_GMRES"):
+        raise ValueError("MODAL FDM backend must be DENSE_REFERENCE or MATRIX_FREE_GMRES")
+    if backend == "MATRIX_FREE_GMRES":
+        grid = case.get("fdm_grid", {})
+        if grid.get("operator_scheme") != "SBP21_PERIODIC_ODD_CSR":
+            raise ValueError("MATRIX_FREE_MODAL_REQUIRES_SBP21_PERIODIC_ODD_CSR")
+        if str(case.get("scale_model", "")).upper() != "MACRO":
+            raise ValueError("MATRIX_FREE_MODAL_ELECTRIC_SCHUR_NOT_IMPLEMENTED: MACRO only")
     if case.get("dynamics") is not None:
         raise ValueError("MODAL has no time integration")
     if case.get("load_definition") is not None or case.get("reference_loads") is not None:
         raise ValueError("MODAL free vibrations require an unloaded CASE")
     raw = case.get("modal", {})
-    if not isinstance(raw, dict) or set(raw) - {"density_kg_m3", "n_modes"}:
-        raise ValueError("modal accepts only density_kg_m3 and n_modes")
+    if not isinstance(raw, dict) or set(raw) - {"density_kg_m3", "n_modes", "eigen_tolerance", "max_iterations"}:
+        raise ValueError("modal accepts density_kg_m3, n_modes, eigen_tolerance, max_iterations")
     density = _real(raw.get("density_kg_m3"), "modal.density_kg_m3", True)
     n_modes = _integer(raw.get("n_modes"), "modal.n_modes", 1)
     if n_modes > 32:
-        raise ValueError("small-grid reference supports at most 32 modes")
+        raise ValueError("MODAL supports at most 32 requested modes")
+    if "eigen_tolerance" in raw:
+        tol = _real(raw["eigen_tolerance"], "modal.eigen_tolerance", True)
+        if tol >= 1.:
+            raise ValueError("modal.eigen_tolerance must be less than 1")
+    if "max_iterations" in raw:
+        limit = _integer(raw["max_iterations"], "modal.max_iterations", 1)
+        if limit > 2000:
+            raise ValueError("modal.max_iterations must not exceed 2000")
     scale = str(case.get("scale_model", "")).upper()
     if scale == "MICRO":
         micro = case.get("micro", {})
@@ -107,10 +124,27 @@ def prepare_modal_case(case, *, base_dir=None):
     f = prepared.problem.functional
     q, p = prepared.mechanical, prepared.electrical
     zero = np.zeros(q.size + (0 if p is None else p.size))
+    if prepared.fdm_backend == "MATRIX_FREE_GMRES":
+        from cylinder_matrixfree_fdm import SparseTraceProjector
+        scales = state_scales(f, q, p, prepared.settings)
+        projector = SparseTraceProjector.from_problem(
+            prepared.problem, q, p, scales, time_s=None,
+            max_rows=prepared.settings.max_constraint_rows)
+        if np.max(np.abs(projector.lift), initial=0.) > 1.e-10:
+            raise ValueError("MODAL requires homogeneous essential boundary conditions")
+        available = q.size - projector.count
+        if requested > available or available < 5 * requested:
+            raise ValueError("MODAL requested modes exceed matrix-free trial space")
+        return {"theory": f.theory, "method": "FDM",
+                "calculation_kind": "MODAL", "density_kg_m3": density,
+                "n_modes": requested, "mechanical_free_dofs": available,
+                "electric_free_dofs": 0, "reference_only": True,
+                "fdm_backend": "MATRIX_FREE_GMRES"}
     first = prepared.problem.assemble(q, p)
     if np.max(np.abs(first.space.origin), initial=0.) > 1.e-10:
         raise ValueError("MODAL supports only homogeneous essential BC")
-    if prepared.method == "FDM" and first.space.basis.shape[1] > prepared.settings.max_free_dofs:
+    if (prepared.method == "FDM" and prepared.fdm_backend == "DENSE_REFERENCE"
+            and first.space.basis.shape[1] > prepared.settings.max_free_dofs):
         raise ValueError("MODAL FDM exceeds reference_newton.max_free_dofs")
     scales = state_scales(f, q, p, prepared.settings)
     mechanical_basis, electric_basis = _modal_bases(
@@ -235,6 +269,11 @@ def solve_modal_case(case, *, base_dir=None, progress_callback=None, detail_call
         from cylinder_modal_mvi import solve_modal_mvi
         return solve_modal_mvi(prepared, density, requested,
                                progress_callback=progress_callback,detail_callback=detail_callback)
+    if prepared.fdm_backend == "MATRIX_FREE_GMRES":
+        from cylinder_modal_matrixfree import solve_modal_matrixfree
+        return solve_modal_matrixfree(
+            prepared, density, requested, modal_options=case.get("modal"),
+            progress_callback=progress_callback, detail_callback=detail_callback)
     k, m, bm, be, q_shape, p_shape = _linear_matrices(
         prepared, density, progress_callback=progress_callback,detail_callback=detail_callback)
     n_m = bm.shape[1]
@@ -327,6 +366,7 @@ def run_modal_case(case, case_path):
     summary = {
         "solver_backend": BACKEND, "calculation_kind": "MODAL",
         "method": result.get("method", "FDM"), "mode": "LINEAR_ELASTIC", "theory": result["theory"],
+        "fdm_backend": result.get("fdm_backend", "DENSE_REFERENCE"),
         **({"rank": result["rank"], "mvi_sweeps": result["mvi_sweeps"],
             "mvi_modal_algorithm": result["mvi_modal_algorithm"]}
            if "rank" in result else {}),
