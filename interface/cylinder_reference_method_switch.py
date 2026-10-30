@@ -19,6 +19,8 @@ def selected_case(original, method, rank=None):
     if not isinstance(original, dict) or original.get("solver_backend") != "VARIATIONAL_REFERENCE":
         raise ValueError("Select a saved VARIATIONAL_REFERENCE CASE")
     method = str(method).upper()
+    if method == "MKR":
+        method = "FDM"
     if method not in ("FDM", "MVI"):
         raise ValueError("Choose FDM (MKR) or MVI-1..8")
     if method == "MVI":
@@ -27,6 +29,8 @@ def selected_case(original, method, rank=None):
     elif rank is not None:
         raise ValueError("FDM has no MVI rank")
     old_method = str(original.get("method", "")).upper()
+    if old_method == "MKR":
+        old_method = "FDM"
     if old_method not in ("FDM", "MVI"):
         raise ValueError("The source CASE has an unknown spatial method")
     old_key = "mvi_grid" if old_method == "MVI" else "fdm_grid"
