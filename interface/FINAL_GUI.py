@@ -7381,6 +7381,11 @@ class FinalSolverGUI(EnhancedSolverGUI):
         try:
             cfg=load_case_file(p)
             if not isinstance(cfg,dict):raise ValueError("CASE должен содержать объект")
+            if (str(cfg.get("calculation_kind","")).upper()=="MODAL"
+                    and str(cfg.get("solver_backend","")).upper()=="VARIATIONAL_REFERENCE"
+                    and str(cfg.get("method","")).upper()=="MKR"):
+                cfg=dict(cfg)
+                cfg["method"]="FDM"
             from cylinder_reference_case import selected_backend, BACKEND
             if selected_backend(cfg)==BACKEND:
                 if str(cfg.get("calculation_kind","")).upper()=="MODAL":
