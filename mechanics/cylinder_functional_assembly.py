@@ -538,7 +538,8 @@ class CylinderFunctional:
             inertia=kl_inertial_jet_coefficients(
                 q,v,a,Dx=self.ops.Dx,Ds=self.ops.Ds,
                 wx=self.ops.wx,ws=self.ops.ws,radius_m=self.R,
-                thickness_m=self.h,density_kg_m3=rho)
+                thickness_m=self.h,density_kg_m3=rho,
+                geometry_model=self.geometry_model)
             mc[:3]+=inertia
             if alpha:
                 # M(q)*v only: no nonlinear gyroscopic velocity-square
@@ -546,7 +547,8 @@ class CylinderFunctional:
                 damping=kl_inertial_jet_coefficients(
                     q,np.zeros_like(v),v,Dx=self.ops.Dx,Ds=self.ops.Ds,
                     wx=self.ops.wx,ws=self.ops.ws,radius_m=self.R,
-                    thickness_m=self.h,density_kg_m3=rho)
+                    thickness_m=self.h,density_kg_m3=rho,
+                    geometry_model=self.geometry_model)
                 mc[:3]+=alpha*damping
         elif is_dynamic and self.theory.startswith("CUF_TE"):
             # CUF mass has zero derivative-jet coefficients. The exact
@@ -696,7 +698,8 @@ class CylinderFunctional:
             return kl_inertial_weak_action(
                 q,v,accel,Dx=self.ops.Dx,Ds=self.ops.Ds,
                 wx=self.ops.wx,ws=self.ops.ws,radius_m=self.R,
-                thickness_m=self.h,density_kg_m3=density)
+                thickness_m=self.h,density_kg_m3=density,
+                geometry_model=self.geometry_model)
         if self.theory.startswith("CUF_"):
             N=int(self.theory[-1])
             m=mass_matrix_te(radius_m=self.R,thickness_m=self.h,
