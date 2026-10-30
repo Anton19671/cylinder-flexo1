@@ -430,6 +430,7 @@ def run_modal_case(case, case_path):
         "effective_operator_scheme": (case.get("mvi_grid" if case.get("method") == "MVI" else "fdm_grid") or {}).get("operator_scheme"),
         "method": result.get("method", "FDM"), "mode": "LINEAR_ELASTIC", "theory": result["theory"],
         **({"circumferential_wavenumbers":result["circumferential_wavenumbers"],
+            "axial_mode_indices":result["axial_mode_indices"],
             "harmonic_family_scan":result["harmonic_family_scan"],
             "mode_generation":result["mode_generation"],
             "modal_spectrum_selection":result["modal_spectrum_selection"],
