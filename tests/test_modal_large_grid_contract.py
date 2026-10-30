@@ -79,3 +79,19 @@ def test_large_grid_case_is_consistent_with_cuf_te4_dofs():
         assert count * count < settings.max_surface_nodes
         assert 15 * count * count < settings.max_total_dofs
     assert 15 * 41 * 41 > 512
+
+
+def test_large_grid_modal_uses_sparse_block_preconditioner():
+    from cylinder_modal_preconditioner import ModalSparseBlockPreconditioner
+    from cylinder_modal_matrixfree import solve_modal_matrixfree
+    import inspect
+    assert "ModalSparseBlockPreconditioner(" in inspect.getsource(solve_modal_matrixfree)
+    assert "preconditioner.linear_operator()" in inspect.getsource(solve_modal_matrixfree)
+
+
+def test_linear_modal_tangent_avoids_second_perturbed_weak_action():
+    import inspect
+    src = inspect.getsource(_projected_actions)
+    assert 'is_linear = functional.geometry_model == "LINEAR"' in src
+    assert "tangent_force = (right - at_zero) / step" in src
+    assert "tangent_force = (right - left) / (2. * step)" in src
