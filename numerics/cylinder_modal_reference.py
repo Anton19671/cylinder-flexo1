@@ -448,6 +448,10 @@ def run_modal_case(case, case_path):
             "global_spectrum_completeness_verified":False}
            if "circumferential_wavenumbers" in result else {}),
         "fdm_backend": result.get("fdm_backend", "DENSE_REFERENCE"),
+        **({"modal_spectrum_selection":"unrestricted_fixed_rank_sequential_local_stationary_modes",
+            "global_spectrum_completeness_verified":False,
+            "axial_mode_indices_verified":False}
+           if result.get("method")=="MVI" and "circumferential_wavenumbers" not in result else {}),
         **({"rank": result["rank"], "mvi_sweeps": result["mvi_sweeps"],
             "mvi_modal_algorithm": result["mvi_modal_algorithm"]}
            if "rank" in result else {}),
