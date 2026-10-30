@@ -38,10 +38,10 @@ def test_modal_mvi_keeps_original_separated_branch():
 def test_large_grid_dynamic_matrixfree_route_remains_unchanged():
     root = Path(__file__).resolve().parents[1]
     case = (root / "interface/cylinder_reference_case.py").read_text(encoding="utf-8")
-    dynamic = (root / "numerics/cylinder_variational_dynamic.py").read_text(encoding="utf-8")
+    matrixfree = (root / "numerics/cylinder_matrixfree_fdm.py").read_text(encoding="utf-8")
     assert "max_surface_nodes" in case
-    assert "solve_matrixfree_dynamic_fdm" in dynamic
-    assert "MATRIX_FREE_GMRES" in dynamic
+    assert "solve_matrixfree_dynamic_fdm" in matrixfree
+    assert "MATRIX_FREE_GMRES" in case
 
 
 def test_modal_operator_writes_no_time_steps_or_dense_matrix():
