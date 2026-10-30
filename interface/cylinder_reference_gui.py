@@ -50,10 +50,10 @@ def edit_reference_case(original, fields, boundary, load, newton, dynamics=None,
     grid=copy.deepcopy(old_grid)
     if method!=old_method and (str(original.get('fdm_backend','DENSE_REFERENCE')).upper()
                                =='MATRIX_FREE_GMRES' or
-                               str(grid.get('operator_scheme','')).upper()=='SBP21_PERIODIC_ODD_CSR'):
+                               str(grid.get('operator_scheme','')).upper() in ('SBP21_PERIODIC_ODD_CSR','SBP42_FOURIER_ODD_CSR')):
         raise ValueError('Для смены метода в matrix-free CASE сначала создайте отдельный CASE')
     scheme=str(fields.get('operator_scheme',grid.get('operator_scheme','LEGACY_REFERENCE'))).upper()
-    if scheme not in ('LEGACY_REFERENCE','SBP21_PERIODIC_ODD','SBP21_PERIODIC_ODD_CSR','SBP21_FOURIER_ODD'):
+    if scheme not in ('LEGACY_REFERENCE','SBP21_PERIODIC_ODD','SBP21_PERIODIC_ODD_CSR','SBP21_FOURIER_ODD','SBP42_FOURIER_ODD','SBP42_FOURIER_ODD_CSR'):
         raise ValueError('Неизвестная схема пространственных операторов')
     fdm_backend=str(fields.get('fdm_backend',case.get('fdm_backend','DENSE_REFERENCE'))).upper()
     if fdm_backend not in ('DENSE_REFERENCE','MATRIX_FREE_GMRES'):
@@ -71,7 +71,7 @@ def edit_reference_case(original, fields, boundary, load, newton, dynamics=None,
         fdm_backend='DENSE_REFERENCE'
         case['fdm_backend']=fdm_backend
     if kind=='MODAL' and fdm_backend=='MATRIX_FREE_GMRES':
-        if method!='FDM' or scheme!='SBP21_PERIODIC_ODD_CSR':
+        if method!='FDM' or scheme not in ('SBP21_PERIODIC_ODD_CSR','SBP42_FOURIER_ODD_CSR'):
             raise ValueError('MODAL matrix-free: выберите FDM и SBP21_PERIODIC_ODD_CSR')
     case.pop('fdm_grid',None);case.pop('mvi_grid',None);case.pop('grid',None)
     grid.update(nx=integer('nx'),ns=integer('ns'),operator_scheme=scheme)
@@ -242,7 +242,7 @@ class ReferenceCaseEditor(tk.Toplevel):
             ('Порядок CUF','cuf_model',c.get('cuf_model','TE1'),('TE1','TE2','TE3','TE4')),
             ('Пространственный метод','method',method,('FDM','MVI')),
             ('Схема операторов','operator_scheme',grid.get('operator_scheme','LEGACY_REFERENCE'),
-             ('LEGACY_REFERENCE','SBP21_PERIODIC_ODD','SBP21_PERIODIC_ODD_CSR','SBP21_FOURIER_ODD')),
+             ('LEGACY_REFERENCE','SBP21_PERIODIC_ODD','SBP21_PERIODIC_ODD_CSR','SBP21_FOURIER_ODD','SBP42_FOURIER_ODD','SBP42_FOURIER_ODD_CSR')),
             ('Вариант МКР','fdm_backend',c.get('fdm_backend','DENSE_REFERENCE'),
              ('DENSE_REFERENCE','MATRIX_FREE_GMRES')),
             ('Ранг МВИ (1–8)','rank',c.get('rank',1),None),
@@ -328,7 +328,7 @@ class ReferenceCaseEditor(tk.Toplevel):
             self.dynamics_text.master.configure(text='Динамика: шаги времени и плотность (JSON)')
             self.load_text.master.pack(fill='both',expand=True,pady=4,before=self.newton_text.master)
         elif kind=='MODAL':
-            self.task_kind_note.configure(text='МОДАЛЬНЫЙ АНАЛИЗ: свободные колебания; для густой сетки FDM + MATRIX_FREE_GMRES + SBP21_PERIODIC_ODD_CSR.')
+            self.task_kind_note.configure(text='МОДАЛЬНЫЙ АНАЛИЗ: свободные колебания; для густой сетки FDM + MATRIX_FREE_GMRES + SBP42_FOURIER_ODD_CSR.')
             self.time_integrator_row.pack_forget()
             self.dynamics_text.master.configure(text='Модальный анализ: density_kg_m3 и n_modes (JSON)')
             self.load_text.master.pack_forget()
