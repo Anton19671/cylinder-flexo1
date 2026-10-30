@@ -32,6 +32,9 @@ from flexo_gradient_g3d import (
     G3DMaterial, covariant_strain_gradients, reference_electric_field,
     enthalpy_parts, enthalpy_derivatives,
 )
+from cylinder_kinematic_models import (
+    normalized_model, strain_jets, virtual_strain_jets,
+)
 
 
 MECHANICAL_VARIATIONS = ("q", "qx", "qs", "qxx", "qxs", "qss")
@@ -198,7 +201,9 @@ def _strain_components(E):
                      2*E[0,1], 2*E[0,2], 2*E[1,2]), dtype=float)
 
 
-def _strain_from_deformation_jets(F, Fx, Fs, Fz):
+def _strain_from_deformation_jets(F, Fx, Fs, Fz, geometry_model="GREEN_LAGRANGE"):
+    if normalized_model(geometry_model)!="GREEN_LAGRANGE":
+        return strain_jets(F,Fx,Fs,Fz,geometry_model)
     e = _strain_components(.5*(F.T@F - _EYE))
     deriv = []
     for Fd in (Fx, Fs, Fz):
@@ -206,7 +211,10 @@ def _strain_from_deformation_jets(F, Fx, Fs, Fz):
     return e, deriv
 
 
-def _strain_variation_from_deformation_jets(F, dF, Fx, Fs, Fz, dFx, dFs, dFz):
+def _strain_variation_from_deformation_jets(F, dF, Fx, Fs, Fz, dFx, dFs, dFz,
+                                           geometry_model="GREEN_LAGRANGE"):
+    if normalized_model(geometry_model)!="GREEN_LAGRANGE":
+        return virtual_strain_jets(F,Fx,Fs,Fz,dF,dFx,dFs,dFz,geometry_model)
     de = _strain_components(.5*(dF.T@F + F.T@dF))
     deriv = []
     for Fd, dFd in ((Fx,dFx),(Fs,dFs),(Fz,dFz)):
@@ -215,7 +223,8 @@ def _strain_variation_from_deformation_jets(F, dF, Fx, Fs, Fz, dFx, dFs, dFz):
     return de, deriv
 
 
-def point_state(jets: CUFSurfaceJets, *, z_m, radius_m, thickness_m):
+def point_state(jets: CUFSurfaceJets, *, z_m, radius_m, thickness_m,
+                geometry_model="GREEN_LAGRANGE"):
     R, h = _geometry(radius_m, thickness_m)
     z = float(z_m)
     if not math.isfinite(z) or abs(z) > .5*h + 1.e-12*h:
@@ -225,7 +234,8 @@ def point_state(jets: CUFSurfaceJets, *, z_m, radius_m, thickness_m):
     det = float(np.linalg.det(F))
     if not math.isfinite(det) or det <= 0:
         raise ValueError(f"INVALID_DEFORMATION_MAPPING: detF={det}, z={z}")
-    strain, (sx,ss,sz) = _strain_from_deformation_jets(F,Fx,Fs,Fz)
+    strain, (sx,ss,sz) = _strain_from_deformation_jets(
+        F,Fx,Fs,Fz,geometry_model)
     gradient = covariant_strain_gradients(strain,sx,ss,sz,radius_m=R,z_m=z)
     G, Gz, _ = te_basis(z,h,jets.potential_order)
     phi_x = float(G @ jets.psix)
@@ -236,13 +246,15 @@ def point_state(jets: CUFSurfaceJets, *, z_m, radius_m, thickness_m):
 
 
 def thickness_enthalpy(jets: CUFSurfaceJets, material: G3DMaterial, *,
-                        radius_m, thickness_m, n_gauss=12):
+                        radius_m, thickness_m, n_gauss=12,
+                        geometry_model="GREEN_LAGRANGE"):
     """H-weighted integrated electric enthalpy per mid-surface area (eq. 42)."""
     R,h = _geometry(radius_m,thickness_m)
     zs, ws = gauss_thickness(h,n_gauss)
     value = 0.0
     for z,w in zip(zs,ws):
-        state = point_state(jets,z_m=z,radius_m=R,thickness_m=h)
+        state = point_state(jets,z_m=z,radius_m=R,thickness_m=h,
+                            geometry_model=geometry_model)
         value += w*state.H*enthalpy_parts(
             state.strain6,state.gradient6x3,state.electric3,material)["total"]
     return float(value)
@@ -278,7 +290,9 @@ def _cuf_virtual_kinematic_library(order,z,radius_m,thickness_m):
 
 
 
-def _batched_virtual_strain_gradients(virtual_library, F, Fx, Fs, Fz, *, radius_m, z_m):
+def _batched_virtual_strain_gradients(virtual_library, F, Fx, Fs, Fz, *,
+                                      radius_m, z_m,
+                                      geometry_model="GREEN_LAGRANGE"):
     """Vectorize original analytic CUF virtual-jet first variations."""
     virtual=np.asarray(virtual_library,float)
     if virtual.ndim!=6 or virtual.shape[-3:]!=(4,3,3):
@@ -294,10 +308,27 @@ def _batched_virtual_strain_gradients(virtual_library, F, Fx, Fs, Fz, *, radius_
     def sym(left):
         return .5*(left+left.transpose((0,2,1)))
 
-    de=pack(sym(np.matmul(dF.transpose((0,2,1)),F)))
+    model=normalized_model(geometry_model)
+    if model=="GREEN_LAGRANGE":
+        de=pack(sym(np.matmul(dF.transpose((0,2,1)),F)))
+    elif model=="LINEAR":
+        de=pack(sym(dF))
+    else:
+        slope=np.array((F[2,0],F[2,1],0.))
+        dslope=np.column_stack((dF[:,2,0],dF[:,2,1],np.zeros(len(parts))))
+        de=pack(sym(dF+np.einsum("ni,j->nij",dslope,slope)))
     derivatives=[]
     for original,variation in zip((Fx,Fs,Fz),(parts[:,1],parts[:,2],parts[:,3])):
-        left=np.matmul(variation.transpose((0,2,1)),F)+np.matmul(original.T,dF)
+        if model=="GREEN_LAGRANGE":
+            left=np.matmul(variation.transpose((0,2,1)),F)+np.matmul(original.T,dF)
+        elif model=="LINEAR":
+            left=variation
+        else:
+            grad_slope=np.array((original[2,0],original[2,1],0.))
+            dgrad=np.column_stack((variation[:,2,0],variation[:,2,1],
+                                   np.zeros(len(parts))))
+            left=(variation+np.einsum("ni,j->nij",dslope,grad_slope)+
+                  np.einsum("i,nj->nij",slope,dgrad))
         derivatives.append(pack(sym(left)))
     grad=np.empty((parts.shape[0],6,3),float)
     grad[:,:,0]=derivatives[0]
@@ -313,7 +344,8 @@ def _batched_virtual_strain_gradients(virtual_library, F, Fx, Fs, Fz, *, radius_
 
 
 def thickness_weak_coefficients(jets: CUFSurfaceJets, material: G3DMaterial, *,
-                                 radius_m, thickness_m, n_gauss=12):
+                                 radius_m, thickness_m, n_gauss=12,
+                                 geometry_model="GREEN_LAGRANGE"):
     """Thickness integrated, exact Gateaux weak coefficients (114--115,128--131).
 
     Important: this is only the LOCAL weak first variation. Correct assembly of
@@ -328,7 +360,8 @@ def thickness_weak_coefficients(jets: CUFSurfaceJets, material: G3DMaterial, *,
     # Unit variations are independent of the current state, so their F-jets
     # can be calculated once per quadrature point using the same analytic map.
     for z,w in zip(zs,ws):
-        state=point_state(jets,z_m=z,radius_m=R,thickness_m=h)
+        state=point_state(jets,z_m=z,radius_m=R,thickness_m=h,
+                          geometry_model=geometry_model)
         H=state.H
         F,Fx,Fs,Fz=_kinematic_matrix_jets(jets,z,R,h)
         S,M,D=enthalpy_derivatives(
@@ -339,7 +372,8 @@ def thickness_weak_coefficients(jets: CUFSurfaceJets, material: G3DMaterial, *,
         virtual_library=_cuf_virtual_kinematic_library(
             jets.te_order,float(z),R,h)
         variations,gradients=_batched_virtual_strain_gradients(
-            virtual_library,F,Fx,Fs,Fz,radius_m=R,z_m=z)
+            virtual_library,F,Fx,Fs,Fz,radius_m=R,z_m=z,
+            geometry_model=geometry_model)
         work=(variations@S+np.einsum('nij,ij->n',gradients,M))
         coeff+=w*H*work.reshape(coeff.shape)
         G,Gz,_=te_basis(z,h,jets.potential_order)
