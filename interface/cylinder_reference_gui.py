@@ -67,9 +67,12 @@ def edit_reference_case(original, fields, boundary, load, newton, dynamics=None,
     if geometry_model not in ('LINEAR','VON_KARMAN','GREEN_LAGRANGE'):
         raise ValueError('Геометрическая модель: LINEAR / VON_KARMAN / GREEN_LAGRANGE')
     case['geometry_model']=geometry_model
-    if kind=='MODAL':
+    if kind=='MODAL' and method=='MVI':
         fdm_backend='DENSE_REFERENCE'
         case['fdm_backend']=fdm_backend
+    if kind=='MODAL' and fdm_backend=='MATRIX_FREE_GMRES':
+        if method!='FDM' or scheme!='SBP21_PERIODIC_ODD_CSR':
+            raise ValueError('MODAL matrix-free: выберите FDM и SBP21_PERIODIC_ODD_CSR')
     case.pop('fdm_grid',None);case.pop('mvi_grid',None);case.pop('grid',None)
     grid.update(nx=integer('nx'),ns=integer('ns'),operator_scheme=scheme)
     case['mvi_grid' if method=='MVI' else 'fdm_grid']=grid
@@ -113,7 +116,10 @@ def edit_reference_case(original, fields, boundary, load, newton, dynamics=None,
         saved_bc=case.get('micro',{}).get('editor_saved_electrical_bc')
         if saved_bc:bc['electrical']=copy.deepcopy(saved_bc)
     case.setdefault('boundary_conditions',{})['variational']=bc
-    load_data=document(load,'Нагрузка')
+    if kind=='MODAL':
+        load_data={}
+    else:
+        load_data=document(load,'Нагрузка')
     if kind=='MODAL':
         case['mode']='LINEAR_ELASTIC'
         case.pop('load_definition',None);case.pop('reference_loads',None)
@@ -121,6 +127,18 @@ def edit_reference_case(original, fields, boundary, load, newton, dynamics=None,
         options=document(dynamics if dynamics is not None else json.dumps(case.get('modal',{})),'Модальные настройки')
         case['modal']=(options if 'density_kg_m3' in options and 'n_modes' in options
                        else {'density_kg_m3':numeric('rho_kg_m3'), 'n_modes':6})
+        case['reference_newton']=document(newton,'Настройки численного метода')
+        if fdm_backend=='MATRIX_FREE_GMRES':
+            defaults={'relative_tolerance':1e-7,'absolute_tolerance_scaled':1e-12,
+                      'tangent_step_scaled':2e-6,'max_iterations':15,
+                      'max_halvings':16,'potential_scale_v':1.,
+                      'max_total_dofs':100000,'max_surface_nodes':8192,
+                      'max_constraint_rows':20000}
+            supplied=case['reference_newton']
+            if 'max_free_dofs' in supplied:
+                supplied={k:v for k,v in supplied.items() if k not in
+                          ('max_free_dofs','min_reciprocal_condition')}
+            case['reference_newton']={**defaults,**supplied}
         from cylinder_modal_reference import prepare_modal_case
         prepare_modal_case(case,base_dir=base_dir)
         return case
@@ -310,7 +328,7 @@ class ReferenceCaseEditor(tk.Toplevel):
             self.dynamics_text.master.configure(text='Динамика: шаги времени и плотность (JSON)')
             self.load_text.master.pack(fill='both',expand=True,pady=4,before=self.newton_text.master)
         elif kind=='MODAL':
-            self.task_kind_note.configure(text='МОДАЛЬНЫЙ АНАЛИЗ: свободные колебания; шаги по времени не нужны.')
+            self.task_kind_note.configure(text='МОДАЛЬНЫЙ АНАЛИЗ: свободные колебания; для густой сетки FDM + MATRIX_FREE_GMRES + SBP21_PERIODIC_ODD_CSR.')
             self.time_integrator_row.pack_forget()
             self.dynamics_text.master.configure(text='Модальный анализ: density_kg_m3 и n_modes (JSON)')
             self.load_text.master.pack_forget()
