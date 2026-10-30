@@ -37,16 +37,62 @@ def selected_case(original, method, rank=None):
     result = copy.deepcopy(original)
     old_backend = str(original.get("fdm_backend", "DENSE_REFERENCE")).upper()
     scheme = str(grid.get("operator_scheme", "LEGACY_REFERENCE")).upper()
-    if old_method != method and (old_backend == "MATRIX_FREE_GMRES" or
-                                  scheme == "SBP21_PERIODIC_ODD_CSR"):
+    kind = str(original.get("calculation_kind", "")).upper()
+    scale = str(original.get("scale_model", "")).upper()
+    nx, ns = int(grid.get("nx", 0)), int(grid.get("ns", 0))
+    # Dense and CSR SBP42/Fourier operators represent the SAME spatial
+    # differentiation. For a homogeneous MACRO MODAL problem we can switch
+    # their storage/backends without modifying physical input parameters.
+    compatible_fourier = (kind == "MODAL" and scale == "MACRO" and
+        scheme in ("SBP42_FOURIER_ODD", "SBP42_FOURIER_ODD_CSR") and
+        ((scheme == "SBP42_FOURIER_ODD" and old_backend == "DENSE_REFERENCE") or
+         (scheme == "SBP42_FOURIER_ODD_CSR" and old_backend == "MATRIX_FREE_GMRES")))
+    switching_sparse = (old_method != method and
+        (old_backend == "MATRIX_FREE_GMRES" or
+         scheme in ("SBP21_PERIODIC_ODD_CSR", "SBP42_FOURIER_ODD_CSR")))
+    if switching_sparse and not compatible_fourier:
         raise ValueError(
-            "Cannot switch a matrix-free/CSR CASE silently. "
-            "Create a separate CASE with an explicitly selected compatible operator scheme.")
+            "Cannot switch an incompatible matrix-free/CSR CASE. "
+            "Save a separate CASE with an explicit compatible spatial operator.")
+    # Repair a legacy invalid dense modal FDM draft, but only when its exact
+    # SBP42/Fourier CSR counterpart is available and the grid is too large
+    # for the dense reference FDM route.
+    upgrade_fdm = (method == "FDM" and compatible_fourier and
+        (old_method == "MVI" or
+         (old_backend == "DENSE_REFERENCE" and nx * ns > 256)))
+    downgrade_mvi = (method == "MVI" and old_method == "FDM" and
+                     compatible_fourier and scheme == "SBP42_FOURIER_ODD_CSR")
+    if downgrade_mvi and (nx > 21 or ns > 21):
+        raise ValueError(
+            "MODAL Fourier MVI currently supports nx, ns <= 21. "
+            "Choose a supported mesh in the CASE editor.")
+    translated_grid = copy.deepcopy(grid)
     result.pop("fdm_grid", None)
     result.pop("mvi_grid", None)
     result.pop("grid", None)
-    result[new_key] = copy.deepcopy(grid)
+    result[new_key] = translated_grid
     result["method"] = method
+    if upgrade_fdm:
+        translated_grid["operator_scheme"] = "SBP42_FOURIER_ODD_CSR"
+        result["fdm_backend"] = "MATRIX_FREE_GMRES"
+        options = copy.deepcopy(result.get("reference_newton") or {})
+        options.pop("max_free_dofs", None)
+        options.pop("min_reciprocal_condition", None)
+        options.setdefault("max_total_dofs", 100000)
+        options.setdefault("max_surface_nodes", 8192)
+        options.setdefault("max_constraint_rows", 20000)
+        result["reference_newton"] = options
+    elif downgrade_mvi:
+        translated_grid["operator_scheme"] = "SBP42_FOURIER_ODD"
+        result["fdm_backend"] = "DENSE_REFERENCE"
+        options = copy.deepcopy(result.get("reference_newton") or {})
+        for field in ("max_total_dofs", "max_surface_nodes", "max_constraint_rows",
+                      "krylov_rtol", "krylov_restart", "krylov_max_matvecs",
+                      "krylov_preconditioner", "ilu_drop_tolerance",
+                      "ilu_fill_factor", "ilu_max_surface_nodes"):
+            options.pop(field, None)
+        options.setdefault("max_free_dofs", 512)
+        result["reference_newton"] = options
     if method == "MVI":
         nx, ns = int(grid.get("nx", 0)), int(grid.get("ns", 0))
         if rank > min(nx, ns):
