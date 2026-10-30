@@ -1,6 +1,7 @@
 """Method switch contract: no calculations and no edits to the original CASE."""
 import copy
 import json
+from pathlib import Path
 
 import pytest
 
@@ -71,3 +72,34 @@ def test_launch_creates_unique_case_without_overwriting_original(tmp_path):
     other_path,other_case=create_launch_case(source,selected)
     assert other_path!=launch_path
     assert other_case["output_dir"]!=launch_case["output_dir"]
+
+
+def test_named_reference_runs_get_unique_child_directories(tmp_path):
+    original=fixture()
+    original["output_dir"]=str(tmp_path/"RESULTS")
+    source=tmp_path/"reference.json"
+    source.write_text(json.dumps(original),encoding="utf-8")
+    existing=tmp_path/"RESULTS"/"OLD_CALCULATION"
+    existing.mkdir(parents=True)
+    (existing/"result.txt").write_text("preserve",encoding="utf-8")
+    first_path,first=create_launch_case(source,original,run_label="Проверка TE4")
+    second_path,second=create_launch_case(source,original,run_label="Проверка TE4")
+    for case in (first,second):
+        out=Path(case["output_dir"])
+        assert out.parent==tmp_path/"RESULTS"
+        assert "Проверка_TE4" in out.name
+        assert not out.exists()
+    assert first["output_dir"]!=second["output_dir"]
+    assert first_path!=second_path
+    assert (existing/"result.txt").read_text()=="preserve"
+    assert json.loads(source.read_text())==original
+
+
+def test_user_run_name_cannot_escape_results_root(tmp_path):
+    original=fixture()
+    original["output_dir"]=str(tmp_path/"OUTPUT")
+    source=tmp_path/"input.json"
+    source.write_text(json.dumps(original),encoding="utf-8")
+    _,case=create_launch_case(source,original,run_label="../test:bad?name")
+    assert Path(case["output_dir"]).parent==tmp_path/"OUTPUT"
+    assert not Path(case["output_dir"]).exists()
