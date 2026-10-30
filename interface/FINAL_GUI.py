@@ -7227,10 +7227,19 @@ class FinalSolverGUI(EnhancedSolverGUI):
         # Validate the source CASE before allocating the unique run CASE.
         source_plan=plan_time_integrator_run(path,self.time_integrator.get() if cfg.get("calculation_kind")=="DYNAMIC" else "NEWMARK",series=series)
         from cylinder_reference_method_switch import create_launch_case
-        # A pending selector already allocated an AUTO CASE with a unique output.
-        # Otherwise always allocate a new CASE and child result folder.
+        # A pending selector may have allocated an AUTO CASE earlier.
+        # If its output is already populated (e.g. a previous run), allocate
+        # a fresh sibling run rather than rejecting or overwriting results.
         if "__AUTO_" not in Path(path).stem:
             path,cfg=create_launch_case(path,cfg,run_label=self._v("run_label").get().strip())
+        else:
+            prior_output=Path(cfg.get("output_dir","")).expanduser()
+            if not prior_output.is_absolute():
+                prior_output=Path(path).resolve().parent/prior_output
+            if prior_output.exists() and any(prior_output.iterdir()):
+                fresh_cfg=copy.deepcopy(cfg)
+                fresh_cfg["output_dir"]=str(prior_output.parent)
+                path,cfg=create_launch_case(path,fresh_cfg,run_label=self._v("run_label").get().strip())
         plan=plan_time_integrator_run(path,self.time_integrator.get() if cfg.get("calculation_kind")=="DYNAMIC" else "NEWMARK",series=series)
         output=plan.output_dir
         result_dir=output/"MVI_1_8_SERIES" if series else output
