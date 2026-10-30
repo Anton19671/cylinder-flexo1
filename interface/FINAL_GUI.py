@@ -1614,7 +1614,7 @@ class EnhancedSolverGUI(SolverGUI):
         ):
             rb=ttk.Radiobutton(flexo_options,text=label,value=value,
                  variable=self._v("micro_flexoelectric","OFF"),
-                 command=self._reference_live_edit)
+                 command=self._on_reference_flexo_choice)
             rb.pack(anchor="w",pady=2)
             self.micro_flexo_radios.append(rb)
         self.scale_note=ttk.Label(scale_box,wraplength=470,justify="left",
@@ -8903,6 +8903,12 @@ class FinalSolverGUI(EnhancedSolverGUI):
                 if isinstance(child,ttk.Entry):
                     child.bind("<FocusOut>",lambda _e:self._reference_live_edit(),add="+")
 
+    def _on_reference_flexo_choice(self):
+        """The two G3D choices explicitly select MICRO, even from MACRO."""
+        if self._v("scale_model","MACRO").get()=="MACRO":
+            self._v("scale_model").set("MICRO")
+        self._reference_live_edit()
+
     def _reference_live_edit(self):
         active=self._active_reference_case()
         if active is None:
@@ -9497,7 +9503,9 @@ class FinalSolverGUI(EnhancedSolverGUI):
             if not micro_pending and switch.get()!="OFF":switch.set("OFF")
             flexo_on=micro_pending and switch.get()=="ON"
             for rb in self.micro_flexo_radios:
-                rb.configure(state="normal" if micro_pending else "disabled")
+                rb.configure(state="normal")
+            # Both radios choose MICRO; a MACRO cylinder never gains G3D
+            # by changing a flag alone. The callback changes scale explicitly.
             frame=getattr(self,"micro_parameters_frame",None)
             mat=getattr(self,"micro_material_frame",None)
             if frame is not None and mat is not None:
