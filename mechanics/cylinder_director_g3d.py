@@ -28,6 +28,7 @@ import math
 import numpy as np
 
 from cuf_g3d_weak import te_basis, gauss_thickness
+from cylinder_kinematic_models import normalized_model, strain_jets, virtual_strain_jets
 from flexo_gradient_g3d import (
     G3DMaterial, covariant_strain_gradients, reference_electric_field,
     enthalpy_parts, enthalpy_derivatives,
@@ -216,13 +217,18 @@ def _engineering(tensor):
                      2*tensor[0,1],2*tensor[0,2],2*tensor[1,2]],float)
 
 
-def _strain(F,Fx,Fs,Fz):
+def _strain(F,Fx,Fs,Fz,geometry_model="GREEN_LAGRANGE"):
+    if normalized_model(geometry_model)!="GREEN_LAGRANGE":
+        return strain_jets(F,Fx,Fs,Fz,geometry_model)
     strain=_engineering(.5*(F.T@F-_EYE))
     der=[_engineering(.5*(Fi.T@F+F.T@Fi)) for Fi in (Fx,Fs,Fz)]
     return strain,der
 
 
-def _strain_virtual(F,Fx,Fs,Fz,dF,dFx,dFs,dFz):
+def _strain_virtual(F,Fx,Fs,Fz,dF,dFx,dFs,dFz,
+                    geometry_model="GREEN_LAGRANGE"):
+    if normalized_model(geometry_model)!="GREEN_LAGRANGE":
+        return virtual_strain_jets(F,Fx,Fs,Fz,dF,dFx,dFs,dFz,geometry_model)
     de=_engineering(.5*(dF.T@F+F.T@dF))
     der=[_engineering(.5*(df.T@F+fi.T@dF+dF.T@fi+F.T@df))
          for fi,df in zip((Fx,Fs,Fz),(dFx,dFs,dFz))]
@@ -239,14 +245,15 @@ def _unit(jets,field,component):
     return jets.replaced(**updates)
 
 
-def director_point(jets: DirectorSurfaceJets, *, theory, z_m, radius_m, thickness_m):
+def director_point(jets: DirectorSurfaceJets, *, theory, z_m, radius_m, thickness_m,
+                   geometry_model="GREEN_LAGRANGE"):
     R,h=_check_geometry(radius_m,thickness_m,z_m)
     z=float(z_m)
     F,Fx,Fs,Fz=_F_jets(jets,theory,z,R,h)
     det=float(np.linalg.det(F))
     if not math.isfinite(det) or det<=0:
         raise ValueError(f"INVALID_DEFORMATION_MAPPING: detF={det}")
-    e,der=_strain(F,Fx,Fs,Fz)
+    e,der=_strain(F,Fx,Fs,Fz,geometry_model)
     g=covariant_strain_gradients(e,*der,radius_m=R,z_m=z)
     G,Gz,_=te_basis(z,h,jets.potential_order)
     electric=reference_electric_field(float(G@jets.psix),float(G@jets.psis),
@@ -255,12 +262,14 @@ def director_point(jets: DirectorSurfaceJets, *, theory, z_m, radius_m, thicknes
 
 
 def thickness_enthalpy(jets: DirectorSurfaceJets, material: G3DMaterial, *,
-                        theory, radius_m, thickness_m, n_gauss=12):
+                        theory, radius_m, thickness_m, n_gauss=12,
+                        geometry_model="GREEN_LAGRANGE"):
     R,h=_check_geometry(radius_m,thickness_m)
     total=0.
     zs,ws=gauss_thickness(h,n_gauss)
     for z,w in zip(zs,ws):
-        p=director_point(jets,theory=theory,z_m=z,radius_m=R,thickness_m=h)
+        p=director_point(jets,theory=theory,z_m=z,radius_m=R,thickness_m=h,
+                         geometry_model=geometry_model)
         total+=w*p.H*enthalpy_parts(p.strain6,p.gradient6x3,p.electric3,material)["total"]
     return float(total)
 
@@ -295,7 +304,8 @@ def _director_virtual_velocity(theory,z,R,h):
 
 
 def thickness_weak_coefficients(jets: DirectorSurfaceJets, material: G3DMaterial, *,
-                                theory, radius_m, thickness_m, n_gauss=12):
+                                theory, radius_m, thickness_m, n_gauss=12,
+                                geometry_model="GREEN_LAGRANGE"):
     """Exact local Gateaux coefficients of the thickness-integrated enthalpy.
 
     This routine does NOT integrate over x,s or enforce edge boundary traces.
@@ -307,14 +317,16 @@ def thickness_weak_coefficients(jets: DirectorSurfaceJets, material: G3DMaterial
     zs,ws=gauss_thickness(h,n_gauss)
     for z,w in zip(zs,ws):
         library=_director_virtual_f_jets(theory,float(z),R,h)
-        p=director_point(jets,theory=theory,z_m=z,radius_m=R,thickness_m=h)
+        p=director_point(jets,theory=theory,z_m=z,radius_m=R,thickness_m=h,
+                         geometry_model=geometry_model)
         F,Fx,Fs,Fz=_F_jets(jets,theory,z,R,h)
         sigma,hyper,D=enthalpy_derivatives(p.strain6,p.gradient6x3,p.electric3,material)
         total+=w*p.H*enthalpy_parts(p.strain6,p.gradient6x3,p.electric3,material)["total"]
         for k in range(len(FIELDS)):
             for i in range(5):
                 dF,dFx,dFs,dFz=library[k,i]
-                de,der=_strain_virtual(F,Fx,Fs,Fz,dF,dFx,dFs,dFz)
+                de,der=_strain_virtual(F,Fx,Fs,Fz,dF,dFx,dFs,dFz,
+                                        geometry_model)
                 dg=covariant_strain_gradients(de,*der,radius_m=R,z_m=z)
                 mech[i,k]+=w*p.H*(sigma@de + np.sum(hyper*dg))
         G,Gz,_=te_basis(z,h,jets.potential_order)
