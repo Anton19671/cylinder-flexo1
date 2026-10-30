@@ -1,0 +1,60 @@
+{
+  "solver_backend": "VARIATIONAL_REFERENCE",
+  "theory": "KL",
+  "method": "MVI",
+  "fdm_backend": "DENSE_REFERENCE",
+  "calculation_kind": "MODAL",
+  "scale_model": "MACRO",
+  "mode": "LINEAR_ELASTIC",
+  "geometry_model": "LINEAR",
+  "material_model": "HOOKE",
+  "units": {
+    "system": "SI_N_M_PA"
+  },
+  "geometry": {
+    "L": 2,
+    "R": 1,
+    "h": 0.05
+  },
+  "material": {
+    "E0": 210000000000,
+    "nu0": 0.3
+  },
+  "quadrature": {
+    "type": "GAUSS",
+    "n_gauss": 9
+  },
+  "boundary_conditions": {
+    "variational": {
+      "mechanical": {
+        "left": {
+          "support": "CLAMPED",
+          "higher": "NATURAL"
+        },
+        "right": {
+          "support": "CLAMPED",
+          "higher": "NATURAL"
+        }
+      },
+      "electrical": {}
+    }
+  },
+  "modal": {
+    "density_kg_m3": 7850,
+    "n_modes": 6
+  },
+  "reference_newton": {
+    "tangent_step_scaled": 0.000002,
+    "max_free_dofs": 512
+  },
+  "output_dir": "OUTPUT_RAWAT2016_KL_MVI7_13x13",
+  "mvi_grid": {
+    "nx": 13,
+    "ns": 13,
+    "operator_scheme": "SBP21_PERIODIC_ODD"
+  },
+  "rank": 7,
+  "reference_mvi": {
+    "max_sweeps": 30
+  }
+}
