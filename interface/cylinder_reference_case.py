@@ -9,7 +9,8 @@ import os
 import numpy as np
 
 from cylinder_functional_assembly import (CylinderFunctional,
-    surface_trapezoid, surface_sbp21, surface_sbp21_fourier, surface_sbp21_csr)
+    surface_trapezoid, surface_sbp21, surface_sbp21_fourier, surface_sbp21_csr,
+    surface_sbp42_fourier, surface_sbp42_fourier_csr)
 from cylinder_boundary_spatial import BoundarySpatialProblem
 from cylinder_variational_fdm import StaticFDMSettings, solve_static_fdm, state_scales
 from cylinder_variational_mvi import StaticMVISettings, solve_static_mvi
@@ -142,12 +143,12 @@ def prepare_reference_case(case, *, base_dir=None):
     operator_scheme=str(grid.get("operator_scheme","LEGACY_REFERENCE")).upper()
     if operator_scheme not in (
             "LEGACY_REFERENCE","SBP21_PERIODIC_ODD","SBP21_PERIODIC_ODD_CSR",
-            "SBP21_FOURIER_ODD"):
+            "SBP21_FOURIER_ODD","SBP42_FOURIER_ODD","SBP42_FOURIER_ODD_CSR"):
         raise ValueError("grid.operator_scheme must be LEGACY_REFERENCE, "
                          "SBP21_PERIODIC_ODD, SBP21_PERIODIC_ODD_CSR or SBP21_FOURIER_ODD")
-    if operator_scheme=="SBP21_FOURIER_ODD" and matrix_free:
+    if operator_scheme in ("SBP21_FOURIER_ODD","SBP42_FOURIER_ODD") and matrix_free:
         raise ValueError("SBP21_FOURIER_ODD is currently dense only; use DENSE_REFERENCE")
-    if operator_scheme=="SBP21_PERIODIC_ODD_CSR" and not matrix_free:
+    if operator_scheme in ("SBP21_PERIODIC_ODD_CSR","SBP42_FOURIER_ODD_CSR") and not matrix_free:
         raise ValueError("SBP21_PERIODIC_ODD_CSR requires FDM MATRIX_FREE_GMRES")
     if matrix_free:
         from cylinder_matrixfree_fdm import MatrixFreeNewtonSettings
@@ -183,7 +184,11 @@ def prepare_reference_case(case, *, base_dir=None):
                    and theory[-1] in "1234" else 7 if theory=="REDDY" else 3)
     if n_gauss<minimum_gauss:
         raise ValueError(f"{theory}: n_gauss >= {minimum_gauss} required to avoid thickness underintegration")
-    surface=(surface_sbp21_csr(nx,ns,length,radius)
+    surface=(surface_sbp42_fourier_csr(nx,ns,length,radius)
+             if operator_scheme=="SBP42_FOURIER_ODD_CSR"
+             else surface_sbp42_fourier(nx,ns,length,radius)
+             if operator_scheme=="SBP42_FOURIER_ODD"
+             else surface_sbp21_csr(nx,ns,length,radius)
              if operator_scheme=="SBP21_PERIODIC_ODD_CSR"
              else surface_sbp21(nx,ns,length,radius)
              if operator_scheme=="SBP21_PERIODIC_ODD"
