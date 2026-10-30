@@ -34,7 +34,12 @@ def _effective_modal_case(case):
     if not isinstance(case, dict):
         return case
     effective = copy.deepcopy(case)
-    key = "mvi_grid" if str(case.get("method", "")).upper() == "MVI" else "fdm_grid"
+    # Legacy GUI/CASE calls the full-space variational eigenvalue branch MKR.
+    # Its implemented discretization is the FDM-grid variational reference;
+    # normalize the selector rather than pretending a separate Ritz basis exists.
+    if str(effective.get("method", "")).upper() == "MKR":
+        effective["method"] = "FDM"
+    key = "mvi_grid" if str(effective.get("method", "")).upper() == "MVI" else "fdm_grid"
     grid = effective.get(key)
     if isinstance(grid, dict) and str(grid.get("operator_scheme", "")).upper() == "SBP21_PERIODIC_ODD":
         if isinstance(grid.get("nx"), int) and grid["nx"] < 9:
