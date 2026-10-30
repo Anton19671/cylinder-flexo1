@@ -44,25 +44,26 @@ def selected_grid_case(original, *, nx, ns, n_gauss, fdm_backend=None,
     grid = deepcopy(draft.get(grid_key) or draft.get("grid") or {})
     scheme = str(operator_scheme or grid.get("operator_scheme", "LEGACY_REFERENCE")).upper()
     allowed = ("LEGACY_REFERENCE", "SBP21_PERIODIC_ODD",
-               "SBP21_PERIODIC_ODD_CSR", "SBP21_FOURIER_ODD")
+               "SBP21_PERIODIC_ODD_CSR", "SBP21_FOURIER_ODD",
+               "SBP42_FOURIER_ODD", "SBP42_FOURIER_ODD_CSR")
     if scheme not in allowed:
         raise ValueError("Unknown spatial operator scheme")
     if scheme in ("SBP21_PERIODIC_ODD", "SBP21_PERIODIC_ODD_CSR",
-                  "SBP21_FOURIER_ODD") and ns % 2 != 1:
+                  "SBP21_FOURIER_ODD", "SBP42_FOURIER_ODD", "SBP42_FOURIER_ODD_CSR") and ns % 2 != 1:
         raise ValueError("SBP21 and Fourier periodic grids require odd ns")
     backend = str(fdm_backend or draft.get("fdm_backend", "DENSE_REFERENCE")).upper()
     if method == "MVI":
-        if backend != "DENSE_REFERENCE" or scheme == "SBP21_PERIODIC_ODD_CSR":
+        if backend != "DENSE_REFERENCE" or scheme in ("SBP21_PERIODIC_ODD_CSR", "SBP42_FOURIER_ODD_CSR"):
             raise ValueError("MVI uses a separate dense Y/X formulation, not matrix-free FDM")
         if _count(draft.get("rank"), "MVI rank") > min(nx, ns):
             raise ValueError("MVI rank exceeds the selected grid")
     elif backend == "MATRIX_FREE_GMRES":
-        if scheme != "SBP21_PERIODIC_ODD_CSR":
+        if scheme not in ("SBP21_PERIODIC_ODD_CSR", "SBP42_FOURIER_ODD_CSR"):
             raise ValueError("MATRIX_FREE_GMRES needs SBP21_PERIODIC_ODD_CSR")
         if (str(draft.get("calculation_kind", "")).upper() == "MODAL"
                 and str(draft.get("scale_model", "")).upper() != "MACRO"):
             raise ValueError("Large-grid MODAL FDM currently supports MACRO only")
-    elif backend != "DENSE_REFERENCE" or scheme == "SBP21_PERIODIC_ODD_CSR":
+    elif backend != "DENSE_REFERENCE" or scheme in ("SBP21_PERIODIC_ODD_CSR", "SBP42_FOURIER_ODD_CSR"):
         raise ValueError("DENSE_REFERENCE cannot use a CSR operator scheme")
     grid.update(nx=nx, ns=ns, operator_scheme=scheme)
     draft.pop("fdm_grid", None)
