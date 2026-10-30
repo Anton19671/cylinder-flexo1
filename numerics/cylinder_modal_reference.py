@@ -89,8 +89,13 @@ def _modal_spec(case, *, base_dir=None):
     if case.get("load_definition") is not None or case.get("reference_loads") is not None:
         raise ValueError("MODAL free vibrations require an unloaded CASE")
     raw = case.get("modal", {})
-    if not isinstance(raw, dict) or set(raw) - {"density_kg_m3", "n_modes", "eigen_tolerance", "max_iterations"}:
+    if not isinstance(raw, dict) or set(raw) - {"density_kg_m3", "n_modes", "eigen_tolerance", "max_iterations", "axial_modes_per_harmonic"}:
         raise ValueError("modal accepts density_kg_m3, n_modes, eigen_tolerance, max_iterations")
+    if "axial_modes_per_harmonic" in raw:
+        axial_count = _integer(raw["axial_modes_per_harmonic"],
+                               "modal.axial_modes_per_harmonic", 1)
+        if axial_count > 8 or method != "MVI":
+            raise ValueError("modal.axial_modes_per_harmonic requires MVI and value <= 8")
     density = _real(raw.get("density_kg_m3"), "modal.density_kg_m3", True)
     n_modes = _integer(raw.get("n_modes"), "modal.n_modes", 1)
     if n_modes > 32:
@@ -325,7 +330,9 @@ def solve_modal_case(case, *, base_dir=None, progress_callback=None, detail_call
         return solve_modal_mvi(prepared, density, requested,
                                progress_callback=progress_callback,
                                detail_callback=detail_callback,
-                               harmonic_scan=_use_harmonic_mvi_spectrum(case, requested))
+                               harmonic_scan=_use_harmonic_mvi_spectrum(case, requested),
+                               axial_modes_per_harmonic=(case.get("modal") or {}).get(
+                                   "axial_modes_per_harmonic", 1))
     if prepared.fdm_backend == "MATRIX_FREE_GMRES":
         from cylinder_modal_matrixfree import solve_modal_matrixfree
         return solve_modal_matrixfree(
@@ -431,6 +438,7 @@ def run_modal_case(case, case_path):
         "method": result.get("method", "FDM"), "mode": "LINEAR_ELASTIC", "theory": result["theory"],
         **({"circumferential_wavenumbers":result["circumferential_wavenumbers"],
             "axial_mode_indices":result["axial_mode_indices"],
+            "axial_modes_per_harmonic":result.get("axial_modes_per_harmonic",1),
             "harmonic_family_scan":result["harmonic_family_scan"],
             "mode_generation":result["mode_generation"],
             "modal_spectrum_selection":result["modal_spectrum_selection"],
