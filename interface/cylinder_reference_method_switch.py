@@ -153,6 +153,10 @@ def create_launch_case(source_path, selected, *, run_label=""):
     if base.exists() and not base.is_dir():
         raise NotADirectoryError(f"Result root is a file, not a folder: {base}")
     method = str(selected.get("method", "")).upper()
+    if method == "MKR":
+        method = "FDM"
+        selected = copy.deepcopy(selected)
+        selected["method"] = "FDM"
     if method not in ("FDM", "MVI"):
         raise ValueError("Unknown spatial method")
     if method == "MVI":
