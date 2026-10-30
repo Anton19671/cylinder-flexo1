@@ -7874,11 +7874,19 @@ class FinalSolverGUI(EnhancedSolverGUI):
                 draft=selected_case(base,method,rank)
                 # Changing a selector must not run validation/assembly or
                 # resize grids. Validate the complete CASE only at save/run.
-                if (draft.get("method"),draft.get("rank"))==(
-                        cfg.get("method"),cfg.get("rank")):
-                    self._pending_reference_case=None
-                else:
-                    self._pending_reference_case=(path.resolve(),draft)
+                # Compare the entire CASE, including backend and operator.
+                # A same-method click may repair an incompatible legacy
+                # modal FDM grid; do not discard that conversion.
+                self._pending_reference_case=(
+                    (path.resolve(),draft) if draft!=cfg else None)
+                active_grid=draft.get("mvi_grid" if method=="MVI" else "fdm_grid") or {}
+                self._v("reference_operator_scheme").set(
+                    active_grid.get("operator_scheme","LEGACY_REFERENCE"))
+                self._v("reference_fdm_backend").set(
+                    draft.get("fdm_backend","DENSE_REFERENCE"))
+                for prefix in ("","mvi_"):
+                    for coordinate in ("nx","ns"):
+                        self._v(prefix+coordinate).set(str(active_grid.get(coordinate,"")))
             elif method=="MVI" and (type(rank) is not int or not 1<=rank<=8):
                 raise ValueError("Ранг МВИ должен быть от 1 до 8.")
             elif method not in ("FDM","MVI"):
