@@ -90,7 +90,7 @@ def _modal_spec(case, *, base_dir=None):
         raise ValueError("MODAL free vibrations require an unloaded CASE")
     raw = case.get("modal", {})
     if not isinstance(raw, dict) or set(raw) - {"density_kg_m3", "n_modes", "eigen_tolerance", "max_iterations", "axial_modes_per_harmonic"}:
-        raise ValueError("modal accepts density_kg_m3, n_modes, eigen_tolerance, max_iterations")
+        raise ValueError("modal accepts density_kg_m3, n_modes, eigen_tolerance, max_iterations, axial_modes_per_harmonic")
     if "axial_modes_per_harmonic" in raw:
         axial_count = _integer(raw["axial_modes_per_harmonic"],
                                "modal.axial_modes_per_harmonic", 1)
@@ -441,6 +441,7 @@ def run_modal_case(case, case_path):
         **({"circumferential_wavenumbers":result["circumferential_wavenumbers"],
             "axial_mode_indices":result["axial_mode_indices"],
             "axial_modes_per_harmonic":result.get("axial_modes_per_harmonic",1),
+            "cutoff_rotational_pair_incomplete":result.get("cutoff_rotational_pair_incomplete",False),
             "harmonic_family_scan":result["harmonic_family_scan"],
             "mode_generation":result["mode_generation"],
             "modal_spectrum_selection":result["modal_spectrum_selection"],
