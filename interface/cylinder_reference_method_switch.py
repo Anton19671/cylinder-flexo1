@@ -7,6 +7,7 @@ Never overwrite the input CASE or resize a grid to make a requested rank fit.
 from __future__ import annotations
 
 import copy
+import re
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
@@ -61,8 +62,32 @@ def selected_case(original, method, rank=None):
     return result
 
 
-def create_launch_case(source_path, selected):
-    """Persist an auto-CASE only upon launch. Preserve all source file references."""
+def _safe_run_label(text):
+    """A user-chosen Windows-safe directory label, not a filesystem path."""
+    if text is None:
+        return "RUN"
+    if not isinstance(text, str):
+        raise ValueError("Calculation name must be text")
+    value = re.sub(r'[<>:"/\\\\|?*\\x00-\\x1f]', "_", text)
+    value = re.sub(r"\\s+", "_", value).strip(" ._")
+    if not value:
+        return "RUN"
+    value = value[:48].rstrip(" ._")
+    if value.split(".")[0].upper() in (
+        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4",
+        "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2",
+        "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"):
+        value = "RUN_" + value
+    return value or "RUN"
+
+
+def create_launch_case(source_path, selected, *, run_label=""):
+    """Write a unique run CASE and choose an empty child of the result root.
+
+    User's saved physical CASE and previous output folders stay untouched.
+    The new CASE lives beside its source, preserving relative input paths;
+    only its output_dir is redirected to the new per-run child folder.
+    """
     source = Path(source_path).expanduser().resolve()
     if not source.is_file():
         raise FileNotFoundError(source)
@@ -75,19 +100,35 @@ def create_launch_case(source_path, selected):
     if not base.is_absolute():
         base = source.parent / base
     base = base.resolve()
-    method = str(selected["method"]).upper()
-    token = method + (str(selected["rank"]) if method == "MVI" else "")
+    if base.exists() and not base.is_dir():
+        raise NotADirectoryError(f"Result root is a file, not a folder: {base}")
+    method = str(selected.get("method", "")).upper()
+    if method not in ("FDM", "MVI"):
+        raise ValueError("Unknown spatial method")
+    if method == "MVI":
+        token = f"MVI{int(selected['rank'])}"
+    else:
+        token = "FDM"
+    model = str(selected.get("theory", "MODEL")).upper()
+    if model == "CUF":
+        model += "_" + str(selected.get("cuf_model", "")).upper()
+    kind = str(selected.get("calculation_kind", "STATIC")).upper()
+    grid = selected.get("mvi_grid" if method == "MVI" else "fdm_grid") or selected.get("grid") or {}
+    nx, ns = grid.get("nx", ""), grid.get("ns", "")
+    descriptor = f"{kind}_{model}_{token}_g{nx}x{ns}"
+    label = _safe_run_label(run_label)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    for _ in range(20):
-        unique = uuid4().hex[:10]
-        basename = f"{token}_{stamp}_{unique}"
-        target_case = source.with_name(f"{source.stem}__AUTO_{basename}{source.suffix}")
-        target_result = base.with_name(base.name + "__" + basename)
+    for _ in range(30):
+        unique = uuid4().hex[:8]
+        basename = f"{label}__{descriptor}__{stamp}_{unique}"
+        target_case = source.with_name(
+            f"{source.stem[:65]}__AUTO_{stamp}_{unique}{source.suffix}")
+        target_result = base / basename
         if target_case.exists() or target_result.exists():
             continue
         candidate = copy.deepcopy(selected)
         candidate["output_dir"] = str(target_result)
-        # Exclusive creation also protects the original CASE on concurrent launches.
+        # Exclusive file allocation; never modify the saved original CASE.
         with target_case.open("x", encoding="utf-8"):
             pass
         try:
@@ -96,7 +137,7 @@ def create_launch_case(source_path, selected):
             target_case.unlink(missing_ok=True)
             raise
         return target_case, candidate
-    raise FileExistsError("Unable to allocate unique auto-CASE and output directory")
+    raise FileExistsError("Unable to allocate unique run CASE and output directory")
 
 
 __all__ = ("selected_case", "create_launch_case")
