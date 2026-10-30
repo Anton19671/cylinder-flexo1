@@ -167,7 +167,7 @@ def solve_modal_matrixfree(prepared, density, requested, *, modal_options,
     if np.min(np.linalg.norm(seeds, axis=0)) < .99:
         raise ValueError("MATRIX_FREE_MODAL_NO_INDEPENDENT_START")
     seeds = np.column_stack([
-        projector.project_null(seeds[:, j]) for j in range(requested)])
+        projector.project_null(seeds[:, j]) for j in range(block_size)])
     # Sparse SPD block inverse acts only as an LOBPCG preconditioner.
     # It does not alter physical stiffness, inertia, or boundary conditions.
     from cylinder_modal_preconditioner import ModalSparseBlockPreconditioner
