@@ -160,6 +160,9 @@ def solve_modal_matrixfree(prepared, density, requested, *, modal_options,
         values, vectors = lobpcg(
             k, seeds, B=m, M=t, tol=tolerance, maxiter=iterations,
             largest=False)
+    if caught and detail_callback is not None:
+        detail_callback(stage="MATRIX_FREE_MODAL_ITERATION_WARNINGS",
+                        messages=[str(w.message) for w in caught])
     if not (np.isfinite(values).all() and np.isfinite(vectors).all()):
         raise ValueError("MATRIX_FREE_MODAL_NONFINITE_EIGENPAIR")
     order = np.argsort(values)
