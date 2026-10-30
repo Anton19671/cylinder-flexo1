@@ -159,15 +159,55 @@ def solve_modal_matrixfree(prepared, density, requested, *, modal_options,
     # eigenvalue can converge poorly. Oversampling keeps the physical
     # operator and boundary projection unchanged.
     block_size = min(max(requested + 4, 2 * requested), n_free // 5)
+    # Seed the full-space FDM eigensolver with admissible smooth Fourier
+    # fields rather than white noise. K and M are unchanged.
+    nx, ns = q0.shape[1:]
+    theta = 2. * np.pi * np.arange(ns) / ns
+    xi = np.arange(nx) / (nx - 1)
+    nc = q0.shape[0]
+    radial = (2 * (int(functional.theory[-1]) + 1)
+              if functional.theory.startswith("CUF_TE") else 2)
+    radial = min(radial, nc - 1)
     rng = np.random.default_rng(20261030)
-    seeds = np.column_stack([
-        projector.project_null(rng.normal(size=q0.size))
-        for _ in range(block_size)])
-    seeds, _ = np.linalg.qr(seeds, mode="reduced")
-    if np.min(np.linalg.norm(seeds, axis=0)) < .99:
-        raise ValueError("MATRIX_FREE_MODAL_NO_INDEPENDENT_START")
-    seeds = np.column_stack([
-        projector.project_null(seeds[:, j]) for j in range(block_size)])
+    candidates = []
+    for axial_index in (1, 2, 3):
+        envelope = np.sin(np.pi * xi)**2 * np.cos(
+            (axial_index - 1) * np.pi * xi)
+        for harmonic in (3, 4, 2, 5, 1, 6, 0):
+            phases = ([np.ones(ns)] if harmonic == 0 else
+                      [np.cos(harmonic * theta), np.sin(harmonic * theta)])
+            for phase in phases:
+                candidate = np.zeros_like(q0)
+                candidate[radial] = envelope[:, None] * phase[None, :]
+                candidates.append(projector.project_null(candidate.ravel()))
+                if len(candidates) >= block_size:
+                    break
+            if len(candidates) >= block_size:
+                break
+        if len(candidates) >= block_size:
+            break
+    starts = []
+    for candidate in candidates:
+        v = candidate.copy()
+        for previous in starts:
+            v -= previous * (previous @ v)
+        v = projector.project_null(v)
+        norm = np.linalg.norm(v)
+        if norm > 1.e-9:
+            starts.append(v / norm)
+    attempts = 0
+    while len(starts) < block_size:
+        attempts += 1
+        if attempts > 10 * block_size:
+            raise ValueError("MATRIX_FREE_MODAL_NO_INDEPENDENT_START")
+        v = projector.project_null(rng.standard_normal(q0.size))
+        for previous in starts:
+            v -= previous * (previous @ v)
+        v = projector.project_null(v)
+        norm = np.linalg.norm(v)
+        if norm > 1.e-9:
+            starts.append(v / norm)
+    seeds = np.column_stack(starts)
     # Sparse SPD block inverse acts only as an LOBPCG preconditioner.
     # It does not alter physical stiffness, inertia, or boundary conditions.
     from cylinder_modal_preconditioner import ModalSparseBlockPreconditioner
