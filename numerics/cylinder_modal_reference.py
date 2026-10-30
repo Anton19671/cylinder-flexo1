@@ -277,13 +277,39 @@ def _linear_matrices(prepared, density, *, progress_callback=None, detail_callba
     return k, m, bm, be, q0.shape, None if p0 is None else p0.shape
 
 
+def _use_harmonic_mvi_spectrum(case, requested):
+    """Enable Fourier sectors only for rotationally uniform MACRO shells."""
+    if not isinstance(case, dict) or not 1 <= requested <= 8:
+        return False
+    if str(case.get("method", "")).upper() != "MVI":
+        return False
+    if str(case.get("scale_model", "")).upper() != "MACRO":
+        return False
+    effective = _effective_modal_case(case)
+    grid = effective.get("mvi_grid") or effective.get("grid") or {}
+    if str(grid.get("operator_scheme", "")).upper() != "SBP42_FOURIER_ODD":
+        return False
+    bc = (case.get("boundary_conditions") or {}).get("variational") or {}
+    mechanical = bc.get("mechanical") or {}
+    electrical = bc.get("electrical") or {}
+    if (not isinstance(mechanical, dict) or not isinstance(electrical, dict)
+            or electrical or set(mechanical)-{"left", "right"}):
+        return False
+    for entry in mechanical.values():
+        if not isinstance(entry, dict) or set(entry)-{"support", "higher"}:
+            return False
+    return True
+
+
 def solve_modal_case(case, *, base_dir=None, progress_callback=None, detail_callback=None):
     """Compute consistent small-grid modes in Hz, with massless electric DOFs condensed."""
     prepared, density, requested = _modal_spec(case, base_dir=base_dir)
     if prepared.method == "MVI":
         from cylinder_modal_mvi import solve_modal_mvi
         return solve_modal_mvi(prepared, density, requested,
-                               progress_callback=progress_callback,detail_callback=detail_callback)
+                               progress_callback=progress_callback,
+                               detail_callback=detail_callback,
+                               harmonic_scan=_use_harmonic_mvi_spectrum(case, requested))
     if prepared.fdm_backend == "MATRIX_FREE_GMRES":
         from cylinder_modal_matrixfree import solve_modal_matrixfree
         return solve_modal_matrixfree(
@@ -387,6 +413,12 @@ def run_modal_case(case, case_path):
         "requested_operator_scheme": (original_case.get("mvi_grid" if original_case.get("method") == "MVI" else "fdm_grid") or {}).get("operator_scheme"),
         "effective_operator_scheme": (case.get("mvi_grid" if case.get("method") == "MVI" else "fdm_grid") or {}).get("operator_scheme"),
         "method": result.get("method", "FDM"), "mode": "LINEAR_ELASTIC", "theory": result["theory"],
+        **({"circumferential_wavenumbers":result["circumferential_wavenumbers"],
+            "harmonic_family_scan":result["harmonic_family_scan"],
+            "mode_generation":result["mode_generation"],
+            "modal_spectrum_selection":result["modal_spectrum_selection"],
+            "global_spectrum_completeness_verified":False}
+           if "circumferential_wavenumbers" in result else {}),
         "fdm_backend": result.get("fdm_backend", "DENSE_REFERENCE"),
         **({"rank": result["rank"], "mvi_sweeps": result["mvi_sweeps"],
             "mvi_modal_algorithm": result["mvi_modal_algorithm"]}
@@ -434,6 +466,7 @@ def run_modal_case(case, case_path):
             ("nx",grid["nx"]),("ns",grid["ns"]),
             ("n_gauss",case["quadrature"]["n_gauss"]),
             ("n_modes",len(result["frequencies_hz"])),
+            ("operator_scheme",grid.get("operator_scheme", "")),
             ("method",case["method"]),("rank",case.get("rank","")),
             ("support_left",mech_bc.get("left",{}).get("support","FREE")),
             ("support_right",mech_bc.get("right",{}).get("support","FREE"))]
