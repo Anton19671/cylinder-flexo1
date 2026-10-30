@@ -200,4 +200,8 @@ def _solve_modal_mvi_harmonic_spectrum(prepared, density, requested, *,
         "mode_generation":[m[5] for m in best],
         "mvi_modal_algorithm":"fixed_rank_constrained_variational_YX_stationarity",
         "modal_spectrum_selection":"circumferential_harmonic_fundamentals_rotational_pairs",
+        # This scan finds one axial fundamental per Fourier sector; it does
+        # not enumerate higher axial overtones or certify the global spectrum.
+        "axial_overtone_search_complete":False,
+        "global_spectrum_completeness_verified":False,
     }
