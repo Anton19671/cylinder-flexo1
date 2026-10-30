@@ -24,6 +24,7 @@ and full dynamic mass operator are separate stages; no run is enabled here.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 import math
 import numpy as np
 
@@ -195,6 +196,86 @@ def _normal_jets_small_rotation(data,R):
     return n,nx,ns,nxx,nxs,nss
 
 
+def _kl_normal_gl_linearization(data,R):
+    """Base 2D Taylor jets for the exact Gateaux normal variation."""
+    u=np.stack([_shift(data,i,1,0) for i in range(3)])
+    v=np.stack([_shift(data,i,0,1) for i in range(3)])
+    q=np.stack([_shift(data,i,0,0) for i in range(3)])
+    one=_poly_constant(1.,np.result_type(u,v,q))
+    A=np.stack((u[0]+one,u[1],u[2]))
+    B=np.stack((v[0],one+v[1]+q[2]/R,v[2]-q[1]/R))
+    N=_cross(A,B)
+    squared=_dot(N,N)
+    if squared[0].real<=1e-20 or not np.isfinite(squared[0]):
+        raise ValueError("INVALID_KL_MIDSURFACE_NORMAL: degenerate metric")
+    shifted=squared/squared[0]
+    shifted[0]-=1
+    inv=(one-.5*shifted+.375*_mul(shifted,shifted))/np.sqrt(squared[0])
+    inv_cubed=_mul(_mul(inv,inv),inv)
+    return A,B,N,inv,inv_cubed
+
+
+def _kl_normal_virtual(delta,R,model,linearization=None):
+    """Exact first variation of the KL director and its surface derivatives."""
+    if model!="GREEN_LAGRANGE":
+        n,nx,ns,nxx,nxs,nss=_normal_jets_small_rotation(delta,R)
+        n=n.copy()
+        n[2]=0.
+        return n,nx,ns,nxx,nxs,nss
+    if linearization is None:
+        raise ValueError("GL normal variation requires current base jets")
+    A,B,N,inv,inv_cubed=linearization
+    du=np.stack([_shift(delta,i,1,0) for i in range(3)])
+    dv=np.stack([_shift(delta,i,0,1) for i in range(3)])
+    dq=np.stack([_shift(delta,i,0,0) for i in range(3)])
+    dA=du
+    dB=np.stack((dv[0],dv[1]+dq[2]/R,dv[2]-dq[1]/R))
+    dN=_cross(dA,B)+_cross(A,dB)
+    dnorm2=2.*_dot(N,dN)
+    dn=np.stack((
+        _mul(dN[i],inv)-.5*_mul(_mul(N[i],dnorm2),inv_cubed)
+        for i in range(3)))
+    return (dn[:,0],dn[:,1],dn[:,2],
+            2*dn[:,3],dn[:,4],2*dn[:,5])
+
+
+def _kl_virtual_F_jets(delta,R,h,z,dnormal):
+    """Virtual F and spatial derivatives without an identity contribution."""
+    n,nx,ns,nxx,nxs,nss=dnormal
+    H=1.+z/R
+    u=delta['q']+z*n
+    ux=delta['qx']+z*nx
+    us=delta['qs']+z*ns
+    uxx=delta['qxx']+z*nxx
+    uxs=delta['qxs']+z*nxs
+    uss=delta['qss']+z*nss
+    uz=n
+    def circ(a,b):
+        return np.array((b[0],b[1]+a[2]/R,b[2]-a[1]/R))
+    c=circ(u,us)
+    return (np.column_stack((ux,c/H,uz)),
+            np.column_stack((uxx,circ(ux,uxs)/H,nx)),
+            np.column_stack((uxs,circ(us,uss)/H,ns)),
+            np.column_stack((nx,circ(uz,ns)/H-c/(R*H*H),np.zeros(3))))
+
+
+@lru_cache(maxsize=128)
+def _kl_small_virtual_F_library(R,h,z,model):
+    """Cache 30 exact linear-geometry virtual F-jets at each thickness point."""
+    if model not in ("LINEAR","VON_KARMAN"):
+        raise ValueError("small-rotation cache requires LINEAR or VON_KARMAN")
+    output=np.empty((3,len(FIELDS),4,3,3))
+    delta={key:np.zeros(3) for key in FIELDS}
+    for k,key in enumerate(FIELDS):
+        for comp in range(3):
+            delta[key][comp]=1.
+            dn=_kl_normal_virtual(delta,R,model)
+            output[comp,k]=np.stack(_kl_virtual_F_jets(delta,R,h,z,dn))
+            delta[key][comp]=0.
+    output.setflags(write=False)
+    return output
+
+
 def _F_jets_raw(data,R,h,z,geometry_model="GREEN_LAGRANGE"):
     model=normalized_model(geometry_model)
     n,nx,ns,nxx,nxs,nss=(
@@ -293,8 +374,19 @@ def thickness_weak_coefficients(jets:KLSurfaceJets,material:G3DMaterial,*,
     electrical=np.zeros((len(jets.psi),len(ELEC_FIELDS)),float)
     energy=0.
     zs,ws=gauss_thickness(h,n_gauss)
-    step=1.e-26
     data=_data(jets)
+    model=normalized_model(geometry_model)
+    if model=="GREEN_LAGRANGE":
+        linearization=_kl_normal_gl_linearization(data,R)
+        virtual_data={}
+        virtual_normal={}
+        for k,name in enumerate(FIELDS):
+            for comp in range(3):
+                unit={key:np.zeros(3) for key in FIELDS}
+                unit[name][comp]=1.
+                virtual_data[comp,k]=unit
+                virtual_normal[comp,k]=_kl_normal_virtual(
+                    unit,R,model,linearization)
     for z,w in zip(zs,ws):
         point=kl_point(jets,z_m=z,radius_m=R,thickness_m=h,
                        geometry_model=geometry_model)
@@ -303,15 +395,16 @@ def thickness_weak_coefficients(jets:KLSurfaceJets,material:G3DMaterial,*,
                                    point.electric3,material)
         energy+=w*point.H*enthalpy_parts(
             point.strain6,point.gradient6x3,point.electric3,material)["total"]
-        perturbed={n:np.array(a,dtype=complex) for n,a in data.items()}
+        virtual_library=(
+            None if model=="GREEN_LAGRANGE"
+            else _kl_small_virtual_F_library(R,h,float(z),model))
         for k,name in enumerate(FIELDS):
             for comp in range(3):
-                perturbed[name][comp]+=1j*step
-                try:
-                    complex_F=_F_jets_raw(perturbed,R,h,float(z),geometry_model)
-                finally:
-                    perturbed[name][comp]-=1j*step
-                dF,dFx,dFs,dFz=[a.imag/step for a in complex_F]
+                if virtual_library is None:
+                    dF,dFx,dFs,dFz=_kl_virtual_F_jets(
+                        virtual_data[comp,k],R,h,float(z),virtual_normal[comp,k])
+                else:
+                    dF,dFx,dFs,dFz=virtual_library[comp,k]
                 de,der=_variation(F,Fx,Fs,Fz,dF,dFx,dFs,dFz,
                                   geometry_model)
                 dg=covariant_strain_gradients(de,*der,radius_m=R,z_m=float(z))
