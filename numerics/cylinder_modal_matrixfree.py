@@ -55,15 +55,27 @@ def _projected_actions(prepared, density, projector, *, progress_callback=None):
         raise ValueError("positive modal tangent step required")
     calls = {"K": 0, "M": 0}
 
+    # In the LINEAR kinematics the tangent is exactly constant. Taking the
+    # Gateaux derivative at zero requires one physical weak action, not two
+    # perturbed nonlinear evaluations. Retain symmetric differences for the
+    # nonlinear geometric branches and do not modify either formulation.
+    is_linear = functional.geometry_model == "LINEAR"
+    if is_linear:
+        _, at_zero, _ = prepared.problem.evaluate_effective_residual(
+            np.zeros_like(q0), None)
     def k_action(vector):
         direction = projector.project_null(np.asarray(vector, float))
         physical = (scales * direction).reshape(q0.shape)
         _, right, _ = prepared.problem.evaluate_effective_residual(
             step * physical, None)
-        _, left, _ = prepared.problem.evaluate_effective_residual(
-            -step * physical, None)
+        if is_linear:
+            tangent_force = (right - at_zero) / step
+        else:
+            _, left, _ = prepared.problem.evaluate_effective_residual(
+                -step * physical, None)
+            tangent_force = (right - left) / (2. * step)
         action = projector.project_null(
-            scales * (right - left) / (2. * step * stiffness_scale))
+            scales * tangent_force / stiffness_scale)
         calls["K"] += 1
         if progress_callback is not None:
             progress_callback("K", calls["K"])
@@ -135,23 +147,16 @@ def solve_modal_matrixfree(prepared, density, requested, *, modal_options,
         raise ValueError("MATRIX_FREE_MODAL_NO_INDEPENDENT_START")
     seeds = np.column_stack([
         projector.project_null(seeds[:, j]) for j in range(requested)])
-    # The preconditioner is a projected, positive diagonal approximation.
-    # It only accelerates the iterations; it never modifies K, M or BC.
-    from cylinder_krylov_block_preconditioner import _stiffness_matrices
-    surface_mass, surface_gradient, _, _ = _stiffness_matrices(functional)
-    diag = np.maximum(np.asarray(surface_gradient.diagonal(), float), 0.)
-    diag += np.asarray(surface_mass.diagonal(), float)
-    diag /= max(float(np.mean(diag)), np.finfo(float).tiny)
-    # Component-wise stiffness scales are kept positive and bounded.
-    jacobi = np.tile(np.maximum(diag, 1.e-8), functional.n_mechanical)
-    def precondition(vector):
-        direction = projector.project_null(np.asarray(vector, float))
-        return projector.project_null(direction / jacobi)
-    t = LinearOperator((q0.size, q0.size), dtype=float,
-                       matvec=precondition,
-                       matmat=lambda values: np.column_stack([
-                           precondition(values[:, j])
-                           for j in range(values.shape[1])]))
+    # Sparse SPD block inverse acts only as an LOBPCG preconditioner.
+    # It does not alter physical stiffness, inertia, or boundary conditions.
+    from cylinder_modal_preconditioner import ModalSparseBlockPreconditioner
+    area = float(np.sum(functional.W))
+    stiffness_scale = float(functional.material.young_pa * functional.h * area)
+    preconditioner = ModalSparseBlockPreconditioner(
+        functional, scales, stiffness_scale, projector,
+        max_surface_nodes=prepared.settings.max_surface_nodes,
+        detail_callback=detail_callback)
+    t = preconditioner.linear_operator()
     if detail_callback is not None:
         detail_callback(stage="EIGEN_BEGIN", n_modes=requested,
                         eigen_solver="LOBPCG_PROJECTED")
