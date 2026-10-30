@@ -27,6 +27,7 @@ import math
 import numpy as np
 
 from flexo_gradient_g3d import G3DMaterial, enthalpy_parts
+from cylinder_kinematic_models import normalized_model
 from cylinder_kl_exact_inertia import kl_inertial_weak_action, kl_inertial_jet_coefficients
 from cylinder_kelvin_voigt import kelvin_voigt_thickness_weak, KelvinVoigtGlobal
 from cylinder_g3d_natural_edges import axial_natural_end_tractions
@@ -292,10 +293,12 @@ class CylinderFunctional:
     electric field equations in postprocessing.
     """
     def __init__(self, theory, material, *, radius_m, thickness_m,
-                 surface_operators:SurfaceOperators, n_gauss=4):
+                 surface_operators:SurfaceOperators, n_gauss=4,
+                 geometry_model="GREEN_LAGRANGE"):
         self.theory,self.n_mechanical,self.n_derivatives=_theory_shape(theory)
         if not isinstance(material,G3DMaterial):raise TypeError("material must be G3DMaterial")
         self.material=material
+        self.geometry_model=normalized_model(geometry_model)
         self.R=float(radius_m)
         self.h=float(thickness_m)
         if (not math.isfinite(self.R) or not math.isfinite(self.h) or
@@ -313,8 +316,10 @@ class CylinderFunctional:
             raise ValueError("electrical potential requires positive dielectric kappa")
         self.dxp,self.dsp=self.ops.derivative_powers(3)
         self.W=self.ops.area_weights
-        params=dict(radius_m=self.R,thickness_m=self.h,n_gauss=self.n_gauss)
-        point_params=dict(radius_m=self.R,thickness_m=self.h)
+        params=dict(radius_m=self.R,thickness_m=self.h,n_gauss=self.n_gauss,
+                    geometry_model=self.geometry_model)
+        point_params=dict(radius_m=self.R,thickness_m=self.h,
+                          geometry_model=self.geometry_model)
         if self.theory.startswith("CUF_"):
             self._weak_kernel=partial(_cuf_weak,material=self.material,**params)
             self._point_kernel=partial(_cuf_point,**point_params)
