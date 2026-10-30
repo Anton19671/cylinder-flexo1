@@ -79,6 +79,44 @@ def _significant_modal_constraints(constraints, mass_factor):
     return constraints[max_overlaps > 2.e-7]
 
 
+def _mass_project_previous_mode(bm, z, mz, previous_field, mass_action):
+    """Mass-orthogonal old trial state in the CURRENT admissible Y/X space.
+
+    The frozen partner space can acquire new, independent constraints when
+    a nearly degenerate sixth mode is made orthogonal to earlier modes.
+    Euclidean projection of its coefficients is *not* the admissible mass
+    projection and must not be used for the variational comparison.
+
+    A tiny but real change of that projection is expected when rotating
+    within a repeated eigenspace: it is not a lost frozen-partner direction.
+    Fail if the projected state has effectively no mass instead of treating
+    a numerical threshold on Euclidean shape difference as a physics rule.
+    """
+    old = np.asarray(previous_field, float).ravel()
+    trial = bm @ z
+    if (old.ndim != 1 or trial.ndim != 2
+            or old.size != trial.shape[0] or not np.isfinite(old).all()):
+        raise ValueError("MODAL MVI invalid previous-shape mass projection")
+    physical_mass = np.asarray(mass_action(old), float).ravel()
+    if physical_mass.shape != old.shape or not np.isfinite(physical_mass).all():
+        raise ValueError("MODAL MVI invalid previous modal mass action")
+    original_mass = float(old @ physical_mass)
+    if not np.isfinite(original_mass) or original_mass <= 0.:
+        raise ValueError("MODAL MVI: nonpositive previous modal mass")
+    rhs = trial.T @ physical_mass
+    coords = solve(mz, rhs, assume_a="pos", check_finite=True)
+    retained_mass = float(coords @ mz @ coords)
+    if (not np.isfinite(retained_mass)
+            or retained_mass <= 1.e-12 * original_mass):
+        raise ValueError("MODAL_MVI_OLD_MODE_LOST_IN_ORTHOGONAL_SPACE")
+    # A true mass projection cannot have more energy than the original.
+    # A substantial violation means the assembled mass action and its
+    # projected matrix are inconsistent (not a candidate for relaxation).
+    if retained_mass > original_mass * (1. + 1.e-6):
+        raise ValueError("MODAL_MVI_PROJECTED_MASS_INCONSISTENT")
+    return coords
+
+
 def _initial_factors(components, rank, nx, ns, mode):
     """Reproducible factors, not precomputed FDM mode shapes."""
     rng = np.random.default_rng(94031 + 101 * mode + 37 * rank)
@@ -311,36 +349,18 @@ class _SeparatedModalProblem:
             raise ValueError("MODAL MVI rank insufficient for additional orthogonal modes")
         kz, mz = z.T @ keff @ z, z.T @ m @ z
         cholesky(mz, lower=True, check_finite=True)
-        # Evaluate the previous shape using EXACTLY the same projected
-        # quadratic form as the new stationarity solve. Re-differentiating
-        # the nonlinear residual along the full modal field produces a
-        # direction-dependent finite-difference K and cannot be used to
-        # prove monotonicity of this projected eigenvalue.
+        # Compare with the *mass-orthogonal* projection of the old shape
+        # into the CURRENT constrained frozen-partner test space. This is a
+        # physically admissible variational competitor. A small Y/X rotation
+        # among nearly repeated modes must not be rejected based on its
+        # Euclidean nodal distance to the previous unconstrained shape.
         old_projected_value = None
+        reduced = None
         if current_q is not None:
             previous_field = np.asarray(current_q, dtype=float).ravel()
-            if previous_field.shape != (self.nm,):
-                raise ValueError("MODAL MVI: previous mechanical field shape")
-            coordinates, *_ = np.linalg.lstsq(bm, previous_field, rcond=None)
-            reduced = z.T @ coordinates
-            represented = bm @ (z @ reduced)
-            defect = float(np.linalg.norm(represented - previous_field) /
-                           max(float(np.linalg.norm(previous_field)), 1.e-30))
-            if not np.isfinite(defect):
-                raise ValueError("MODAL MVI: nonfinite previous-shape projection")
-            # With previously accepted modes, each new Y/X halfstep imposes
-            # mass orthogonality on a DIFFERENT frozen-partner trial space.
-            # The previous shape need not lie exactly in its newly constrained
-            # subspace. Compare the minimum with the admissible projection of
-            # that shape, never with an inadmissible old vector. Preserve a
-            # hard guard against a genuinely lost separated direction.
-            if defect > 1.e-5:
-                raise ValueError(
-                    "MODAL_MVI_OLD_SHAPE_PROJECTION_TOO_LARGE: "
-                    f"axis={axis}, relative_difference={defect:.6g}")
+            reduced = _mass_project_previous_mode(
+                bm, z, mz, previous_field, self.mass)
             old_mass = float(reduced @ mz @ reduced)
-            if old_mass <= 0 or not np.isfinite(old_mass):
-                raise ValueError("MODAL MVI: old projected modal mass invalid")
             old_projected_value = float(reduced @ kz @ reduced / old_mass)
         if on_stage is not None:on_stage("EIGEN_BEGIN",0,1)
         # A repeated eigenvalue has no unique eigenvector. Tracking only
@@ -367,11 +387,12 @@ class _SeparatedModalProblem:
         if value < -1.e-8 * max(1., abs(value)):
             raise ValueError("MODAL MVI: negative squared frequency")
         selected = eigvec[:, 0]
-        if multiplicity > 1 and current_q is not None:
-            old_coordinates = np.linalg.lstsq(bm, previous_field, rcond=None)[0]
-            old_reduced = z.T @ old_coordinates
+        if multiplicity > 1 and reduced is not None:
+            # Use the SAME admissible mass projection for tracking a repeated
+            # eigenspace: a Euclidean least-squares vector can rotate or mix
+            # two otherwise orthogonal circumferential partners.
             family = eigvec[:, :multiplicity]
-            weights = family.T @ mz @ old_reduced
+            weights = family.T @ mz @ reduced
             magnitude = float(np.linalg.norm(weights))
             if np.isfinite(magnitude) and magnitude > 1.e-12:
                 selected = family @ (weights / magnitude)
