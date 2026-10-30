@@ -173,7 +173,7 @@ def prepare_reference_case(case, *, base_dir=None, modal_harmonic_large=False):
         if nx*ns*(count+potential_fields)>max_dofs:
             raise ValueError("MATRIX_FREE_NODAL_DOF_SAFETY_LIMIT")
     else:
-        max_nodes=289 if large_harmonic and nx<=17 and ns<=17 else 256
+        max_nodes=441 if large_harmonic and nx<=21 and ns<=21 else 256
     if nx*ns>max_nodes:
         raise ValueError(f"{fdm_backend}: surface node count exceeds {max_nodes}")
     quad=case.get("quadrature") or {}
@@ -203,7 +203,7 @@ def prepare_reference_case(case, *, base_dir=None, modal_harmonic_large=False):
     q=np.zeros((functional.n_mechanical,nx,ns))
     p=np.zeros((order+1,nx,ns)) if functional.electrical_on else None
     total_dofs=q.size+(0 if p is None else p.size)
-    if not matrix_free and total_dofs>(4335 if large_harmonic else 4096):
+    if not matrix_free and total_dofs>(6615 if large_harmonic else 4096):
         raise ValueError("dense reference nodal DOF limit exceeded")
     bc=case.get("boundary_conditions") or {}
     spec=bc.get("variational")
