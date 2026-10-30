@@ -119,14 +119,16 @@ def _geometry(R,h,z=None):
 
 
 def _mul(a,b):
+    """Exact degree-2 bivariate Taylor product (six coefficient basis)."""
     a=np.asarray(a);b=np.asarray(b)
-    result=np.zeros(6,dtype=np.result_type(a,b))
-    for i,(ax,as_) in enumerate(_MON):
-        for j,(bx,bs) in enumerate(_MON):
-            k=_MON_INDEX.get((ax+bx,as_+bs))
-            if k is not None:result[k]+=a[i]*b[j]
-    return result
-
+    return np.array((
+        a[0]*b[0],
+        a[0]*b[1]+a[1]*b[0],
+        a[0]*b[2]+a[2]*b[0],
+        a[0]*b[3]+a[1]*b[1]+a[3]*b[0],
+        a[0]*b[4]+a[1]*b[2]+a[2]*b[1]+a[4]*b[0],
+        a[0]*b[5]+a[2]*b[2]+a[5]*b[0],
+    ),dtype=np.result_type(a,b))
 
 def _dot(a,b):
     return sum((_mul(a[i],b[i]) for i in range(3)),np.zeros(6,dtype=np.result_type(a,b)))
