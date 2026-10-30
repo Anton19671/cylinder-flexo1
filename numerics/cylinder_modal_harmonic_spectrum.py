@@ -105,12 +105,14 @@ def _solve_modal_mvi_harmonic_spectrum(prepared, density, requested, *,
                                         progress_callback=None,
                                         detail_callback=None,
                                         eigen_tolerance=1.e-7,
-                                        mode_tolerance=1.e-5):
-    """Enumerate fundamental circumferential families using MVI X/Y.
+                                        mode_tolerance=1.e-5,
+                                        axial_modes_per_harmonic=1):
+    """Compute fixed-rank X/Y modes per Fourier sector, including axial overtones.
 
-    One lowest stationary state is found for each harmonic. For n > 0
-    its degenerate partner is obtained by exact rotation, not by a Ritz
-    substitution. Higher axial overtones are NOT exhaustively searched.
+    For nonzero n, the eigenspace is doubly degenerate. Both members
+    must be independently mass-orthogonal before advancing the axial
+    index. An incomplete or mismatched pair is an error, not a mode.
+    This is a finite candidate search, not a certified global spectrum.
     """
     from cylinder_modal_mvi import _SeparatedModalProblem, solve_modal_mvi
     f = prepared.problem.functional
@@ -118,74 +120,117 @@ def _solve_modal_mvi_harmonic_spectrum(prepared, density, requested, *,
     if (requested > 8 or requested < 1 or
             f.electrical_on or f.material.ell_m != 0 or ns % 2 != 1 or nx < 9):
         raise ValueError("MODAL_MVI_HARMONIC_SCAN_REQUIRES_MACRO_AND_UP_TO_8_MODES")
-    operator = _SeparatedModalProblem(prepared,density,prepared.mvi_settings.rank,
+    if (type(axial_modes_per_harmonic) is not int or
+            not 1 <= axial_modes_per_harmonic <= 8):
+        raise ValueError("MODAL_MVI_AXIAL_MODES_PER_HARMONIC_MUST_BE_1_TO_8")
+    operator = _SeparatedModalProblem(prepared, density, prepared.mvi_settings.rank,
                                       harmonic_scan=True)
-    candidates = []
-    family_summary = []
+    candidates, family_summary = [], []
     for n in range(ns // 2 + 1):
         operator.circumferential_harmonic = n
         if detail_callback is not None:
             detail_callback(stage="MVI_HARMONIC_START", harmonic=n,
                             total_harmonics=ns // 2 + 1,
                             rank=prepared.mvi_settings.rank)
-        partial = solve_modal_mvi(
-            prepared, density, 1, detail_callback=None,
-            eigen_tolerance=eigen_tolerance, mode_tolerance=mode_tolerance,
-            _cached_operator=operator)
-        q = partial["mechanical_modes"][0].reshape(-1)
-        p = None if partial["electrical_modes"] is None else partial["electrical_modes"][0].reshape(-1)
-        wave_fraction = _pure_harmonic_fraction(q.reshape(operator.shape), n)
-        if wave_fraction < 1. - 1.e-9:
-            raise ValueError(f"MODAL_MVI_HARMONIC_PURITY_LOST: n={n}, fraction={wave_fraction}")
-        lam = float(partial["omega_squared_rad2_s2"][0])
-        frequency = float(partial["frequencies_hz"][0])
-        if detail_callback is not None:
-            detail_callback(stage="MVI_HARMONIC_DONE", harmonic=n,
-                            frequency_hz=frequency, sweeps=partial["mvi_sweeps"][0])
-        family_summary.append({"n":n,"axial_mode_index":1,
-                               "frequency_hz":frequency,
-                               "degeneracy":1 if n==0 else 2})
-        candidates.append((lam, n, q, p, partial["mvi_sweeps"][0], "MVI_YX"))
-        if n:
-            partner_q = _phase_quadrature_partner(q.reshape(operator.shape), n).ravel()
-            mass = operator.mass(partner_q)
-            partner_norm = float(np.sqrt(partner_q @ mass))
-            if not np.isfinite(partner_norm) or partner_norm <= 0.:
-                raise ValueError("MODAL_MVI_ROTATED_PARTNER_NONPOSITIVE_MASS")
-            partner_q /= partner_norm
-            overlap = abs(float(q @ operator.mass(partner_q)))
-            if overlap > 1.e-6:
-                raise ValueError(f"MODAL_MVI_ROTATED_PARTNER_NOT_ORTHOGONAL: n={n}")
-            partner_p = None if p is None else _phase_quadrature_partner(
-                p.reshape(operator.p0.shape), n).ravel() / partner_norm
-            lam_partner = operator.eigenvalue(partner_q, partner_p)
-            if abs(lam_partner-lam) > 1.e-7 * max(1., abs(lam)):
-                raise ValueError(f"MODAL_MVI_ROTATED_PARTNER_FREQUENCY_MISMATCH: n={n}")
-            candidates.append((lam_partner, n, partner_q, partner_p,
-                               partial["mvi_sweeps"][0], "ROTATIONAL_PARTNER"))
+        if axial_modes_per_harmonic == 1:
+            # Retain the verified fundamental path and exact rotational partner.
+            partial = solve_modal_mvi(
+                prepared, density, 1, detail_callback=None,
+                eigen_tolerance=eigen_tolerance, mode_tolerance=mode_tolerance,
+                _cached_operator=operator)
+            q = partial["mechanical_modes"][0].ravel()
+            p = (None if partial["electrical_modes"] is None else
+                 partial["electrical_modes"][0].ravel())
+            lam = float(partial["omega_squared_rad2_s2"][0])
+            sweep = partial["mvi_sweeps"][0]
+            members = [(lam, q, p, sweep, "MVI_YX")]
+            if n:
+                rotated = _phase_quadrature_partner(q.reshape(operator.shape), n).ravel()
+                norm = np.sqrt(float(rotated @ operator.mass(rotated)))
+                if not np.isfinite(norm) or norm <= 0.:
+                    raise ValueError("MODAL_MVI_ROTATED_PARTNER_NONPOSITIVE_MASS")
+                rotated /= norm
+                if abs(float(q @ operator.mass(rotated))) > 1.e-6:
+                    raise ValueError("MODAL_MVI_ROTATED_PARTNER_NOT_ORTHOGONAL")
+                rp = (None if p is None else _phase_quadrature_partner(
+                    p.reshape(operator.p0.shape), n).ravel() / norm)
+                lp = operator.eigenvalue(rotated, rp)
+                if abs(lp-lam) > 1.e-7*max(1., abs(lam)):
+                    raise ValueError("MODAL_MVI_ROTATED_PARTNER_FREQUENCY_MISMATCH")
+                members.append((lp, rotated, rp, sweep, "ROTATIONAL_PARTNER"))
+            groups = [members]
+        else:
+            # The core MVI independently enforces mass orthogonality for
+            # successive modes; request both phases for every axial family.
+            count = axial_modes_per_harmonic * (2 if n else 1)
+            partial = solve_modal_mvi(
+                prepared, density, count, detail_callback=None,
+                eigen_tolerance=eigen_tolerance, mode_tolerance=mode_tolerance,
+                _cached_operator=operator)
+            groups = []
+            for m in range(axial_modes_per_harmonic):
+                members = []
+                for j in range(m * (2 if n else 1),
+                               (m + 1) * (2 if n else 1)):
+                    q = partial["mechanical_modes"][j].ravel()
+                    p = (None if partial["electrical_modes"] is None else
+                         partial["electrical_modes"][j].ravel())
+                    members.append((float(partial["omega_squared_rad2_s2"][j]),
+                                    q, p, partial["mvi_sweeps"][j], "MVI_YX"))
+                if n:
+                    a, b = members
+                    if abs(a[0]-b[0]) > 1.e-6*max(1.,abs(a[0]),abs(b[0])):
+                        raise ValueError(
+                            f"MODAL_MVI_INCOMPLETE_ROTATIONAL_PAIR: n={n}, axial={m+1}")
+                    rotated = _phase_quadrature_partner(
+                        a[1].reshape(operator.shape), n).ravel()
+                    ma = np.sqrt(float(rotated @ operator.mass(rotated)))
+                    mb = np.sqrt(float(b[1] @ operator.mass(b[1])))
+                    if ma <= 0. or mb <= 0. or not np.isfinite(ma*mb):
+                        raise ValueError("MODAL_MVI_INVALID_PAIR_MASS")
+                    match = abs(float(rotated @ operator.mass(b[1]))) / (ma*mb)
+                    if match < 1. - 1.e-5:
+                        raise ValueError(
+                            f"MODAL_MVI_ROTATIONAL_PAIR_SHAPE_MISMATCH: n={n}, axial={m+1}")
+                groups.append(members)
+        for m, members in enumerate(groups, start=1):
+            for lam, q, p, sweep, source in members:
+                fraction = _pure_harmonic_fraction(q.reshape(operator.shape), n)
+                if fraction < 1. - 1.e-9:
+                    raise ValueError(
+                        f"MODAL_MVI_HARMONIC_PURITY_LOST: n={n}, fraction={fraction}")
+                candidates.append((lam, n, m, q, p, sweep, source))
+            frequency = float(np.sqrt(max(0., members[0][0]))/(2*np.pi))
+            family_summary.append({"n":n,"axial_mode_index":m,
+                                   "frequency_hz":frequency,
+                                   "degeneracy":len(members)})
+            if detail_callback is not None:
+                detail_callback(stage="MVI_HARMONIC_DONE", harmonic=n,
+                                axial_mode_index=m, frequency_hz=frequency,
+                                sweeps=members[0][3])
     candidates.sort(key=lambda c:c[0])
-    if len(candidates)<requested:
+    if len(candidates) < requested:
         raise ValueError("MODAL_MVI_INSUFFICIENT_HARMONIC_FAMILIES")
     best = candidates[:requested]
-    for i,mode in enumerate(best):
-        qi = mode[2]
-        for previous in best[:i]:
-            if abs(float(qi @ operator.mass(previous[2]))) > 1.e-6:
+    for i, mode in enumerate(best):
+        for prev in best[:i]:
+            if abs(float(mode[3] @ operator.mass(prev[3]))) > 1.e-6:
                 raise ValueError("MODAL_MVI_HARMONIC_MODES_NOT_ORTHOGONAL")
-    eigs=np.asarray([m[0] for m in best])
-    qout=np.stack([m[2].reshape(operator.shape) for m in best])
-    pout=(None if not operator.ne else np.stack([
-        m[3].reshape(operator.p0.shape) for m in best]))
+    eigs = np.asarray([m[0] for m in best])
+    qout = np.stack([m[3].reshape(operator.shape) for m in best])
+    pout = (None if not operator.ne else np.stack([
+        m[4].reshape(operator.p0.shape) for m in best]))
     if progress_callback is not None:
         for i in range(requested):
             progress_callback(i+1, requested)
     if detail_callback is not None:
-        for i,m in enumerate(best):
+        for i, m in enumerate(best):
             detail_callback(stage="MVI_MODE_DONE", mode=i+1, n_modes=requested,
-                            rank=operator.rank, sweep=m[4],
-                            circumferential_wavenumber=m[1], source=m[5],
+                            rank=operator.rank, sweep=m[5],
+                            circumferential_wavenumber=m[1],
+                            axial_mode_index=m[2], source=m[6],
                             frequency_hz=float(np.sqrt(eigs[i])/(2*np.pi)),
-                            modal_amplitude_max=float(np.max(abs(m[2]))))
+                            modal_amplitude_max=float(np.max(abs(m[3]))))
     return {
         "theory":operator.f.theory, "method":"MVI", "rank":operator.rank,
         "density_kg_m3":density,
@@ -195,15 +240,14 @@ def _solve_modal_mvi_harmonic_spectrum(prepared, density, requested, *,
         "mechanical_modes":qout,"electrical_modes":pout,
         "n_mechanical_free_dofs":operator.n_mechanical_free_dofs,
         "n_electric_free_dofs":operator.n_electric_free_dofs,
-        "mvi_sweeps":[m[4] for m in best],
+        "mvi_sweeps":[m[5] for m in best],
         "circumferential_wavenumbers":[m[1] for m in best],
-        "axial_mode_indices":[1 for _ in best],
+        "axial_mode_indices":[m[2] for m in best],
         "harmonic_family_scan":family_summary,
-        "mode_generation":[m[5] for m in best],
+        "mode_generation":[m[6] for m in best],
         "mvi_modal_algorithm":"fixed_rank_constrained_variational_YX_stationarity",
-        "modal_spectrum_selection":"circumferential_harmonic_fundamentals_rotational_pairs",
-        # This scan finds one axial fundamental per Fourier sector; it does
-        # not enumerate higher axial overtones or certify the global spectrum.
+        "modal_spectrum_selection":"circumferential_harmonic_axial_families",
+        "axial_modes_per_harmonic":axial_modes_per_harmonic,
         "axial_overtone_search_complete":False,
         "global_spectrum_completeness_verified":False,
     }
