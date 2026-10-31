@@ -54,6 +54,6 @@ def test_rank1_rejects_field_requiring_two_spatial_factors():
 
 def test_halfstep_does_not_append_unconstrained_nodal_column():
     source=inspect.getsource(_SeparatedModalProblem.halfstep)
-    assert 'if getattr(self, "circumferential_harmonic", None) is None:' in source
-    assert 'np.column_stack((bm, missing))' in source
+    assert 'MODAL_MVI_FROZEN_PARTNER_BASIS_LOST_CURRENT_FIELD' in source
+    assert 'np.column_stack((bm, missing))' not in source
     assert 'previous field not in frozen-partner span' in source
