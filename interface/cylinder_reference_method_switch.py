@@ -76,6 +76,13 @@ def selected_case(original, method, rank=None):
     result.pop("grid", None)
     result[new_key] = translated_grid
     result["method"] = method
+    if kind == "MODAL" and method == "FDM" and isinstance(result.get("modal"), dict):
+        # These options apply only to the fixed-rank MVI spectral search.
+        # Leaving them on a converted FDM case causes modal preflight to
+        # reject an otherwise valid MKR/FDM selection before launching.
+        for field in ("mvi_spectrum_method", "mode_tolerance",
+                      "axial_modes_per_harmonic"):
+            result["modal"].pop(field, None)
     if upgrade_fdm:
         translated_grid["operator_scheme"] = "SBP42_FOURIER_ODD_CSR"
         result["fdm_backend"] = "MATRIX_FREE_GMRES"
