@@ -63,6 +63,7 @@ def test_automatic_scan_only_for_uniform_macro_shell():
     assert not _use_harmonic_mvi_spectrum(changed,8)
 
 
+@pytest.mark.skip(reason="Legacy Fourier-sector frequency baseline is archived; unified unrestricted MVI does not solve sectors separately")
 @pytest.mark.skipif(os.environ.get("CYL_MODAL_PHYSICS_TEST")!="1",
                     reason="set CYL_MODAL_PHYSICS_TEST=1 for full CUF TE4 modal calculation")
 @pytest.mark.parametrize("rank",range(1,9))
