@@ -75,3 +75,18 @@ def test_harmonic_x_variations_keep_only_actual_angular_partner_span(rank):
     assert directions.shape==(nc*nx*ns,expected)
     for col in directions.T.reshape(-1,nc,nx,ns):
         assert np.allclose(col,(col@phase.T)@phase,atol=1e-13)
+
+
+@pytest.mark.parametrize('rank,expected_phases', [(1,1),(2,2),(4,2),(8,2)])
+def test_x_halfstep_reaches_full_axial_sector_when_angular_partners_span(rank,expected_phases):
+    nc,nx,ns=2,21,63
+    phase=_harmonic_phase_basis(ns,4)
+    x=np.ones((nc,rank,nx))
+    y=np.zeros((nc,rank,ns))
+    for c in range(nc):
+        for r in range(rank):
+            y[c,r]=phase[r%2]
+    directions=_harmonic_variation_directions(x,y,"X",4)
+    assert directions.shape[1]==nc*nx*expected_phases
+    # Each axial/component site has its own independent phase coordinates.
+    assert np.linalg.matrix_rank(directions)==nc*nx*expected_phases
