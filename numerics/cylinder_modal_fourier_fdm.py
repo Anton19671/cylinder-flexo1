@@ -7,7 +7,7 @@ For odd periodic grids, n>0 sectors have a real sine/cosine doublet.
 """
 from __future__ import annotations
 import numpy as np
-from scipy.linalg import eigh, solve
+from scipy.linalg import eigh, solve, qr
 
 
 def _axial_constraint_basis(prepared, projector):
@@ -58,11 +58,14 @@ def _axial_constraint_basis(prepared, projector):
         if len(fixed) != len(reference):
             return None
         return np.eye(n_axial)[:, np.setdiff1d(np.arange(n_axial), fixed)]
-    _, singular, vt = np.linalg.svd(traces, full_matrices=True)
-    rank = int(np.count_nonzero(singular > 1.e-11 * singular[0]))
+    orth, triangular, _ = qr(traces.T, mode="full",
+                             pivoting=True, check_finite=False)
+    diagonal = np.abs(np.diag(triangular))
+    rank = int(np.count_nonzero(
+        diagonal > 1.e-11 * np.max(diagonal, initial=0.)))
     if rank != len(reference):
         return None
-    return vt[rank:].T.copy()
+    return orth[:, rank:].copy()
 
 
 def can_use_fourier_modal_fdm(prepared, projector):
