@@ -253,9 +253,9 @@ def _solve_modal_mvi_harmonic_spectrum(prepared, density, requested, *,
     return {
         "theory":operator.f.theory, "method":"MVI", "rank":operator.rank,
         "rank_scope":"per_component", "global_mode_ranks":global_mode_ranks,
-        "angular_sector_dimension":2 if any(m[1] != 0 for m in best) else 1,
+        "max_angular_sector_dimension_in_selected_modes":2 if any(m[1] != 0 for m in best) else 1,
         "angular_sector_dimension_by_mode":[2 if m[1] else 1 for m in best],
-        "angular_rank_saturated_by_mode":[operator.rank >= (2 if m[1] else 1) for m in best],
+        "angular_rank_capacity_saturated_by_mode":[operator.rank >= (2 if m[1] else 1) for m in best],
         "x_halfstep_can_span_full_fourier_sector_by_mode":[
             bool(m[1] == 0 or operator.rank >= 2) for m in best],
         "full_fourier_sector_note":(
