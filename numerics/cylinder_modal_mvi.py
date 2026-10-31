@@ -280,10 +280,9 @@ class _SeparatedModalProblem:
         self.rank = rank
         if not 1 <= rank <= 8 or rank > min(self.nx, self.ns):
             raise ValueError("MODAL MVI rank must be 1..8 and <= min(nx, ns)")
-        self.large_harmonic=bool(harmonic_scan and self.nx*self.ns>256
-                                 and not self.ne and self.nx<=21 and self.ns<=63)
-        count=(self.n_components*2*max(self.nx,rank) if self.large_harmonic
-               else self.n_components*rank*max(self.nx,self.ns))
+        self.large_harmonic=bool(self.nx*self.ns>256 and not self.ne
+                                 and self.nx<=21 and self.ns<=63)
+        count=self.n_components*rank*max(self.nx,self.ns)
         if count > MAX_PROJECTED_DIRECTIONS:
             raise ValueError("MODAL MVI small-grid limit: projected X/Y family has "
                              f"{count} directions, maximum {MAX_PROJECTED_DIRECTIONS}")
@@ -385,6 +384,14 @@ class _SeparatedModalProblem:
                 raise ValueError("MODAL MVI: inadmissible frozen-partner basis")
             return scales[:, None] * space.basis
 
+        if self.large_harmonic:
+            from cylinder_modal_separated_space import fixed_trace_xy_basis
+            bm = fixed_trace_xy_basis(
+                x[:ncm], y[:ncm], axis, self.fixed_mask,
+                self.scales[:self.nm], max_directions=MAX_PROJECTED_DIRECTIONS)
+            if not bm.shape[1]:
+                raise ValueError("MODAL MVI: no admissible mechanical directions in " + axis)
+            return bm, np.empty((0, 0))
         harmonic = getattr(self, "circumferential_harmonic", None)
         dm = (separated_profile_directions(x[:ncm], y[:ncm], axis)
               if harmonic is None else _harmonic_variation_directions(
