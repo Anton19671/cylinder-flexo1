@@ -84,6 +84,43 @@ def _significant_modal_constraints(constraints, mass_factor):
     return constraints[max_overlaps > 2.e-7]
 
 
+def _modal_variational_step_precision(old_projected, new_projected,
+                                      old_physical, new_physical):
+    """Check thin-shell stationarity against independent physical field energy.
+
+    Projected stiffness entries and independently evaluated field energy can
+    differ slightly for a very thin CUF shell. A small apparent increase in
+    the projected Rayleigh quotient is numerical only when the physical
+    quotient does not increase and the increase is bounded by the observed
+    matrix-versus-field disagreement. Reject any gross disagreement.
+    This check never modifies eigenvalues, eigenvectors, K, M or MVI rank.
+    """
+    values = np.asarray((old_projected, new_projected,
+                         old_physical, new_physical), dtype=float)
+    if not np.isfinite(values).all():
+        raise ValueError("MODAL_MVI_NONFINITE_VARIATIONAL_ENERGY")
+    tolerance = 1.e-10 * max(1., abs(old_projected), abs(new_projected))
+    physical_tolerance = 1.e-10 * max(1., abs(old_physical), abs(new_physical))
+    observed_mismatch = (abs(old_physical-old_projected) +
+                         abs(new_physical-new_projected))
+    increased = new_projected-old_projected
+    if increased > tolerance:
+        scale = max(1., *(abs(float(v)) for v in values))
+        # A large discrepancy cannot be classified as roundoff even if
+        # two independently measured physical values happen to match.
+        if (observed_mismatch > 1.e-6 * scale or
+                increased > observed_mismatch + tolerance or
+                new_physical > old_physical + physical_tolerance):
+            raise ValueError(
+                "MODAL_MVI_PROJECTED_VARIATIONAL_INCREASE: "
+                f"lambda_old={old_projected:.12g}, "
+                f"lambda_new={new_projected:.12g}, "
+                f"physical_old={old_physical:.12g}, "
+                f"physical_new={new_physical:.12g}")
+        return True, observed_mismatch
+    return False, observed_mismatch
+
+
 def _mass_project_previous_mode(bm, z, mz, previous_field, mass_action):
     """Mass-orthogonal old trial state in the CURRENT admissible Y/X space.
 
@@ -580,14 +617,15 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
                 # full-field evaluations of the nonlinear shell residual.
                 if old_projected is None:
                     raise ValueError("MODAL MVI: missing projected old state")
-                tolerance = 1.e-10 * max(
-                    1., abs(old_projected), abs(projected_value))
-                if projected_value > old_projected + tolerance:
-                    raise ValueError(
-                        f"MODAL_MVI_PROJECTED_VARIATIONAL_INCREASE: "
-                        f"mode={mode+1}, sweep={sweep}, axis={axis}; "
-                        f"lambda_old={old_projected:.12g}, "
-                        f"lambda_new={projected_value:.12g}.")
+                numerical_stationarity, observed_mismatch = (
+                    _modal_variational_step_precision(
+                        old_projected, projected_value, old_value, value_half))
+                if numerical_stationarity and detail_callback is not None:
+                    detail_callback(stage="MVI_NUMERICAL_STATIONARITY",
+                        mode=mode+1,sweep=sweep,axis=axis,
+                        projected_increase=float(projected_value-old_projected),
+                        energy_disagreement=float(observed_mismatch),
+                        physical_change=float(value_half-old_value))
                 # Separate linearization reproducibility from actual failure
                 # of the frozen-partner variational update. This diagnostic
                 # makes any mismatch visible; it does not fabricate a mode.

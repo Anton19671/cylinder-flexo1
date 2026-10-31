@@ -96,7 +96,7 @@ def test_variational_check_uses_one_projected_form():
     source = (Path(__file__).resolve().parents[1] / "numerics" /
               "cylinder_modal_mvi.py").read_text(encoding="utf-8")
     assert "old_projected_value = float(reduced @ kz @ reduced / old_mass)" in source
-    assert "projected_value > old_projected + tolerance" in source
+    assert "_modal_variational_step_precision(" in source
     assert "MODAL_MVI_VARIATIONAL_INCREASE:" not in source
     assert 'stage="MVI_VARIATIONAL_CHECK"' in source
 
