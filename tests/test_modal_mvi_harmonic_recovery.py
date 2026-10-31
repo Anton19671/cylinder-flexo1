@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 from cylinder_modal_mvi import _SeparatedModalProblem, _harmonic_phase_basis
 from cylinder_modal_harmonic_spectrum import _harmonic_variation_directions
-from cylinder_variational_mvi import reconstruct_profiles
+from cylinder_variational_mvi import reconstruct_profiles, _normalize_partner
 
 
 def _mock_operator(rank, nx=13, ns=21):
@@ -103,3 +103,23 @@ def test_modal_variational_implementation_does_not_use_svd():
         source = inspect.getsource(module)
         assert "np.linalg.svd(" not in source
         assert "scipy.linalg.svd(" not in source
+
+
+@pytest.mark.parametrize("rank",range(1,9))
+@pytest.mark.parametrize("axis",["X","Y"])
+def test_partner_qr_preserves_exact_field_and_configured_rank_on_21x63(rank,axis):
+    rng=np.random.default_rng(20261031+rank)
+    x=rng.normal(size=(3,rank,21))
+    y=rng.normal(size=(3,rank,63))
+    # Include a rank-deficient component and an inactive component.
+    if rank>1:
+        x[0,1:]=x[0,:1]
+        y[0,1:]=y[0,:1]
+    x[2]=0.
+    before=reconstruct_profiles(x,y)
+    xx,yy=_normalize_partner(x,y,axis)
+    assert xx.shape==x.shape and yy.shape==y.shape
+    np.testing.assert_allclose(reconstruct_profiles(xx,yy),before,
+                               atol=1e-11,rtol=1e-11)
+    for component in reconstruct_profiles(xx,yy):
+        assert np.linalg.matrix_rank(component,tol=1e-9)<=rank
