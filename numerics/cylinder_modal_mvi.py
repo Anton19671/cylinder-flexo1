@@ -121,6 +121,24 @@ def _modal_variational_step_precision(old_projected, new_projected,
     return False, observed_mismatch
 
 
+def _modal_ritz_value(kz, mz, candidate):
+    """Evaluate a computed modal vector against the ORIGINAL projected K/M.
+
+    The low LAPACK eigenvalue of a very thin CUF shell can lose significant
+    absolute precision in a pencil with a huge spectral range. Its Rayleigh
+    quotient is a more faithful energy measure than the eigenvalue reported
+    by the generalized eigensolver. This evaluates rather than adjusts the
+    physical eigenvector, and it does not alter K, M or the MVI subspace.
+    """
+    candidate = np.asarray(candidate, dtype=float)
+    numerator = float(candidate @ kz @ candidate)
+    denominator = float(candidate @ mz @ candidate)
+    if (not np.isfinite(numerator) or not np.isfinite(denominator)
+            or denominator <= 0.):
+        raise ValueError("MODAL_MVI_INVALID_RITZ_QUOTIENT")
+    return numerator / denominator
+
+
 def _mass_project_previous_mode(bm, z, mz, previous_field, mass_action):
     """Mass-orthogonal old trial state in the CURRENT admissible Y/X space.
 
@@ -484,6 +502,12 @@ class _SeparatedModalProblem:
             magnitude = float(np.linalg.norm(weights))
             if np.isfinite(magnitude) and magnitude > 1.e-12:
                 selected = family @ (weights / magnitude)
+        # Use the candidate's actual projected Rayleigh quotient. For a
+        # thin CUF TE4 shell the LAPACK eigenvalue may differ from the
+        # quotient of its own eigenvector (small eigenvalues below a very
+        # large stiffness spectrum); only the quotient has the same
+        # variational meaning as old_projected_value.
+        value = _modal_ritz_value(kz, mz, selected)
         if (old_projected_value is not None and
                 value > old_projected_value and
                 value - old_projected_value <= 1.e-8 * max(
