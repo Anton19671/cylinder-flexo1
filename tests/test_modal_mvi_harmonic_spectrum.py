@@ -51,6 +51,8 @@ def test_automatic_scan_only_for_uniform_macro_shell():
           "boundary_conditions":{"variational":{"mechanical":{
               "left":{"support":"CLAMPED","higher":"NATURAL"},
               "right":{"support":"CLAMPED","higher":"NATURAL"}},"electrical":{}}}}
+    assert not _use_harmonic_mvi_spectrum(case,8)
+    case["modal"]={"mvi_spectrum_method":"FOURIER_FAMILIES"}
     assert _use_harmonic_mvi_spectrum(case,8)
     assert not _use_harmonic_mvi_spectrum(case,9)
     changed=json.loads(json.dumps(case))
