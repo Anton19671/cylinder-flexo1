@@ -35,6 +35,18 @@ def test_explicit_unrestricted_never_forces_fourier_modes():
     assert not _use_harmonic_mvi_spectrum(case, 8)
 
 
+def test_legacy_fourier_flag_is_not_a_second_solver():
+    # A saved old CASE can retain this flag, but the dispatcher does not
+    # call the Fourier-family solver on that basis.
+    from pathlib import Path
+    source=(Path(__file__).resolve().parents[1]/"numerics"/
+            "cylinder_modal_reference.py").read_text(encoding="utf-8")
+    routing=source.split("def solve_modal_case(",1)[1].split(
+        "def _component_separation_ranks(",1)[0]
+    assert "harmonic_scan=False" in routing
+    assert "harmonic_scan=_use_harmonic_mvi_spectrum" not in routing
+
+
 def test_fourier_family_selection_requires_physical_symmetry():
     case = _case()
     case["modal"]["mvi_spectrum_method"] = "FOURIER_FAMILIES"
@@ -68,7 +80,7 @@ def test_effective_rank_rejects_bad_shapes():
 
 @pytest.mark.parametrize("nx,ns,nc,rank,allowed",[
     (13,13,15,1,True), (13,13,15,8,True),
-    (17,17,15,1,False), (21,63,15,1,False),
+    (17,17,15,1,True), (21,63,15,1,True),
     (21,63,15,8,False),
 ])
 def test_unrestricted_mvi_grid_gate_before_dense_assembly(nx,ns,nc,rank,allowed):
@@ -76,7 +88,7 @@ def test_unrestricted_mvi_grid_gate_before_dense_assembly(nx,ns,nc,rank,allowed)
     if allowed:
         _check_unrestricted_modal_mvi_bounds(nx,ns,nc,rank)
     else:
-        with pytest.raises(ValueError,match="MODAL_MVI_UNRESTRICTED_GRID_LIMIT"):
+        with pytest.raises(ValueError,match="MODAL_MVI_UNRESTRICTED_DIRECTION_LIMIT"):
             _check_unrestricted_modal_mvi_bounds(nx,ns,nc,rank)
 
 
