@@ -67,6 +67,9 @@ def _harmonic_variation_directions(x, y, axis, wave_number):
         directions = np.column_stack(directions_list)
     else:
         raise ValueError("MVI half-step must be X or Y")
+    if ns > 21 and axis == "X":
+        # Independent Fourier phases on disjoint component/axial supports.
+        return directions
     if directions.shape[1]:
         _, r, piv = qr(directions, mode="economic", pivoting=True,
                        check_finite=False)
