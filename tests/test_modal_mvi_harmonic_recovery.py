@@ -103,6 +103,7 @@ def test_modal_variational_implementation_does_not_use_svd():
         source = inspect.getsource(module)
         assert "np.linalg.svd(" not in source
         assert "scipy.linalg.svd(" not in source
+        assert "np.linalg.lstsq(" not in source
 
 
 @pytest.mark.parametrize("rank",range(1,9))
