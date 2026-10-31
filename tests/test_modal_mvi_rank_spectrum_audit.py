@@ -63,3 +63,18 @@ def test_effective_rank_rejects_bad_shapes():
         _component_separation_ranks(np.zeros((2, 3, 4)))
     with pytest.raises(ValueError, match="MODAL_RANK_AUDIT_INVALID_FIELDS"):
         _component_separation_ranks(np.full((1, 1, 2, 3), np.nan))
+
+
+
+@pytest.mark.parametrize("nx,ns,nc,rank,allowed",[
+    (13,13,15,1,True), (13,13,15,8,True),
+    (17,17,15,1,False), (21,63,15,1,False),
+    (21,63,15,8,False),
+])
+def test_unrestricted_mvi_grid_gate_before_dense_assembly(nx,ns,nc,rank,allowed):
+    from cylinder_modal_reference import _check_unrestricted_modal_mvi_bounds
+    if allowed:
+        _check_unrestricted_modal_mvi_bounds(nx,ns,nc,rank)
+    else:
+        with pytest.raises(ValueError,match="MODAL_MVI_UNRESTRICTED_GRID_LIMIT"):
+            _check_unrestricted_modal_mvi_bounds(nx,ns,nc,rank)
