@@ -688,13 +688,9 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
     rank = prepared.mvi_settings.rank
     max_sweeps = prepared.mvi_settings.max_sweeps
     if harmonic_scan:
-        return _solve_modal_mvi_harmonic_spectrum(
-            prepared, density, requested,
-            progress_callback=progress_callback,
-            detail_callback=detail_callback,
-            eigen_tolerance=eigen_tolerance,
-            mode_tolerance=mode_tolerance,
-            axial_modes_per_harmonic=axial_modes_per_harmonic)
+        raise ValueError(
+            "MODAL_MVI_HARMONIC_SOLVER_RETIRED: use the unified unrestricted "
+            "fixed-rank Y/X modal solver; inspect harmonics after the solve")
     operator = (_cached_operator if _cached_operator is not None else
                 _SeparatedModalProblem(prepared, density, rank))
     qmodes, pmodes, eigs, cycles = [], [], [], []
