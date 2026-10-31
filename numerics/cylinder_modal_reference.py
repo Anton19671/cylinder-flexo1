@@ -444,7 +444,12 @@ def run_modal_case(case, case_path):
     original_case = case
     case = _effective_modal_case(case)
     if case != original_case:
-        print("MODAL GRID: SBP21_PERIODIC_ODD replaced by SBP42_FOURIER_ODD to prevent axial checkerboard modes", flush=True)
+        if case.get("method") != original_case.get("method"):
+            print("MODAL METHOD: legacy MKR uses full-space FDM variational branch", flush=True)
+        old_grid = original_case.get("mvi_grid" if original_case.get("method")=="MVI" else "fdm_grid") or {}
+        new_grid = case.get("mvi_grid" if case.get("method")=="MVI" else "fdm_grid") or {}
+        if new_grid.get("operator_scheme") != old_grid.get("operator_scheme"):
+            print("MODAL GRID: operator scheme normalized for modal stability", flush=True)
     path = Path(case_path).expanduser().resolve()
     started=time.monotonic()
     print('MODAL PREPARE: checking geometry and boundary conditions',flush=True)
@@ -495,7 +500,10 @@ def run_modal_case(case, case_path):
         "solver_backend": BACKEND, "calculation_kind": "MODAL",
         "requested_operator_scheme": (original_case.get("mvi_grid" if original_case.get("method") == "MVI" else "fdm_grid") or {}).get("operator_scheme"),
         "effective_operator_scheme": (case.get("mvi_grid" if case.get("method") == "MVI" else "fdm_grid") or {}).get("operator_scheme"),
-        "method": result.get("method", "FDM"), "mode": "LINEAR_ELASTIC", "theory": result["theory"],
+        "method": result.get("method", "FDM"),
+        "requested_method":str(original_case.get("method", "")).upper(),
+        "modal_eigensolver":result.get("modal_eigensolver", "VARIATIONAL_REFERENCE"),
+        "mode": "LINEAR_ELASTIC", "theory": result["theory"],
         **({"circumferential_wavenumbers":result["circumferential_wavenumbers"],
             "axial_mode_indices":result["axial_mode_indices"],
             "axial_modes_per_harmonic":result.get("axial_modes_per_harmonic",1),
@@ -503,7 +511,8 @@ def run_modal_case(case, case_path):
             "harmonic_family_scan":result["harmonic_family_scan"],
             "mode_generation":result["mode_generation"],
             "modal_spectrum_selection":result["modal_spectrum_selection"],
-            "global_spectrum_completeness_verified":False}
+            "global_spectrum_completeness_verified":bool(
+                result.get("global_spectrum_completeness_verified",False))}
            if "circumferential_wavenumbers" in result else {}),
         "fdm_backend": result.get("fdm_backend", "DENSE_REFERENCE"),
         **({"modal_spectrum_selection":"unrestricted_fixed_rank_sequential_local_stationary_modes",
