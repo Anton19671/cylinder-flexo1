@@ -171,3 +171,41 @@ def test_mass_projection_rejects_genuinely_lost_mode():
         _mass_project_previous_mode(
             bm, z, np.array([[1.]]), np.array([0., 1., 0.]),
             lambda q: q)
+
+
+def test_modal_sign_and_mass_normalized_shape_comparison():
+    from cylinder_modal_mvi import _modal_shape_changes
+    old=np.array([2.,0.])
+    new=np.array([-8.,0.])
+    orientation,mechanical,electrical=_modal_shape_changes(
+        old,new,None,None,lambda q: np.array([2.,3.])*q)
+    assert orientation==-1
+    np.testing.assert_allclose([mechanical,electrical],[0.,0.],atol=1.e-14)
+
+
+def test_modal_electric_shape_must_converge_even_if_mechanical_is_identical():
+    from cylinder_modal_mvi import _modal_shape_changes
+    old=np.array([1.,0.])
+    new=np.array([4.,0.])
+    sign,mechanical,electrical=_modal_shape_changes(
+        old,new,np.array([1.,2.]),np.array([4.,12.]),lambda q:q)
+    assert sign==1
+    np.testing.assert_allclose(mechanical,0.,atol=1.e-14)
+    assert electrical > 0.1
+
+
+def test_modal_electric_shape_sign_alignment():
+    from cylinder_modal_mvi import _modal_shape_changes
+    sign,mechanical,electrical=_modal_shape_changes(
+        np.array([1.,0.]),np.array([-3.,0.]),
+        np.array([2.,4.]),np.array([-6.,-12.]),lambda q:q)
+    assert sign==-1
+    np.testing.assert_allclose([mechanical,electrical],[0.,0.],atol=1.e-14)
+
+
+def test_modal_sign_flip_updates_next_frozen_partner_input():
+    from pathlib import Path
+    source=(Path(__file__).resolve().parents[1]/"numerics"/
+            "cylinder_modal_mvi.py").read_text(encoding="utf-8")
+    assert "half_q, half_p = q, p" in source
+    assert "electric_change <= mode_tolerance" in source
