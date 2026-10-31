@@ -542,10 +542,16 @@ class _SeparatedModalProblem:
             ynew = np.zeros_like(y)
             for c in range(self.n_components):
                 coefficients = scaled[c] @ phase.T
-                u, singular, vt = np.linalg.svd(coefficients, full_matrices=False)
-                for r in range(min(self.rank, len(singular))):
-                    xnew[c, r, :] = singular[r] * u[:, r]
-                    ynew[c, r, :] = vt[r] @ phase
+                # Pivoted QR of the at-most-two phase coordinates, not SVD.
+                frame, triangular, _ = qr(
+                    coefficients.T, mode="economic", pivoting=True,
+                    check_finite=False)
+                diagonal = np.abs(np.diag(triangular))
+                active = int(np.count_nonzero(
+                    diagonal > 1.e-12 * np.max(diagonal, initial=0.)))
+                for r in range(min(self.rank, active)):
+                    xnew[c, r, :] = coefficients @ frame[:, r]
+                    ynew[c, r, :] = frame[:, r] @ phase
             restored = reconstruct_profiles(xnew, ynew)
             if np.linalg.norm(restored-scaled) > 1.e-8 * max(
                     float(np.linalg.norm(scaled)), 1.e-30):
@@ -770,9 +776,11 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
     for field in q_out:
         assembled = field.reshape(field.shape[0] * field.shape[1],
                                   field.shape[2])
-        singular = np.linalg.svd(assembled, compute_uv=False)
-        cutoff = 1.e-10 * singular[0] if singular.size else 0.
-        global_mode_ranks.append(int(np.count_nonzero(singular > cutoff)))
+        _, triangular, _ = qr(assembled.T, mode="economic",
+                              pivoting=True, check_finite=False)
+        diagonal = np.abs(np.diag(triangular))
+        cutoff = 1.e-10 * np.max(diagonal, initial=0.)
+        global_mode_ranks.append(int(np.count_nonzero(diagonal > cutoff)))
     return {
         "theory": operator.f.theory,
         "method": "MVI", "rank": rank, "rank_scope": "per_component",
