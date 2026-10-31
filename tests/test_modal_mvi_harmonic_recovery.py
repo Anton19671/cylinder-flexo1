@@ -9,21 +9,22 @@ from cylinder_modal_mvi import _SeparatedModalProblem, _harmonic_phase_basis
 from cylinder_variational_mvi import reconstruct_profiles
 
 
-def _mock_operator(rank):
+def _mock_operator(rank, nx=13, ns=21):
     op=object.__new__(_SeparatedModalProblem)
-    op.n_components=15;op.nx=13;op.ns=21;op.rank=rank
-    op.shape=(15,13,21)
+    op.n_components=15;op.nx=nx;op.ns=ns;op.rank=rank
+    op.shape=(15,nx,ns)
     op.scales=np.ones(np.prod(op.shape))
     op.circumferential_harmonic=5
     return op
 
 
+@pytest.mark.parametrize('nx,ns', [(13,21),(21,63)])
 @pytest.mark.parametrize('rank', range(1,9))
 @pytest.mark.parametrize('axis', ['X','Y'])
-def test_exact_physical_sector_is_recovered_without_off_sector_qr_columns(rank,axis):
-    op=_mock_operator(rank)
-    phase=_harmonic_phase_basis(21,5)
-    xpos=np.linspace(-1,1,13)
+def test_exact_physical_sector_is_recovered_without_off_sector_qr_columns(rank,axis,nx,ns):
+    op=_mock_operator(rank,nx,ns)
+    phase=_harmonic_phase_basis(ns,5)
+    xpos=np.linspace(-1,1,nx)
     scaled=np.empty(op.shape)
     for c in range(op.n_components):
         a=(1+c/15)*np.sin(np.pi*(xpos+1)/2)
@@ -34,8 +35,8 @@ def test_exact_physical_sector_is_recovered_without_off_sector_qr_columns(rank,a
         scaled[c]=a[:,None]*phase[0]+b[:,None]*phase[1]
     field=scaled.ravel()
     rng=np.random.default_rng(113)
-    x=rng.normal(size=(15,rank,13))
-    y=rng.normal(size=(15,rank,21))
+    x=rng.normal(size=(15,rank,nx))
+    y=rng.normal(size=(15,rank,ns))
     xx,yy=op.fit(x,y,axis,field,None)
     np.testing.assert_allclose(reconstruct_profiles(xx,yy),scaled,atol=1e-13,rtol=1e-13)
     assert np.allclose(yy,(yy@phase.T)@phase,atol=2e-14)
