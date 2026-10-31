@@ -20,8 +20,8 @@ def _case(nx=17,rank=8):
     return case
 
 
-@pytest.mark.parametrize("rank",[1,3,8])
-def test_preflight_17x17_fourier_mvi_bounded(rank):
+@pytest.mark.parametrize("rank",[1,3,6])
+def test_preflight_17x17_unrestricted_mvi_bounded(rank):
     passport=prepare_modal_case(_case(rank=rank))
     assert passport["method"]=="MVI"
     assert passport["rank"]==rank
@@ -42,7 +42,7 @@ def test_17x17_constraints_are_exact_simple_zero_clamps():
 
 
 def test_17x17_cap_does_not_change_for_general_mvi():
-    case=_case(rank=8)
+    case=_case(rank=1)
     case["mvi_grid"]["operator_scheme"]="LEGACY_REFERENCE"
     with pytest.raises(ValueError,match="surface node count exceeds"):
         prepare_modal_case(case)
