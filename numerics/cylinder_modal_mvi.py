@@ -389,8 +389,15 @@ class _SeparatedModalProblem:
                 else _harmonic_variation_directions(
                     x[:self.shape[0]], y[:self.shape[0]], axis,
                     self.circumferential_harmonic))
-            raw_coeff = np.linalg.lstsq(raw, old_q, rcond=None)[0]
-            raw_error = float(np.linalg.norm(raw @ raw_coeff - old_q) / old_norm)
+            # QR projection checks membership without the SVD-based lstsq path.
+            raw_q, raw_r, _ = qr(raw, mode="economic", pivoting=True,
+                                  check_finite=False)
+            raw_diag = np.abs(np.diag(raw_r))
+            raw_rank = int(np.count_nonzero(
+                raw_diag > 1.e-12 * np.max(raw_diag, initial=0.)))
+            raw_error = float(np.linalg.norm(
+                old_q - raw_q[:, :raw_rank] @
+                (raw_q[:, :raw_rank].T @ old_q)) / old_norm)
             if not np.isfinite(raw_error) or raw_error > 1.e-9:
                 raise ValueError(
                     "MODAL MVI: previous field not in frozen-partner span "
@@ -399,8 +406,13 @@ class _SeparatedModalProblem:
             # frozen-partner variation space. Appending a missing nodal
             # vector changes the variational method into an enriched FDM
             # subspace, even if that vector satisfies essential traces.
-            projected = np.linalg.lstsq(bm, old_q, rcond=None)[0]
-            missing = old_q - bm @ projected
+            basis_q, basis_r, _ = qr(bm, mode="economic", pivoting=True,
+                                      check_finite=False)
+            basis_diag = np.abs(np.diag(basis_r))
+            basis_rank = int(np.count_nonzero(
+                basis_diag > 1.e-12 * np.max(basis_diag, initial=0.)))
+            missing = old_q - basis_q[:, :basis_rank] @ (
+                basis_q[:, :basis_rank].T @ old_q)
             missing_ratio = float(np.linalg.norm(missing) / old_norm)
             if not np.isfinite(missing_ratio) or missing_ratio > 1.e-9:
                 raise ValueError(
@@ -793,6 +805,8 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
         "n_electric_free_dofs": operator.n_electric_free_dofs,
         "mvi_sweeps": [cycles[i] for i in order],
         "mvi_modal_algorithm": "fixed_rank_constrained_variational_YX_stationarity",
+        "classical_unrestricted_mvi": True,
+        "harmonic_sector_restriction": False,
     }
 
 
