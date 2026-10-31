@@ -38,12 +38,12 @@ def _check_unrestricted_modal_mvi_bounds(nx, ns, n_components, rank):
     if any(type(value) is not int or value < 1
            for value in (nx, ns, n_components, rank)):
         raise ValueError("MODAL_MVI_INVALID_GRID_OR_RANK")
-    if nx * ns > 256 or n_components * nx * ns > 4096:
+    if nx * ns > 21 * 63 or n_components * nx * ns > 15 * 21 * 63:
         raise ValueError(
             "MODAL_MVI_UNRESTRICTED_GRID_LIMIT: "
             f"{nx}x{ns} with {n_components} components exceeds the "
-            "current dense unrestricted MVI limit (256 surface nodes, "
-            "4096 mechanical DOFs). No Fourier fallback.")
+            "current bounded unrestricted MVI limit (21x63 MACRO grid). "
+            "No Fourier fallback.")
     from cylinder_modal_mvi import MAX_PROJECTED_DIRECTIONS
     directions = n_components * rank * max(nx, ns)
     if directions > MAX_PROJECTED_DIRECTIONS:
@@ -130,10 +130,8 @@ def _modal_spec(case, *, base_dir=None):
     if method != "MVI" and ("mvi_spectrum_method" in raw or
                             "mode_tolerance" in raw):
         raise ValueError("MVI-specific modal options require method=MVI")
-    if selection == "FOURIER_FAMILIES" and not _use_harmonic_mvi_spectrum(
-            case, _integer(raw.get("n_modes"), "modal.n_modes", 1)):
-        raise ValueError("FOURIER_FAMILIES requires rotationally uniform "
-                         "MACRO MVI with SBP42_FOURIER_ODD and n_modes <= 8")
+    # Legacy spectrum-method flags are accepted for compatibility, but they
+    # must not select a different eigensolver or restrict the Y/X space.
     if "mode_tolerance" in raw:
         shape_tolerance = _real(raw["mode_tolerance"],
                                 "modal.mode_tolerance", True)
@@ -144,8 +142,8 @@ def _modal_spec(case, *, base_dir=None):
                                "modal.axial_modes_per_harmonic", 1)
         if axial_count > 8 or method != "MVI":
             raise ValueError("modal.axial_modes_per_harmonic requires MVI and value <= 8")
-        if axial_count > 1 and not _use_harmonic_mvi_spectrum(case, _integer(raw.get("n_modes"), "modal.n_modes", 1)):
-            raise ValueError("MODAL_MVI_AXIAL_OVERTONES_REQUIRE_FOURIER_HARMONIC_SCAN")
+        if axial_count > 1:
+            raise ValueError("MODAL_MVI_AXIAL_OVERTONES_NO_LONGER_SELECT_A_SECOND_SOLVER")
     density = _real(raw.get("density_kg_m3"), "modal.density_kg_m3", True)
     n_modes = _integer(raw.get("n_modes"), "modal.n_modes", 1)
     if n_modes > 32:
@@ -185,14 +183,16 @@ def _modal_spec(case, *, base_dir=None):
         "mechanical": [0.0] * n_mechanical, "load_factors": [0.0]}
     surrogate.pop("modal", None)
     grid = case.get("mvi_grid") or {}
-    big_scan = (method=="MVI" and int(grid.get("nx",0))*int(grid.get("ns",0))>256
-                and _use_harmonic_mvi_spectrum(case,n_modes))
-    if method == "MVI" and not _use_harmonic_mvi_spectrum(case, n_modes):
+    big_scan = (method=="MVI" and int(grid.get("nx",0))*int(grid.get("ns",0))>256)
+    if method == "MVI":
         # Do not first allocate an unsupported dense grid only to discover
         # that AUTO now correctly means unrestricted Y/X rather than Fourier.
         nx, ns = grid.get("nx"), grid.get("ns")
         if type(nx) is int and type(ns) is int and nx > 0 and ns > 0:
             _check_unrestricted_modal_mvi_bounds(nx, ns, n_mechanical, rank)
+    if big_scan and (scale != "MACRO" or
+                     str(grid.get("operator_scheme", "")).upper() != "SBP42_FOURIER_ODD"):
+        raise ValueError("MODAL_MVI_LARGE_GRID_REQUIRES_MACRO_SBP42_OPERATOR")
     prepared = prepare_reference_case(surrogate,base_dir=base_dir,
                                       modal_harmonic_large=big_scan)
     return prepared, density, n_modes
@@ -220,8 +220,7 @@ def prepare_modal_case(case, *, base_dir=None):
                 "n_modes": requested, "mechanical_free_dofs": available,
                 "electric_free_dofs": 0, "reference_only": True,
                 "fdm_backend": "MATRIX_FREE_GMRES"}
-    large_scan = (prepared.method=="MVI" and q.shape[1]*q.shape[2]>256
-                  and _use_harmonic_mvi_spectrum(case, requested))
+    large_scan = (prepared.method=="MVI" and q.shape[1]*q.shape[2]>256)
     if large_scan:
         from cylinder_modal_large_harmonic import mechanical_fixed_trace_mask
         fixed=mechanical_fixed_trace_mask(prepared.problem,q)
@@ -400,9 +399,7 @@ def solve_modal_case(case, *, base_dir=None, progress_callback=None, detail_call
                                detail_callback=detail_callback,
                                eigen_tolerance=float(modal_options.get("eigen_tolerance", 1.e-7)),
                                mode_tolerance=float(modal_options.get("mode_tolerance", 1.e-5)),
-                               harmonic_scan=_use_harmonic_mvi_spectrum(case, requested),
-                               axial_modes_per_harmonic=modal_options.get(
-                                   "axial_modes_per_harmonic", 1))
+                               harmonic_scan=False)
     if prepared.fdm_backend == "MATRIX_FREE_GMRES":
         from cylinder_modal_matrixfree import solve_modal_matrixfree
         return solve_modal_matrixfree(
@@ -596,8 +593,7 @@ def run_modal_case(case, case_path):
         **({"rank": result["rank"], "mvi_sweeps": result["mvi_sweeps"],
             "mode_discovery_indices": result.get("mode_discovery_indices"),
             "mvi_modal_algorithm": result["mvi_modal_algorithm"],
-            "mvi_spectrum_method": ("FOURIER_FAMILIES"
-                if "circumferential_wavenumbers" in result else "UNRESTRICTED"),
+            "mvi_spectrum_method": "UNRESTRICTED",
             "modal_component_separation_ranks": rank_audit["mechanical_ranks"],
             "modal_electric_component_separation_ranks": rank_audit["electrical_ranks"],
             "modal_max_component_separation_rank": rank_audit["mechanical_max"],
