@@ -25,7 +25,7 @@ def test_modal_fdm_matrixfree_uses_sparse_constraint_projector():
     assert 'prepared.fdm_backend == "MATRIX_FREE_GMRES"' in source
     assert "SparseTraceProjector.from_problem(" in source
     assert "solve_modal_matrixfree(" in source
-    assert 'grid.get("operator_scheme") != "SBP21_PERIODIC_ODD_CSR"' in source
+    assert 'grid.get("operator_scheme") not in ("SBP21_PERIODIC_ODD_CSR", "SBP42_FOURIER_ODD_CSR")' in source
 
 
 def test_modal_mvi_keeps_original_separated_branch():

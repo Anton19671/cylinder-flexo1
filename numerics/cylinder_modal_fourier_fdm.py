@@ -7,7 +7,7 @@ For odd periodic grids, n>0 sectors have a real sine/cosine doublet.
 """
 from __future__ import annotations
 import numpy as np
-from scipy.linalg import eigh
+from scipy.linalg import eigh, solve
 
 
 def _axial_constraint_basis(prepared, projector):
@@ -97,6 +97,59 @@ def can_use_fourier_modal_fdm(prepared, projector):
     return True
 
 
+def _quotient(km,mm,vector):
+    kv,mv=km@vector,mm@vector
+    denominator=float(np.vdot(vector,mv).real)
+    numerator=float(np.vdot(vector,kv).real)
+    if not np.isfinite([numerator,denominator]).all() or denominator<=0.:
+        raise ValueError('MODAL_FOURIER_INVALID_RAYLEIGH_QUOTIENT')
+    return numerator/denominator
+
+
+def _relative_eigen_quality(kv,mv,value):
+    return float(np.linalg.norm(kv-value*mv)/
+                 max(np.linalg.norm(kv)+abs(value)*np.linalg.norm(mv),1.e-30))
+
+
+def _refine_fourier_eigenpair(km,mm,value,vector,*,max_iterations=3):
+    """Recompute actual Ritz energy, then refine the original Fourier pencil."""
+    vector=np.asarray(vector,complex).copy()
+    lam=_quotient(km,mm,vector)
+    for iteration in range(max_iterations+1):
+        quality=_relative_eigen_quality(km@vector,mm@vector,lam)
+        if quality<=5.e-9: break
+        if iteration==max_iterations:
+            raise ValueError('MODAL_FOURIER_BLOCK_EIGENPAIR_NOT_VERIFIED')
+        shift=lam-1.e-3*max(abs(lam),1.e-3)
+        candidate=solve(km-shift*mm,mm@vector,assume_a='her',check_finite=False)
+        energy=float(np.vdot(candidate,mm@candidate).real)
+        if not np.isfinite(energy) or energy<=0.:
+            raise ValueError('MODAL_FOURIER_REFINEMENT_BAD_MASS')
+        vector=candidate/np.sqrt(energy)
+        lam=_quotient(km,mm,vector)
+    return lam,vector,quality
+
+
+def _certify_full_mode(k,m,vector,value,prediction_k,prediction_m,
+                       *,quality_limit=1.e-6):
+    """Verify physical actions and quantify numerical block-action disagreement."""
+    kv,mv=k@vector,m@vector
+    denominator=max(np.linalg.norm(kv)+abs(value)*np.linalg.norm(mv),1.e-30)
+    physical=float(np.linalg.norm(kv-value*mv)/denominator)
+    projected=float(np.linalg.norm(prediction_k-value*prediction_m)/denominator)
+    mismatch=float((np.linalg.norm(kv-prediction_k)+
+                    abs(value)*np.linalg.norm(mv-prediction_m))/denominator)
+    mass=float(vector@mv)
+    if not np.isfinite([physical,projected,mismatch,mass]).all() or mass<=0.:
+        raise ValueError('MODAL_FOURIER_NONFINITE_FULL_EIGENPAIR')
+    physical_quotient=float((vector@kv)/mass)
+    if (projected>5.e-9 or mismatch>quality_limit or
+            physical>projected+mismatch+2.e-8 or
+            abs(physical_quotient-value)>5.e-8*max(1.,abs(value))):
+        raise ValueError('MODAL_FOURIER_EIGENPAIR_VERIFICATION_FAILED')
+    return physical,projected,mismatch
+
+
 def solve_modal_fourier_fdm(prepared,density,requested,projector,
                             k,m,scales,conversion,mass_scale,*,
                             progress_callback=None,detail_callback=None):
@@ -155,19 +208,31 @@ def solve_modal_fourier_fdm(prepared,density,requested,projector,
         upto=min(requested,count)-1
         values,vectors=eigh(km,mm,subset_by_index=(0,upto),driver='gvx',
                             check_finite=True)
-        if not np.isfinite(values).all() or np.any(values < -1e-8*max(1.,np.max(np.abs(values)))):
+        if not np.isfinite(values).all() or np.any(
+                values < -1.e-8*max(1.,np.max(np.abs(values)))):
             raise ValueError('MODAL_FOURIER_INVALID_EIGENVALUE')
-        small=1.e-12*max(float(np.max(np.abs(values),initial=0.)),1.e-30)
-        values[np.abs(values)<=small]=0.
-        for index, lam in enumerate(values):
+        for index in range(len(values)):
+            lam,vec,quality=_refine_fourier_eigenpair(
+                km,mm,values[index],vectors[:,index])
+            if lam < -1.e-8*max(1.,float(np.max(np.abs(values)))):
+                raise ValueError('MODAL_FOURIER_INVALID_REFINED_EIGENVALUE')
             lam=max(float(lam),0.)
-            axial_shape=(axial_basis@vectors[:,index]).reshape(q0.shape[:2])
+            axial_shape=(axial_basis@vec).reshape(q0.shape[:2])
             shape=axial_shape[:,:,None]*phase[None,None,:]
             generation=('FOURIER_CONSTANT',) if n==0 else ('FOURIER_COS','FOURIER_SIN')
             candidates=(shape.real,) if n==0 else (
                 np.sqrt(2.)*shape.real,np.sqrt(2.)*shape.imag)
-            for origin,scaled_field in zip(generation,candidates):
-                entries.append((lam,n,index+1,origin,scaled_field.ravel().copy()))
+            kpred_ax=(axial_basis@(km@vec)).reshape(q0.shape[:2])
+            mpred_ax=(axial_basis@(mm@vec)).reshape(q0.shape[:2])
+            kpred=kpred_ax[:,:,None]*phase[None,None,:]
+            mpred=mpred_ax[:,:,None]*phase[None,None,:]
+            pk=(kpred.real,) if n==0 else (
+                np.sqrt(2.)*kpred.real,np.sqrt(2.)*kpred.imag)
+            pm=(mpred.real,) if n==0 else (
+                np.sqrt(2.)*mpred.real,np.sqrt(2.)*mpred.imag)
+            for origin,field,pred_k,pred_m in zip(generation,candidates,pk,pm):
+                entries.append((lam,n,index+1,origin,field.ravel().copy(),
+                                pred_k.ravel().copy(),pred_m.ravel().copy()))
             families.append({'n':n,'axial_mode_index':index+1,
                              'axial_mode_index_verified':False,
                              'frequency_hz':float(np.sqrt(lam*conversion)/(2*np.pi)),
@@ -175,29 +240,16 @@ def solve_modal_fourier_fdm(prepared,density,requested,projector,
         if detail_callback:
             detail_callback(stage='MATRIX_FREE_MODAL_FOURIER_SECTOR_DONE',
                             circumferential_n=n,
-                            first_frequency_hz=float(np.sqrt(max(values[0],0.)*conversion)/(2*np.pi)))
+                            first_frequency_hz=float(np.sqrt(max(_quotient(km,mm,vectors[:,0]),0.)*conversion)/(2*np.pi)))
     entries.sort(key=lambda row:(row[0],row[1],row[2],row[3]))
     chosen=entries[:requested]
     if len(chosen)<requested:
         raise ValueError('MODAL_FOURIER_NOT_ENOUGH_EIGENMODES')
     values=np.array([v[0] for v in chosen])
     vectors=np.column_stack([v[4] for v in chosen])
-    k_vectors=k@vectors
+    for j,row in enumerate(chosen):
+        _certify_full_mode(k,m,vectors[:,j],values[j],row[5],row[6])
     m_vectors=m@vectors
-    error=k_vectors-m_vectors*values[None,:]
-    relative=np.linalg.norm(error,axis=0)/np.maximum(
-        np.linalg.norm(k_vectors,axis=0)+np.abs(values)*np.linalg.norm(m_vectors,axis=0),1e-14)
-    # Rigid-body modes can have eigenvalues at roundoff while the
-    # nonzero spectrum is well separated. Verify such zero modes using
-    # the overall spectral scale; the ordinary relative check becomes
-    # meaningless when both stiffness action and eigenvalue vanish.
-    largest = max(float(np.max(np.abs(values),initial=0.)),1.e-30)
-    zero_mask = np.abs(values) <= 1.e-12 * largest
-    near_zero_ok = (np.linalg.norm(error,axis=0) <=
-                    2.e-10 * largest * np.linalg.norm(m_vectors,axis=0))
-    if np.any((relative > 2.e-7) & ~(zero_mask & near_zero_ok)):
-        raise ValueError('MODAL_FOURIER_EIGENPAIR_VERIFICATION_FAILED')
-    values[zero_mask & near_zero_ok] = 0.
     gram=vectors.T@m_vectors
     if np.max(np.abs(gram-np.eye(requested)))>1e-6:
         raise ValueError('MODAL_FOURIER_MODES_NOT_MASS_ORTHOGONAL')
