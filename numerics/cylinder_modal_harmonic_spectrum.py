@@ -236,9 +236,11 @@ def _solve_modal_mvi_harmonic_spectrum(prepared, density, requested, *,
     for field in qout:
         assembled = field.reshape(field.shape[0] * field.shape[1],
                                   field.shape[2])
-        singular = np.linalg.svd(assembled, compute_uv=False)
-        cutoff = 1.e-10 * singular[0] if singular.size else 0.
-        global_mode_ranks.append(int(np.count_nonzero(singular > cutoff)))
+        _, triangular, _ = qr(assembled.T, mode="economic",
+                              pivoting=True, check_finite=False)
+        diagonal = np.abs(np.diag(triangular))
+        cutoff = 1.e-10 * np.max(diagonal, initial=0.)
+        global_mode_ranks.append(int(np.count_nonzero(diagonal > cutoff)))
     if progress_callback is not None:
         for i in range(requested):
             progress_callback(i+1, requested)
