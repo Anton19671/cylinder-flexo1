@@ -19,7 +19,7 @@ import time
 from pathlib import Path
 
 import numpy as np
-from scipy.linalg import eigh, solve, cholesky
+from scipy.linalg import eigh, solve, cholesky, qr
 
 from cylinder_boundary_spatial import affine_trace_space
 from cylinder_variational_fdm import state_scales
@@ -190,7 +190,8 @@ def prepare_modal_case(case, *, base_dir=None):
                 "n_modes": requested, "mechanical_free_dofs": available,
                 "electric_free_dofs": 0, "reference_only": True,
                 "fdm_backend": "MATRIX_FREE_GMRES"}
-    large_scan = (prepared.method=="MVI" and q.shape[1]*q.shape[2]>256)
+    large_scan = (prepared.method=="MVI" and q.shape[1]*q.shape[2]>256
+                  and _use_harmonic_mvi_spectrum(case, requested))
     if large_scan:
         from cylinder_modal_large_harmonic import mechanical_fixed_trace_mask
         fixed=mechanical_fixed_trace_mask(prepared.problem,q)
@@ -330,10 +331,10 @@ def _use_harmonic_mvi_spectrum(case, requested):
         return False
     if str(case.get("method", "")).upper() != "MVI":
         return False
-    # AUTO retains the previous validated Fourier family search. The
-    # unrestricted choice leaves all circumferential sectors in the original
-    # fixed-rank Y/X variational problem; neither choice changes K or M.
-    if (case.get("modal") or {}).get("mvi_spectrum_method", "AUTO") == "UNRESTRICTED":
+    # The classical unrestricted Y/X method is the default. Fourier
+    # restriction is a distinct, opt-in trial space and must never be
+    # selected silently by AUTO, since it may coincide with full-sector FDM.
+    if (case.get("modal") or {}).get("mvi_spectrum_method", "AUTO") != "FOURIER_FAMILIES":
         return False
     if str(case.get("scale_model", "")).upper() != "MACRO":
         return False
@@ -432,9 +433,14 @@ def _component_separation_ranks(modes):
     for mode in fields:
         row = []
         for matrix in mode:
-            singular = np.linalg.svd(matrix, compute_uv=False)
-            row.append(int(np.count_nonzero(singular > 1.e-8 * singular[0]))
-                       if singular.size and singular[0] > 0. else 0)
+            # Rank is output metadata only; no SVD on the modal MVI path.
+            # Pivoted QR is sufficient for the numerical dimension audit.
+            _, triangular, _ = qr(matrix, mode="economic", pivoting=True,
+                                   check_finite=False)
+            diagonal = np.abs(np.diag(triangular))
+            largest = float(np.max(diagonal, initial=0.))
+            row.append(int(np.count_nonzero(diagonal > 1.e-8 * largest))
+                       if largest > 0. else 0)
         ranks.append(row)
     return ranks
 
