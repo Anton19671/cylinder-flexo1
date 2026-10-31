@@ -395,19 +395,17 @@ class _SeparatedModalProblem:
                 raise ValueError(
                     "MODAL MVI: previous field not in frozen-partner span "
                     f"axis={axis} difference={raw_error:.6g}")
-            # Only the unrestricted modal search may retain the historical
-            # nodal completion. A Fourier sector is strictly the span of
-            # one constant or two sine/cosine phases. Adding an arbitrary
-            # nodal direction would break fixed-rank factor recovery.
-            if getattr(self, "circumferential_harmonic", None) is None:
-                old_coeff = ((bm.T@old_q)/np.einsum('ij,ij->j',bm,bm)
-                             if self.large_harmonic and self.ns>21 else
-                             np.linalg.lstsq(bm, old_q, rcond=None)[0])
-                missing = old_q - bm @ old_coeff
-                missing_ratio = float(np.linalg.norm(missing) / old_norm)
-                if missing_ratio > 1.e-9:
-                    missing /= np.linalg.norm(missing)
-                    bm = np.column_stack((bm, missing))
+            # The admissible test basis must remain inside the current
+            # frozen-partner variation space. Appending a missing nodal
+            # vector changes the variational method into an enriched FDM
+            # subspace, even if that vector satisfies essential traces.
+            projected = np.linalg.lstsq(bm, old_q, rcond=None)[0]
+            missing = old_q - bm @ projected
+            missing_ratio = float(np.linalg.norm(missing) / old_norm)
+            if not np.isfinite(missing_ratio) or missing_ratio > 1.e-9:
+                raise ValueError(
+                    "MODAL_MVI_FROZEN_PARTNER_BASIS_LOST_CURRENT_FIELD: "
+                    f"axis={axis} difference={missing_ratio:.6g}")
         nm, ne = bm.shape[1], be.shape[1]
         b = np.zeros((self.nm + self.ne, nm + ne))
         b[:self.nm, :nm] = bm
