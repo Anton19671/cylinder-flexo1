@@ -73,6 +73,9 @@ def test_rawat_first_eight_modes(rank):
     case=json.loads(source.read_text(encoding="utf-8"))
     case["rank"]=rank
     case["modal"]["n_modes"]=8
+    # The Rawat frequency table is a Fourier-family benchmark, never an
+    # implicit selection of the unrestricted Y/X modal algorithm.
+    case["modal"]["mvi_spectrum_method"]="FOURIER_FAMILIES"
     result=solve_modal_case(case,base_dir=source.parent)
     np.testing.assert_allclose(result["frequencies_hz"],
         [271.09764224,271.09764224,278.28159831,278.28159831,
