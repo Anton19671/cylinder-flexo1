@@ -66,10 +66,9 @@ def selected_case(original, method, rank=None):
          (old_backend == "DENSE_REFERENCE" and nx * ns > 256)))
     downgrade_mvi = (method == "MVI" and old_method == "FDM" and
                      compatible_fourier and scheme == "SBP42_FOURIER_ODD_CSR")
-    if downgrade_mvi and (nx > 21 or ns > 21):
+    if downgrade_mvi and (nx > 21 or ns > 63 or ns % 2 != 1):
         raise ValueError(
-            "MODAL Fourier MVI currently supports nx, ns <= 21. "
-            "Choose a supported mesh in the CASE editor.")
+            "MODAL Fourier MVI requires nx <= 21 and odd ns <= 63.")
     translated_grid = copy.deepcopy(grid)
     result.pop("fdm_grid", None)
     result.pop("mvi_grid", None)
