@@ -5,8 +5,8 @@ Y/X variational halfsteps. This change does not alter its stiffness,
 mass, constraints, eigenvalue selection, initialization or stopping rules.
 
 For an MVI modal CASE, the optional `modal.mvi_spectrum_method` specifies:
-- `AUTO` (default): retain the existing Fourier harmonic-family scan
-  when the shell is rotationally uniform and eligible.
+- `AUTO` (default): use the unrestricted fixed-rank Y/X route; never
+  select Fourier families silently.
 - `FOURIER_FAMILIES`: explicitly require that Fourier family scan;
   refuse unsupported boundary, material or discretization settings.
 - `UNRESTRICTED`: solve the unseparated circumferential fixed-rank MVI
@@ -16,8 +16,8 @@ For an MVI modal CASE, the optional `modal.mvi_spectrum_method` specifies:
 `modal.eigen_tolerance` and `modal.mode_tolerance` are forwarded to
 the MVI eigenmode algorithm (rather than only validated).
 
-The output `FINAL_RUN_SUMMARY.json` now records the actual selected
-spectrum route and SVD-based effective separation rank of each
+The output `FINAL_RUN_SUMMARY.json` records the actual selected
+spectrum route and QR-estimated effective separation rank of each
 displacement component in each computed mode. A selected MVI rank of 8
 is *capacity*, not a requirement that all eight terms be nonzero. Pure
 Fourier harmonics of an axisymmetric shell can be exactly representable
@@ -38,3 +38,19 @@ circumferential (n) / axial (m) families with published tables, not
 the indices of an arbitrarily truncated doubled spectrum.
 
 No solver computations are run as part of this source-only change.
+
+## Confirmed source-level limitations (2026-10-31)
+
+- Unrestricted MVI uses the dense reference grid with a maximum of 256
+  surface nodes, 4096 mechanical DOFs, and 1600 nominal projected directions.
+  These limits are checked **before** allocating the prepared problem.
+- 21x63 is NOT currently supported by unrestricted modal MVI. The explicit
+  Fourier-family route may support that grid but is not an independent
+  unrestricted MVI benchmark against full-sector FDM.
+- The original `Anton19671/cylinder` internal MVI is a *static equilibrium*
+  reduced-direction correction algorithm. Its separate Y/X structure can
+  be inspected, but it is not itself a published or coded modal eigenvalue
+  algorithm; no complete equivalence to the modal generalized eigenproblem
+  is claimed without a corresponding variational derivation.
+- Neither this documentation nor source-only regression coverage certifies
+  numerical eigenfrequencies. No physical calculations were run here.
