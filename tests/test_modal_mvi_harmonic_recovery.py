@@ -89,4 +89,5 @@ def test_x_halfstep_reaches_full_axial_sector_when_angular_partners_span(rank,ex
     directions=_harmonic_variation_directions(x,y,"X",4)
     assert directions.shape[1]==nc*nx*expected_phases
     # Each axial/component site has its own independent phase coordinates.
-    assert np.linalg.matrix_rank(directions)==nc*nx*expected_phases
+    gram=directions.T@directions
+    np.testing.assert_allclose(gram,np.eye(nc*nx*expected_phases),atol=1e-12,rtol=1e-12)
