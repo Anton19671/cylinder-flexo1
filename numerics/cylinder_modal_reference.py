@@ -29,6 +29,30 @@ from cylinder_reference_case import BACKEND, prepare_reference_case, _integer, _
 THEORIES = ("KL", "FSDT", "REDDY", "CUF_TE1", "CUF_TE2", "CUF_TE3", "CUF_TE4")
 
 
+def _check_unrestricted_modal_mvi_bounds(nx, ns, n_mechanical, rank):
+    """Reject unsupported full Y/X grids before allocating reference fields.
+
+    These are the existing dense CASE and projected-basis limits; never
+    silently replace the classical unrestricted MVI by Fourier sectors.
+    """
+    if any(type(value) is not int or value < 1
+           for value in (nx, ns, n_mechanical, rank)):
+        raise ValueError("MODAL_MVI_INVALID_GRID_OR_RANK")
+    if nx * ns > 256 or n_mechanical * nx * ns > 4096:
+        raise ValueError(
+            "MODAL_MVI_UNRESTRICTED_GRID_LIMIT: "
+            f"{nx}x{ns} with {n_mechanical} components exceeds the "
+            "current dense unrestricted MVI limit (256 surface nodes, "
+            "4096 mechanical DOFs). No Fourier fallback.")
+    from cylinder_modal_mvi import MAX_PROJECTED_DIRECTIONS
+    directions = n_mechanical * rank * max(nx, ns)
+    if directions > MAX_PROJECTED_DIRECTIONS:
+        raise ValueError(
+            "MODAL_MVI_UNRESTRICTED_DIRECTION_LIMIT: "
+            f"at least {directions} directions exceed "
+            f"{MAX_PROJECTED_DIRECTIONS}. No Fourier fallback.")
+
+
 def _effective_modal_case(case):
     """Replace the checkerboard-prone SBP21 modal grid with SBP42/Fourier."""
     if not isinstance(case, dict):
@@ -163,6 +187,12 @@ def _modal_spec(case, *, base_dir=None):
     grid = case.get("mvi_grid") or {}
     big_scan = (method=="MVI" and int(grid.get("nx",0))*int(grid.get("ns",0))>256
                 and _use_harmonic_mvi_spectrum(case,n_modes))
+    if method == "MVI" and not _use_harmonic_mvi_spectrum(case, n_modes):
+        # Do not first allocate an unsupported dense grid only to discover
+        # that AUTO now correctly means unrestricted Y/X rather than Fourier.
+        nx, ns = grid.get("nx"), grid.get("ns")
+        if type(nx) is int and type(ns) is int and nx > 0 and ns > 0:
+            _check_unrestricted_modal_mvi_bounds(nx, ns, n_mechanical, rank)
     prepared = prepare_reference_case(surrogate,base_dir=base_dir,
                                       modal_harmonic_large=big_scan)
     return prepared, density, n_modes
@@ -204,15 +234,9 @@ def prepare_modal_case(case, *, base_dir=None):
                 "mechanical_free_dofs":available,"electric_free_dofs":0,
                 "reference_only":True,"operator_scheme":"SBP42_FOURIER_ODD"}
     if prepared.method == "MVI":
-        from cylinder_modal_mvi import MAX_PROJECTED_DIRECTIONS
-        components = q.shape[0] + (0 if p is None else p.shape[0])
-        projected_bound = components * prepared.mvi_settings.rank * max(q.shape[1:])
-        if projected_bound > MAX_PROJECTED_DIRECTIONS:
-            raise ValueError(
-                "MODAL_MVI_UNRESTRICTED_DIRECTION_LIMIT: "
-                f"{projected_bound} projected directions exceed "
-                f"{MAX_PROJECTED_DIRECTIONS}. Fourier-restricted MVI is "
-                "a distinct explicit method, not an automatic fallback.")
+        _check_unrestricted_modal_mvi_bounds(
+            q.shape[1], q.shape[2], q.shape[0],
+            prepared.mvi_settings.rank)
     first = prepared.problem.assemble(q, p)
     if np.max(np.abs(first.space.origin), initial=0.) > 1e-10:
         raise ValueError("MODAL supports only homogeneous essential BC")
