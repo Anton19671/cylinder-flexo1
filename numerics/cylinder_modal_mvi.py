@@ -843,6 +843,13 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
         "n_mechanical_free_dofs": operator.n_mechanical_free_dofs,
         "n_electric_free_dofs": operator.n_electric_free_dofs,
         "mvi_sweeps": [cycles[i] for i in order],
+        # Sequential deflation certifies neither globally lowest ordering
+        # nor completeness of the full discrete spectrum.
+        "global_spectrum_completeness_verified": False,
+        "modal_spectrum_selection": (
+            "fourier_restricted_sequential_stationary_candidates"
+            if getattr(operator, "circumferential_harmonic", None) is not None
+            else "unrestricted_fixed_rank_sequential_stationary_candidates"),
         "mvi_modal_algorithm": (
             "fixed_rank_fourier_restricted_variational_YX_stationarity"
             if getattr(operator, "circumferential_harmonic", None) is not None
