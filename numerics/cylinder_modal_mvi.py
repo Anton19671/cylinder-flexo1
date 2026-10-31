@@ -843,6 +843,7 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
         "n_mechanical_free_dofs": operator.n_mechanical_free_dofs,
         "n_electric_free_dofs": operator.n_electric_free_dofs,
         "mvi_sweeps": [cycles[i] for i in order],
+        "mode_discovery_indices": [int(i + 1) for i in order],
         # Sequential deflation certifies neither globally lowest ordering
         # nor completeness of the full discrete spectrum.
         "global_spectrum_completeness_verified": False,
