@@ -88,7 +88,11 @@ def test_modal_algorithm_does_not_change_static_solver_file():
     assert 'for axis in ("Y","X"):' in static
     modal = (Path(__file__).resolve().parents[1] / "numerics" /
              "cylinder_modal_mvi.py").read_text(encoding="utf-8")
-    assert '"mvi_modal_algorithm": "fixed_rank_constrained_variational_YX_stationarity"' in modal
+    # The algorithm label is conditional because a cached Fourier operator
+    # must not be misreported as the unrestricted Y/X method.
+    assert '"fixed_rank_constrained_variational_YX_stationarity"' in modal
+    assert '"fixed_rank_fourier_restricted_variational_YX_stationarity"' in modal
+    assert '"harmonic_sector_restriction"' in modal
     assert "ritz_relative=" not in modal
 
 
@@ -124,7 +128,11 @@ def test_modal_already_satisfied_trace_does_not_create_false_constraints():
     space = affine_trace_space(constraints, np.zeros(2), np.zeros(12),
                                directions=directions, constraint_rank_floor=1.e-12)
     field = reconstruct_profiles(x, y).ravel()
-    coords, *_ = np.linalg.lstsq(space.basis, field, rcond=None)
+    # The QR-constructed basis is orthonormal in this single-component
+    # test; its coefficients are its transpose action, without SVD/lstsq.
+    np.testing.assert_allclose(space.basis.T @ space.basis,
+                               np.eye(space.basis.shape[1]), atol=1.e-13)
+    coords = space.basis.T @ field
     np.testing.assert_allclose(space.basis @ coords, field, atol=1.e-13)
     assert space.basis.shape[1] == 3
 
@@ -209,3 +217,45 @@ def test_modal_sign_flip_updates_next_frozen_partner_input():
             "cylinder_modal_mvi.py").read_text(encoding="utf-8")
     assert "half_q, half_p = q, p" in source
     assert "electric_change <= mode_tolerance" in source
+
+
+def test_modal_deflation_selects_second_and_third_mass_orthogonal_modes():
+    """A repeated lowest eigenvalue must not erase its second physical mode.
+
+    This is a three-dimensional synthetic variational pencil embedded in
+    rank-one Y/X directions; no cylinder operator is assembled or solved.
+    """
+    from cylinder_modal_mvi import _SeparatedModalProblem
+
+    op=object.__new__(_SeparatedModalProblem)
+    op.nm,op.ne=6,0
+    op.nx,op.ns=3,2
+    op.n_components=1
+    op.shape=(1,3,2)
+    op.scales=np.ones(6)
+    op.cm=np.empty((0,6))
+    op.large_harmonic=False
+    op._previous_mass_cache={}
+    masses=np.array([4.,1.,9.,1.,16.,1.])
+    stiffness=masses*np.array([2.,100.,2.,100.,6.,100.])
+    op.mass=lambda direction: masses*np.asarray(direction)
+    op.stiffness=lambda direction: stiffness*np.asarray(direction)
+    basis=np.eye(6)[:,[0,2,4]]
+    op.projected_bases=lambda *_: (basis,np.empty((0,0)))
+    x=np.ones((1,1,3))
+    y=np.array([[[1.,0.]]])
+    first=np.eye(6)[0]/np.sqrt(masses[0])
+    second=np.eye(6)[2]/np.sqrt(masses[2])
+
+    q2,p2,lam2,_=op.halfstep(x,y,"X",[first])
+    assert p2 is None
+    np.testing.assert_allclose(lam2,2.,atol=1.e-12)
+    np.testing.assert_allclose(q2@op.mass(first),0.,atol=1.e-12)
+    np.testing.assert_allclose(q2@op.mass(q2),1.,atol=1.e-12)
+
+    q3,p3,lam3,_=op.halfstep(x,y,"X",[first,second])
+    assert p3 is None
+    np.testing.assert_allclose(lam3,6.,atol=1.e-12)
+    np.testing.assert_allclose(q3@op.mass(first),0.,atol=1.e-12)
+    np.testing.assert_allclose(q3@op.mass(second),0.,atol=1.e-12)
+    np.testing.assert_allclose(q3@op.mass(q3),1.,atol=1.e-12)
