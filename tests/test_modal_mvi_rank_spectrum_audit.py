@@ -24,8 +24,8 @@ def _case():
             "modal": {"n_modes": 8, "density_kg_m3": 7850.0}}
 
 
-def test_auto_preserves_fourier_family_behavior():
-    assert _use_harmonic_mvi_spectrum(_case(), 8)
+def test_auto_keeps_classical_unrestricted_mvi():
+    assert not _use_harmonic_mvi_spectrum(_case(), 8)
     assert not _use_harmonic_mvi_spectrum(_case(), 9)
 
 
