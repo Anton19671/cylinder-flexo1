@@ -52,12 +52,13 @@ def bounded_harmonic_modal_grid(nx, ns, n_components):
 
 
 def projected_harmonic_y_basis(x, fixed_mask, scales, wave_number):
-    """Exact constrained Y variation space from small axial QR blocks.
+    """Exact intersection of frozen-X Y variations and homogeneous traces.
 
-    The Y-frozen test functions are X[c,r,x] times a Fourier phase. For
-    homogeneous single-DOF end traces, only the axial X partner is masked.
-    Orthonormalizing each <=21 by <=8 axial block is algebraically the same
-    constrained subspace as QR of the full (components * nx * ns) matrix.
+    Y variations are sums of X[c,r,x] times Fourier phases, with X frozen.
+    If a frozen X factor violates an end trace, merely zeroing that factor
+    at the end would add directions outside the actual Y variation space.
+    Instead constrain its rank coefficients, F@a=0, on the fixed axial
+    nodes and orthonormalize only X.T@null(F). No nodal/FDM enrichment.
     """
     from scipy.linalg import qr
     from cylinder_modal_harmonic_spectrum import _harmonic_phase_basis
@@ -69,15 +70,37 @@ def projected_harmonic_y_basis(x, fixed_mask, scales, wave_number):
     phases = _harmonic_phase_basis(ns, wave_number)
     result = []
     for c in range(components):
-        axial = x[c].T.copy()
-        axial[fixed[c, :, 0], :] = 0.
-        q, r, _ = qr(axial, mode="economic", pivoting=True,
+        axial = x[c].T
+        fixed_axial = fixed[c, :, 0]
+        boundary = axial[fixed_axial, :].copy()
+        # Ignore only roundoff of the frozen factors at a homogeneous trace.
+        # Unit-norm QR partner completion can carry small nonzero entries.
+        floor = 1.e-13 * max(1., float(np.linalg.norm(axial)))
+        boundary[np.abs(boundary) <= floor] = 0.
+        if boundary.size:
+            q_constraints, r_constraints, _ = qr(
+                boundary.T, mode="full", pivoting=True, check_finite=False)
+            diag = np.abs(np.diag(r_constraints))
+            constrained = int(np.count_nonzero(
+                diag > 1.e-12 * np.max(diag, initial=0.)))
+            admissible_factors = q_constraints[:, constrained:]
+        else:
+            admissible_factors = np.eye(rank)
+        if not admissible_factors.shape[1]:
+            continue
+        allowed_axial = axial @ admissible_factors
+        q, r, _ = qr(allowed_axial, mode="economic", pivoting=True,
                      check_finite=False)
         diag = np.abs(np.diag(r))
         keep = int(np.count_nonzero(
             diag > 1.e-12 * np.max(diag, initial=0.)))
-        # The sparse Dirichlet conditions are exact zeros, not roundoff.
-        q[fixed[c, :, 0], :keep] = 0.
+        if not keep:
+            continue
+        # All output directions must remain in span(frozen X), and satisfy
+        # the trace. Only roundoff may be cleared on a fixed axial node.
+        if np.max(np.abs(q[fixed_axial, :keep]), initial=0.) > 1.e-10:
+            raise ValueError("MODAL_LARGE_HARMONIC_Y_TRACE_SUBSPACE_INCONSISTENT")
+        q[fixed_axial, :keep] = 0.
         for k in range(keep):
             for phase in phases:
                 column = np.zeros((components, nx, ns))
