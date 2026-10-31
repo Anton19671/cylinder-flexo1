@@ -45,7 +45,13 @@ def edit_reference_case(original, fields, boundary, load, newton, dynamics=None,
     if method not in ('MVI','FDM'):raise ValueError('Метод: MVI / FDM')
     old_method=str(original.get('method','')).upper()
     modal_switch=(str(fields.get('calculation_kind',case.get('calculation_kind',''))).upper()
-                  =='MODAL' and method!=old_method)
+                  =='MODAL' and (method!=old_method or
+                  (method=='FDM' and str(original.get('fdm_backend','DENSE_REFERENCE')).upper()
+                   =='DENSE_REFERENCE' and
+                   str((original.get('fdm_grid') or {}).get('operator_scheme','')).upper()
+                   =='SBP42_FOURIER_ODD' and
+                   int((original.get('fdm_grid') or {}).get('nx',0))*
+                   int((original.get('fdm_grid') or {}).get('ns',0))>256)))
     if modal_switch:
         # The editor and top-level selector must use the same lossless
         # conversion for MODAL Fourier dense/CSR operator storage.
