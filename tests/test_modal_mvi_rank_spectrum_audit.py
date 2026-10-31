@@ -78,3 +78,23 @@ def test_unrestricted_mvi_grid_gate_before_dense_assembly(nx,ns,nc,rank,allowed)
     else:
         with pytest.raises(ValueError,match="MODAL_MVI_UNRESTRICTED_GRID_LIMIT"):
             _check_unrestricted_modal_mvi_bounds(nx,ns,nc,rank)
+
+
+
+def test_rank_capacity_accounts_for_electric_modes():
+    from cylinder_modal_reference import _modal_rank_capacity_audit
+    axial=np.linspace(0.,1.,9)
+    circum=np.linspace(0.,2.*np.pi,13,endpoint=False)
+    mechanics=np.zeros((1,1,9,13))
+    mechanics[0,0]=np.outer(axial,np.cos(circum))
+    electric=np.zeros((1,1,9,13))
+    electric[0,0]=(np.outer(axial,np.cos(circum))+
+                   np.outer(axial**2,np.sin(circum)))
+    report=_modal_rank_capacity_audit(mechanics,electric,2)
+    assert report["mechanical_ranks"]==[[1]]
+    assert report["electrical_ranks"]==[[2]]
+    assert report["mechanical_max"]==[1]
+    assert report["all_fields_max"]==[2]
+    assert report["rank_capacity_unused"]==[False]
+    no_electric=_modal_rank_capacity_audit(mechanics,None,2)
+    assert no_electric["rank_capacity_unused"]==[True]
