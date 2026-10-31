@@ -203,6 +203,16 @@ def prepare_modal_case(case, *, base_dir=None):
                 "density_kg_m3":density,"n_modes":requested,
                 "mechanical_free_dofs":available,"electric_free_dofs":0,
                 "reference_only":True,"operator_scheme":"SBP42_FOURIER_ODD"}
+    if prepared.method == "MVI":
+        from cylinder_modal_mvi import MAX_PROJECTED_DIRECTIONS
+        components = q.shape[0] + (0 if p is None else p.shape[0])
+        projected_bound = components * prepared.mvi_settings.rank * max(q.shape[1:])
+        if projected_bound > MAX_PROJECTED_DIRECTIONS:
+            raise ValueError(
+                "MODAL_MVI_UNRESTRICTED_DIRECTION_LIMIT: "
+                f"{projected_bound} projected directions exceed "
+                f"{MAX_PROJECTED_DIRECTIONS}. Fourier-restricted MVI is "
+                "a distinct explicit method, not an automatic fallback.")
     first = prepared.problem.assemble(q, p)
     if np.max(np.abs(first.space.origin), initial=0.) > 1e-10:
         raise ValueError("MODAL supports only homogeneous essential BC")
