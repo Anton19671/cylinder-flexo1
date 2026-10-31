@@ -177,6 +177,45 @@ def _mass_project_previous_mode(bm, z, mz, previous_field, mass_action):
     return coords
 
 
+def _modal_shape_changes(previous_q, current_q, previous_p, current_p,
+                         mass_action):
+    """Mass-normalized mechanical and electric shape changes, sign aligned.
+
+    Only mechanical displacements carry physical inertia. Electrical factors
+    are quasi-static but must still stop changing before a coupled
+    eigenmode is accepted. This checks convergence; it does not change K/M.
+    """
+    old_q = np.asarray(previous_q, dtype=float).ravel()
+    new_q = np.asarray(current_q, dtype=float).ravel()
+    if old_q.shape != new_q.shape or not np.isfinite(old_q).all() or not np.isfinite(new_q).all():
+        raise ValueError("MODAL_MVI_INVALID_MODE_SHAPES")
+    old_mass = float(old_q @ mass_action(old_q))
+    new_mass = float(new_q @ mass_action(new_q))
+    if not (np.isfinite(old_mass) and np.isfinite(new_mass)
+            and old_mass > 0. and new_mass > 0.):
+        raise ValueError("MODAL MVI: invalid mass in shape comparison")
+    overlap = float(old_q @ mass_action(new_q))
+    if not np.isfinite(overlap):
+        raise ValueError("MODAL_MVI_INVALID_MODE_OVERLAP")
+    orientation = -1 if overlap < 0. else 1
+    cosine = np.clip(orientation * overlap / np.sqrt(old_mass * new_mass), 0., 1.)
+    mechanical_change = float(np.sqrt(max(0., 2. - 2. * cosine)))
+    if (previous_p is None) != (current_p is None):
+        raise ValueError("MODAL_MVI_ELECTRIC_SHAPE_MISSING")
+    electric_change = 0.
+    if current_p is not None:
+        old_p = np.asarray(previous_p, dtype=float).ravel()
+        new_p = np.asarray(current_p, dtype=float).ravel()
+        if (old_p.shape != new_p.shape or not np.isfinite(old_p).all()
+                or not np.isfinite(new_p).all()):
+            raise ValueError("MODAL_MVI_INVALID_ELECTRIC_SHAPES")
+        old_unit = old_p / np.sqrt(old_mass)
+        new_unit = orientation * new_p / np.sqrt(new_mass)
+        electric_change = float(np.linalg.norm(new_unit - old_unit) /
+            max(np.linalg.norm(new_unit), np.linalg.norm(old_unit), 1.e-30))
+    return orientation, mechanical_change, electric_change
+
+
 def _initial_factors(components, rank, nx, ns, mode):
     """Reproducible factors, not precomputed FDM mode shapes."""
     rng = np.random.default_rng(94031 + 101 * mode + 37 * rank)
@@ -655,6 +694,7 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
     for mode in range(requested):
         x, y, initial_q, initial_p = operator.admissible_start(mode, qmodes)
         last_q = initial_q.copy()
+        last_p = None if initial_p is None else initial_p.copy()
         last_lambda = operator.eigenvalue(initial_q, initial_p)
         half_q, half_p = initial_q, initial_p
         converged = False
@@ -715,23 +755,18 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
             value = operator.eigenvalue(q, p)
             if not np.isfinite(value) or value < 0.:
                 raise ValueError("MODAL MVI: invalid Rayleigh quotient")
-            relative, change = float("inf"), float("inf")
+            relative, change, electric_change = (
+                float("inf"), float("inf"), float("inf"))
             if last_q is not None:
-                old_mass = float(last_q @ operator.mass(last_q))
-                new_mass = float(q @ operator.mass(q))
-                if not (np.isfinite(old_mass) and np.isfinite(new_mass)
-                        and old_mass > 0. and new_mass > 0.):
-                    raise ValueError("MODAL MVI: invalid mass in shape comparison")
-                overlap = float(last_q @ operator.mass(q))
-                if overlap < 0.:
+                orientation, change, electric_change = _modal_shape_changes(
+                    last_q, q, last_p, p, operator.mass)
+                if orientation < 0:
                     q = -q
                     p = None if p is None else -p
                     x = -x
-                    overlap = -overlap
-                # Compare UNIT-MASS fields. The raw eigenvectors can have
-                # different norms in successive frozen-partner subspaces.
-                cosine = np.clip(overlap / np.sqrt(old_mass * new_mass), 0., 1.)
-                change = float(np.sqrt(max(0., 2. - 2. * cosine)))
+                    # The next Y halfstep must receive the SAME signed field
+                    # as represented by the updated separated profiles.
+                    half_q, half_p = q, p
                 relative = abs(value - last_lambda) / max(
                     1., abs(value), abs(last_lambda))
             if sweep_callback is not None:
@@ -743,11 +778,15 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
                     omega_rad_s=float(np.sqrt(value)),
                     modal_amplitude_max=float(np.max(abs(q),initial=0.)),
                     frequency_squared_change_relative=(None if last_lambda is None else relative),
-                    shape_change_relative=(None if last_q is None else float(change)))
-            if relative <= eigen_tolerance and change <= mode_tolerance:
+                    shape_change_relative=(None if last_q is None else float(change)),
+                    electric_shape_change_relative=(
+                        None if p is None else float(electric_change)))
+            if (relative <= eigen_tolerance and change <= mode_tolerance
+                    and electric_change <= mode_tolerance):
                 converged = True
                 break
             last_lambda, last_q = value, q.copy()
+            last_p = None if p is None else p.copy()
         if not converged:
             raise ValueError(
                 f"MODAL_MVI_MODE_NOT_CONVERGED: rank={rank}, mode={mode + 1}, "
