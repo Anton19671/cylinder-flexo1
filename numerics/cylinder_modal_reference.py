@@ -29,23 +29,23 @@ from cylinder_reference_case import BACKEND, prepare_reference_case, _integer, _
 THEORIES = ("KL", "FSDT", "REDDY", "CUF_TE1", "CUF_TE2", "CUF_TE3", "CUF_TE4")
 
 
-def _check_unrestricted_modal_mvi_bounds(nx, ns, n_mechanical, rank):
+def _check_unrestricted_modal_mvi_bounds(nx, ns, n_components, rank):
     """Reject unsupported full Y/X grids before allocating reference fields.
 
     These are the existing dense CASE and projected-basis limits; never
     silently replace the classical unrestricted MVI by Fourier sectors.
     """
     if any(type(value) is not int or value < 1
-           for value in (nx, ns, n_mechanical, rank)):
+           for value in (nx, ns, n_components, rank)):
         raise ValueError("MODAL_MVI_INVALID_GRID_OR_RANK")
-    if nx * ns > 256 or n_mechanical * nx * ns > 4096:
+    if nx * ns > 256 or n_components * nx * ns > 4096:
         raise ValueError(
             "MODAL_MVI_UNRESTRICTED_GRID_LIMIT: "
-            f"{nx}x{ns} with {n_mechanical} components exceeds the "
+            f"{nx}x{ns} with {n_components} components exceeds the "
             "current dense unrestricted MVI limit (256 surface nodes, "
             "4096 mechanical DOFs). No Fourier fallback.")
     from cylinder_modal_mvi import MAX_PROJECTED_DIRECTIONS
-    directions = n_mechanical * rank * max(nx, ns)
+    directions = n_components * rank * max(nx, ns)
     if directions > MAX_PROJECTED_DIRECTIONS:
         raise ValueError(
             "MODAL_MVI_UNRESTRICTED_DIRECTION_LIMIT: "
@@ -235,7 +235,8 @@ def prepare_modal_case(case, *, base_dir=None):
                 "reference_only":True,"operator_scheme":"SBP42_FOURIER_ODD"}
     if prepared.method == "MVI":
         _check_unrestricted_modal_mvi_bounds(
-            q.shape[1], q.shape[2], q.shape[0],
+            q.shape[1], q.shape[2],
+            q.shape[0] + (0 if p is None else p.shape[0]),
             prepared.mvi_settings.rank)
     first = prepared.problem.assemble(q, p)
     if np.max(np.abs(first.space.origin), initial=0.) > 1e-10:
@@ -479,6 +480,35 @@ def _component_separation_ranks(modes):
     return ranks
 
 
+def _modal_rank_capacity_audit(mechanical_modes, electrical_modes, rank):
+    """Check configured per-component rank across ALL coupled modal fields.
+
+    Electric potential has no inertia, but still uses rank-limited X/Y
+    factors. Ignoring electric components incorrectly labels rank capacity
+    as unused in flexoelectric modes.
+    """
+    mechanical = _component_separation_ranks(mechanical_modes)
+    electrical = (None if electrical_modes is None
+                  else _component_separation_ranks(electrical_modes))
+    if electrical is not None and len(electrical) != len(mechanical):
+        raise ValueError("MODAL_MVI_RANK_AUDIT_MODE_COUNT_MISMATCH")
+    mechanical_max = [max(row, default=0) for row in mechanical]
+    combined_max = [
+        max(mechanical_max[i],
+            0 if electrical is None else max(electrical[i], default=0))
+        for i in range(len(mechanical))
+    ]
+    if type(rank) is not int or rank < 1:
+        raise ValueError("MODAL_MVI_INVALID_CONFIGURED_RANK")
+    return {
+        "mechanical_ranks": mechanical,
+        "electrical_ranks": electrical,
+        "mechanical_max": mechanical_max,
+        "all_fields_max": combined_max,
+        "rank_capacity_unused": [maximum < rank for maximum in combined_max],
+    }
+
+
 def run_modal_case(case, case_path):
     """Write a standalone, reproducible MODAL output; never run transient dynamics."""
     original_case = case
@@ -537,10 +567,9 @@ def run_modal_case(case, case_path):
     with tmp.open("wb") as stream:
         np.savez_compressed(stream, **arrays)
     os.replace(tmp, out / "REFERENCE_MODAL_MODES.npz")
-    component_ranks = (_component_separation_ranks(result["mechanical_modes"])
-                       if result.get("method") == "MVI" else None)
-    max_component_ranks = ([max(row, default=0) for row in component_ranks]
-                           if component_ranks is not None else None)
+    rank_audit = (_modal_rank_capacity_audit(
+        result["mechanical_modes"], result["electrical_modes"], result["rank"])
+        if result.get("method") == "MVI" else None)
     summary = {
         "solver_backend": BACKEND, "calculation_kind": "MODAL",
         "requested_operator_scheme": (original_case.get("mvi_grid" if original_case.get("method") == "MVI" else "fdm_grid") or {}).get("operator_scheme"),
@@ -568,10 +597,11 @@ def run_modal_case(case, case_path):
             "mvi_modal_algorithm": result["mvi_modal_algorithm"],
             "mvi_spectrum_method": ("FOURIER_FAMILIES"
                 if "circumferential_wavenumbers" in result else "UNRESTRICTED"),
-            "modal_component_separation_ranks": component_ranks,
-            "modal_max_component_separation_rank": max_component_ranks,
-            "mvi_rank_capacity_unused": [
-                bool(effective < result["rank"]) for effective in max_component_ranks],
+            "modal_component_separation_ranks": rank_audit["mechanical_ranks"],
+            "modal_electric_component_separation_ranks": rank_audit["electrical_ranks"],
+            "modal_max_component_separation_rank": rank_audit["mechanical_max"],
+            "modal_max_all_component_separation_rank": rank_audit["all_fields_max"],
+            "mvi_rank_capacity_unused": rank_audit["rank_capacity_unused"],
             "mvi_rank_interpretation": (
                 "MVI rank limits separable representation capacity; "
                 "pure Fourier shell modes may have rank one even at MVI-8.")}
