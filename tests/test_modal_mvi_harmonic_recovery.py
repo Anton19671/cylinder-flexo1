@@ -6,6 +6,7 @@ import inspect
 import numpy as np
 import pytest
 from cylinder_modal_mvi import _SeparatedModalProblem, _harmonic_phase_basis
+from cylinder_modal_harmonic_spectrum import _harmonic_variation_directions
 from cylinder_variational_mvi import reconstruct_profiles
 
 
@@ -58,3 +59,19 @@ def test_halfstep_does_not_append_unconstrained_nodal_column():
     assert 'MODAL_MVI_FROZEN_PARTNER_BASIS_LOST_CURRENT_FIELD' in source
     assert 'np.column_stack((bm, missing))' not in source
     assert 'previous field not in frozen-partner span' in source
+
+
+@pytest.mark.parametrize('rank', range(1,9))
+def test_harmonic_x_variations_keep_only_actual_angular_partner_span(rank):
+    nx,ns,nc=21,63,3
+    phase=_harmonic_phase_basis(ns,5)
+    x=np.ones((nc,rank,nx))
+    y=np.zeros((nc,rank,ns))
+    for c in range(nc):
+        for r in range(rank):
+            y[c,r]=phase[r%2]
+    directions=_harmonic_variation_directions(x,y,"X",5)
+    expected=nc*nx*min(rank,2)
+    assert directions.shape==(nc*nx*ns,expected)
+    for col in directions.T.reshape(-1,nc,nx,ns):
+        assert np.allclose(col,(col@phase.T)@phase,atol=1e-13)
