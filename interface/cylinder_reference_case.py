@@ -173,7 +173,22 @@ def prepare_reference_case(case, *, base_dir=None, modal_harmonic_large=False):
         if nx*ns*(count+potential_fields)>max_dofs:
             raise ValueError("MATRIX_FREE_NODAL_DOF_SAFETY_LIMIT")
     else:
-        max_nodes=441 if large_harmonic and nx<=21 and ns<=21 else 256
+        if large_harmonic:
+            from cylinder_modal_large_harmonic import (
+                bounded_harmonic_modal_grid, MAX_MODAL_MVI_SURFACE_NODES,
+                MAX_MODAL_MVI_MECHANICAL_DOFS)
+            n_components = (3 if theory == "KL" else
+                            5 if theory in ("FSDT", "REDDY") else
+                            3 * (int(theory[-1]) + 1)
+                            if theory.startswith("CUF_TE") and theory[-1] in "1234"
+                            else 0)
+            if not bounded_harmonic_modal_grid(nx, ns, n_components):
+                raise ValueError(
+                    "MODAL_MVI_FOURIER_GRID_LIMIT: nx <= 21, odd ns <= 63, "
+                    "and at most 19845 mechanical DOFs")
+            max_nodes = MAX_MODAL_MVI_SURFACE_NODES
+        else:
+            max_nodes = 256
     if nx*ns>max_nodes:
         raise ValueError(f"{fdm_backend}: surface node count exceeds {max_nodes}")
     quad=case.get("quadrature") or {}
@@ -203,7 +218,7 @@ def prepare_reference_case(case, *, base_dir=None, modal_harmonic_large=False):
     q=np.zeros((functional.n_mechanical,nx,ns))
     p=np.zeros((order+1,nx,ns)) if functional.electrical_on else None
     total_dofs=q.size+(0 if p is None else p.size)
-    if not matrix_free and total_dofs>(6615 if large_harmonic else 4096):
+    if not matrix_free and total_dofs>(MAX_MODAL_MVI_MECHANICAL_DOFS if large_harmonic else 4096):
         raise ValueError("dense reference nodal DOF limit exceeded")
     bc=case.get("boundary_conditions") or {}
     spec=bc.get("variational")
