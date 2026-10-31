@@ -765,9 +765,21 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
     p_out = (None if not operator.ne else np.stack(
         [pmodes[i].reshape(operator.p0.shape) for i in order]))
     omega = np.sqrt(np.maximum(eigenvalues, 0.))
+    # A configured rank applies independently to every CUF component.
+    # Report the rank of the assembled vector field as well, so MVI-1
+    # cannot be misrepresented as globally rank-one in FDM comparisons.
+    global_mode_ranks = []
+    for field in q_out:
+        assembled = field.reshape(field.shape[0] * field.shape[1],
+                                  field.shape[2])
+        singular = np.linalg.svd(assembled, compute_uv=False)
+        cutoff = 1.e-10 * singular[0] if singular.size else 0.
+        global_mode_ranks.append(int(np.count_nonzero(singular > cutoff)))
     return {
         "theory": operator.f.theory,
-        "method": "MVI", "rank": rank, "density_kg_m3": density,
+        "method": "MVI", "rank": rank, "rank_scope": "per_component",
+        "global_mode_ranks": global_mode_ranks,
+        "density_kg_m3": density,
         "frequencies_hz": omega / (2. * np.pi),
         "omega_rad_s": omega, "omega_squared_rad2_s2": eigenvalues,
         "mechanical_modes": q_out, "electrical_modes": p_out,
