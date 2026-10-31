@@ -44,18 +44,29 @@ def edit_reference_case(original, fields, boundary, load, newton, dynamics=None,
     method=str(fields['method']).upper()
     if method not in ('MVI','FDM'):raise ValueError('Метод: MVI / FDM')
     old_method=str(original.get('method','')).upper()
-    old_grid=original.get('mvi_grid' if old_method=='MVI' else 'fdm_grid',
-                          original.get('grid',{}))
+    modal_switch=(str(fields.get('calculation_kind',case.get('calculation_kind',''))).upper()
+                  =='MODAL' and method!=old_method)
+    if modal_switch:
+        # The editor and top-level selector must use the same lossless
+        # conversion for MODAL Fourier dense/CSR operator storage.
+        from cylinder_reference_method_switch import selected_case
+        case=selected_case(original,method,
+                           int(fields['rank']) if method=='MVI' else None)
+        old_method=method
+    old_grid=case.get('mvi_grid' if old_method=='MVI' else 'fdm_grid',
+                      case.get('grid',{}))
     if not isinstance(old_grid,dict):raise ValueError('Сетка должна быть JSON-объектом')
     grid=copy.deepcopy(old_grid)
     if method!=old_method and (str(original.get('fdm_backend','DENSE_REFERENCE')).upper()
                                =='MATRIX_FREE_GMRES' or
                                str(grid.get('operator_scheme','')).upper() in ('SBP21_PERIODIC_ODD_CSR','SBP42_FOURIER_ODD_CSR')):
         raise ValueError('Для смены метода в matrix-free CASE сначала создайте отдельный CASE')
-    scheme=str(fields.get('operator_scheme',grid.get('operator_scheme','LEGACY_REFERENCE'))).upper()
+    scheme=str(grid.get('operator_scheme','LEGACY_REFERENCE') if modal_switch
+               else fields.get('operator_scheme',grid.get('operator_scheme','LEGACY_REFERENCE'))).upper()
     if scheme not in ('LEGACY_REFERENCE','SBP21_PERIODIC_ODD','SBP21_PERIODIC_ODD_CSR','SBP21_FOURIER_ODD','SBP42_FOURIER_ODD','SBP42_FOURIER_ODD_CSR'):
         raise ValueError('Неизвестная схема пространственных операторов')
-    fdm_backend=str(fields.get('fdm_backend',case.get('fdm_backend','DENSE_REFERENCE'))).upper()
+    fdm_backend=str(case.get('fdm_backend','DENSE_REFERENCE') if modal_switch
+                    else fields.get('fdm_backend',case.get('fdm_backend','DENSE_REFERENCE'))).upper()
     if fdm_backend not in ('DENSE_REFERENCE','MATRIX_FREE_GMRES'):
         raise ValueError('Неизвестный вариант МКР')
     case['fdm_backend']=fdm_backend
