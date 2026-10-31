@@ -475,6 +475,11 @@ def run_modal_case(case, case_path):
                               progress_callback=report,detail_callback=details)
     print(f"MODAL SOLVE DONE elapsed_s={time.monotonic()-started:.3f}",flush=True)
     out.mkdir(parents=True, exist_ok=True)
+    from cylinder_modal_harmonic_catalog import (
+        CATALOG_FILE, CATALOG_COLUMNS,
+        harmonic_family_catalog, write_harmonic_family_catalog)
+    harmonic_catalog, harmonic_scope = harmonic_family_catalog(result)
+    write_harmonic_family_catalog(out / CATALOG_FILE, harmonic_catalog)
     arrays = {
         "frequencies_hz": result["frequencies_hz"],
         "omega_rad_s": result["omega_rad_s"],
@@ -542,6 +547,10 @@ def run_modal_case(case, case_path):
         "mechanical_free_dofs": int(result["n_mechanical_free_dofs"]),
         "electric_free_dofs": int(result["n_electric_free_dofs"]),
         "modes_file": "REFERENCE_MODAL_MODES.npz",
+        "harmonic_catalog_file": CATALOG_FILE,
+        "harmonic_catalog_scope": harmonic_scope,
+        "max_circumferential_harmonic_on_grid": result["mechanical_modes"].shape[3] // 2,
+        "harmonic_frequency_completeness_verified": False,
         "excel_file": "00_МОДАЛЬНЫЙ_АНАЛИЗ_ЧАСТОТЫ_ФОРМЫ.xlsx",
         "output_dir": str(out), "reference_only": True,
         "mesh_convergence_verified": False,
@@ -564,6 +573,9 @@ def run_modal_case(case, case_path):
               float(result["omega_rad_s"][i]),
               float(result["omega_squared_rad2_s2"][i]))
              for i in range(len(result["frequencies_hz"]))))
+        write_labeled_table(wb,"HARMONIC_CATALOG",CATALOG_COLUMNS,
+            (tuple(entry[col] for col in CATALOG_COLUMNS)
+             for entry in harmonic_catalog))
         if component_ranks is not None:
             write_labeled_table(wb, "MVI_RANK_AUDIT",
                 ("mode", "selected_mvi_rank", "max_effective_component_rank",

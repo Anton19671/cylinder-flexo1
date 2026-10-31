@@ -391,7 +391,18 @@ def export_harmonics(root,x,theta,physical):
             "mode","surface","component","ix","x_m","wave_number",
             "harmonic_amplitude","phase_deg",
             "fourier_real","fourier_imag"),rows)
+        from cylinder_modal_harmonic_catalog import CATALOG_FILE, CATALOG_COLUMNS
+        catalog_path = root / CATALOG_FILE
+        if catalog_path.is_file():
+            import csv
+            with catalog_path.open(encoding="utf-8-sig", newline="") as stream:
+                records = list(csv.DictReader(stream))
+            _sheet(book,"СЕМЕЙСТВА_И_ОХВАТ",CATALOG_COLUMNS,
+                   (tuple(record[column] for column in CATALOG_COLUMNS)
+                    for record in records))
         _sheet(book,"ОПИСАНИЕ",("setting","value"),(
+            ("family_catalog", "Sector-level solved frequencies or retained-mode-only identification; see separate catalog"),
+            ("completeness", "All FFT coefficients of RETAINED modes are not all eigenfrequencies of the shell"),
             ("transform","Discrete real FFT over original periodic theta nodes"),
             ("amplitude","Single-sided real Fourier amplitude per x station"),
             ("phase","Phase of FFT coefficient, degrees"),
