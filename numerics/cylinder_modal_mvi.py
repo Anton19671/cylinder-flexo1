@@ -804,9 +804,14 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
         "n_mechanical_free_dofs": operator.n_mechanical_free_dofs,
         "n_electric_free_dofs": operator.n_electric_free_dofs,
         "mvi_sweeps": [cycles[i] for i in order],
-        "mvi_modal_algorithm": "fixed_rank_constrained_variational_YX_stationarity",
-        "classical_unrestricted_mvi": True,
-        "harmonic_sector_restriction": False,
+        "mvi_modal_algorithm": (
+            "fixed_rank_fourier_restricted_variational_YX_stationarity"
+            if getattr(operator, "circumferential_harmonic", None) is not None
+            else "fixed_rank_constrained_variational_YX_stationarity"),
+        "classical_unrestricted_mvi": (
+            getattr(operator, "circumferential_harmonic", None) is None),
+        "harmonic_sector_restriction": (
+            getattr(operator, "circumferential_harmonic", None) is not None),
     }
 
 
