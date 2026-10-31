@@ -230,6 +230,15 @@ def _solve_modal_mvi_harmonic_spectrum(prepared, density, requested, *,
     qout = np.stack([m[3].reshape(operator.shape) for m in best])
     pout = (None if not operator.ne else np.stack([
         m[4].reshape(operator.p0.shape) for m in best]))
+    # The configured MVI rank is per component, not the rank of the
+    # assembled vector mode across all CUF components and axial nodes.
+    global_mode_ranks = []
+    for field in qout:
+        assembled = field.reshape(field.shape[0] * field.shape[1],
+                                  field.shape[2])
+        singular = np.linalg.svd(assembled, compute_uv=False)
+        cutoff = 1.e-10 * singular[0] if singular.size else 0.
+        global_mode_ranks.append(int(np.count_nonzero(singular > cutoff)))
     if progress_callback is not None:
         for i in range(requested):
             progress_callback(i+1, requested)
@@ -243,6 +252,7 @@ def _solve_modal_mvi_harmonic_spectrum(prepared, density, requested, *,
                             modal_amplitude_max=float(np.max(abs(m[3]))))
     return {
         "theory":operator.f.theory, "method":"MVI", "rank":operator.rank,
+        "rank_scope":"per_component", "global_mode_ranks":global_mode_ranks,
         "density_kg_m3":density,
         "frequencies_hz":np.sqrt(np.maximum(eigs,0.))/(2*np.pi),
         "omega_rad_s":np.sqrt(np.maximum(eigs,0.)),
@@ -256,6 +266,8 @@ def _solve_modal_mvi_harmonic_spectrum(prepared, density, requested, *,
         "axial_mode_index_interpretation":"frequency_order_within_circumferential_sector_not_verified_axial_half_wave_count",
         "harmonic_family_scan":family_summary,
         "mode_generation":[m[6] for m in best],
+        "mode_independently_optimized":[m[6] == "MVI_YX" for m in best],
+        "harmonic_search_is_independent_of_fdm":False,
         "mvi_modal_algorithm":"fixed_rank_constrained_variational_YX_stationarity",
         "modal_spectrum_selection":"circumferential_harmonic_axial_families",
         "axial_modes_per_harmonic":axial_modes_per_harmonic,
