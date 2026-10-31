@@ -144,7 +144,12 @@ def solve_modal_matrixfree(prepared, density, requested, *, modal_options,
                         mechanical_free_dofs=n_free)
     from cylinder_modal_direct_small import (
         can_use_modal_direct_small, solve_modal_direct_small)
-    if can_use_modal_direct_small(projector):
+    from cylinder_modal_fourier_fdm import (
+        can_use_fourier_modal_fdm, solve_modal_fourier_fdm)
+    use_fourier = can_use_fourier_modal_fdm(prepared, projector)
+    # Prefer complete angular sectors for eligible uniform cylindrical shells.
+    # Retain the bounded direct fallback for unsupported constraints.
+    if can_use_modal_direct_small(projector) and not use_fourier:
         return solve_modal_direct_small(
             prepared, density, requested, projector,
             progress_callback=progress_callback, detail_callback=detail_callback)
@@ -156,9 +161,7 @@ def solve_modal_matrixfree(prepared, density, requested, *, modal_options,
         prepared, density, projector, progress_callback=progress)
     # For rotationally uniform SBP42/Fourier shells, use the exact angular
     # block diagonalization of these same full-space physical operators.
-    from cylinder_modal_fourier_fdm import (
-        can_use_fourier_modal_fdm, solve_modal_fourier_fdm)
-    if can_use_fourier_modal_fdm(prepared, projector):
+    if use_fourier:
         return solve_modal_fourier_fdm(
             prepared, density, requested, projector, k, m, scales,
             conversion, mass_scale, progress_callback=progress_callback,
