@@ -94,8 +94,27 @@ def _modal_spec(case, *, base_dir=None):
     if case.get("load_definition") is not None or case.get("reference_loads") is not None:
         raise ValueError("MODAL free vibrations require an unloaded CASE")
     raw = case.get("modal", {})
-    if not isinstance(raw, dict) or set(raw) - {"density_kg_m3", "n_modes", "eigen_tolerance", "max_iterations", "axial_modes_per_harmonic"}:
-        raise ValueError("modal accepts density_kg_m3, n_modes, eigen_tolerance, max_iterations, axial_modes_per_harmonic")
+    modal_fields = {"density_kg_m3", "n_modes", "eigen_tolerance",
+                    "max_iterations", "axial_modes_per_harmonic",
+                    "mvi_spectrum_method", "mode_tolerance"}
+    if not isinstance(raw, dict) or set(raw) - modal_fields:
+        raise ValueError("MODAL accepts: " + ", ".join(sorted(modal_fields)))
+    selection = raw.get("mvi_spectrum_method", "AUTO")
+    if selection not in ("AUTO", "FOURIER_FAMILIES", "UNRESTRICTED"):
+        raise ValueError("modal.mvi_spectrum_method must be AUTO, "
+                         "FOURIER_FAMILIES or UNRESTRICTED")
+    if method != "MVI" and ("mvi_spectrum_method" in raw or
+                            "mode_tolerance" in raw):
+        raise ValueError("MVI-specific modal options require method=MVI")
+    if selection == "FOURIER_FAMILIES" and not _use_harmonic_mvi_spectrum(
+            case, _integer(raw.get("n_modes"), "modal.n_modes", 1)):
+        raise ValueError("FOURIER_FAMILIES requires rotationally uniform "
+                         "MACRO MVI with SBP42_FOURIER_ODD and n_modes <= 8")
+    if "mode_tolerance" in raw:
+        shape_tolerance = _real(raw["mode_tolerance"],
+                                "modal.mode_tolerance", True)
+        if shape_tolerance >= 1.:
+            raise ValueError("modal.mode_tolerance must be below 1")
     if "axial_modes_per_harmonic" in raw:
         axial_count = _integer(raw["axial_modes_per_harmonic"],
                                "modal.axial_modes_per_harmonic", 1)
@@ -311,6 +330,11 @@ def _use_harmonic_mvi_spectrum(case, requested):
         return False
     if str(case.get("method", "")).upper() != "MVI":
         return False
+    # AUTO retains the previous validated Fourier family search. The
+    # unrestricted choice leaves all circumferential sectors in the original
+    # fixed-rank Y/X variational problem; neither choice changes K or M.
+    if (case.get("modal") or {}).get("mvi_spectrum_method", "AUTO") == "UNRESTRICTED":
+        return False
     if str(case.get("scale_model", "")).upper() != "MACRO":
         return False
     effective = _effective_modal_case(case)
@@ -334,11 +358,14 @@ def solve_modal_case(case, *, base_dir=None, progress_callback=None, detail_call
     prepared, density, requested = _modal_spec(case, base_dir=base_dir)
     if prepared.method == "MVI":
         from cylinder_modal_mvi import solve_modal_mvi
+        modal_options = case.get("modal") or {}
         return solve_modal_mvi(prepared, density, requested,
                                progress_callback=progress_callback,
                                detail_callback=detail_callback,
+                               eigen_tolerance=float(modal_options.get("eigen_tolerance", 1.e-7)),
+                               mode_tolerance=float(modal_options.get("mode_tolerance", 1.e-5)),
                                harmonic_scan=_use_harmonic_mvi_spectrum(case, requested),
-                               axial_modes_per_harmonic=(case.get("modal") or {}).get(
+                               axial_modes_per_harmonic=modal_options.get(
                                    "axial_modes_per_harmonic", 1))
     if prepared.fdm_backend == "MATRIX_FREE_GMRES":
         from cylinder_modal_matrixfree import solve_modal_matrixfree
@@ -390,6 +417,28 @@ def solve_modal_case(case, *, base_dir=None, progress_callback=None, detail_call
             "n_electric_free_dofs": be.shape[1]}
 
 
+def _component_separation_ranks(modes):
+    """Effective axial/circumferential matrix ranks, per mode and component.
+
+    This is read-only modal postprocessing. MVI rank is the permitted number
+    of separated factors, not a promise that every mode uses that capacity.
+    An exact Fourier harmonic can have effective component rank one even
+    when solved with MVI-8. Never force ranks or eigenvalues to differ.
+    """
+    fields = np.asarray(modes, dtype=float)
+    if fields.ndim != 4 or not np.isfinite(fields).all():
+        raise ValueError("MODAL_RANK_AUDIT_INVALID_FIELDS")
+    ranks = []
+    for mode in fields:
+        row = []
+        for matrix in mode:
+            singular = np.linalg.svd(matrix, compute_uv=False)
+            row.append(int(np.count_nonzero(singular > 1.e-8 * singular[0]))
+                       if singular.size and singular[0] > 0. else 0)
+        ranks.append(row)
+    return ranks
+
+
 def run_modal_case(case, case_path):
     """Write a standalone, reproducible MODAL output; never run transient dynamics."""
     original_case = case
@@ -438,6 +487,10 @@ def run_modal_case(case, case_path):
     with tmp.open("wb") as stream:
         np.savez_compressed(stream, **arrays)
     os.replace(tmp, out / "REFERENCE_MODAL_MODES.npz")
+    component_ranks = (_component_separation_ranks(result["mechanical_modes"])
+                       if result.get("method") == "MVI" else None)
+    max_component_ranks = ([max(row, default=0) for row in component_ranks]
+                           if component_ranks is not None else None)
     summary = {
         "solver_backend": BACKEND, "calculation_kind": "MODAL",
         "requested_operator_scheme": (original_case.get("mvi_grid" if original_case.get("method") == "MVI" else "fdm_grid") or {}).get("operator_scheme"),
@@ -458,7 +511,16 @@ def run_modal_case(case, case_path):
             "axial_mode_indices_verified":False}
            if result.get("method")=="MVI" and "circumferential_wavenumbers" not in result else {}),
         **({"rank": result["rank"], "mvi_sweeps": result["mvi_sweeps"],
-            "mvi_modal_algorithm": result["mvi_modal_algorithm"]}
+            "mvi_modal_algorithm": result["mvi_modal_algorithm"],
+            "mvi_spectrum_method": ("FOURIER_FAMILIES"
+                if "circumferential_wavenumbers" in result else "UNRESTRICTED"),
+            "modal_component_separation_ranks": component_ranks,
+            "modal_max_component_separation_rank": max_component_ranks,
+            "mvi_rank_capacity_unused": [
+                bool(effective < result["rank"]) for effective in max_component_ranks],
+            "mvi_rank_interpretation": (
+                "MVI rank limits separable representation capacity; "
+                "pure Fourier shell modes may have rank one even at MVI-8.")}
            if "rank" in result else {}),
         "scale_model": case["scale_model"], "material_model": "HOOKE",
         "geometry_model": str(case["geometry_model"]).upper(),
@@ -493,6 +555,33 @@ def run_modal_case(case, case_path):
               float(result["omega_rad_s"][i]),
               float(result["omega_squared_rad2_s2"][i]))
              for i in range(len(result["frequencies_hz"]))))
+        if component_ranks is not None:
+            write_labeled_table(wb, "MVI_RANK_AUDIT",
+                ("mode", "selected_mvi_rank", "max_effective_component_rank",
+                 "unused_rank_capacity", "effective_rank_by_component"),
+                ((i + 1, int(result["rank"]), int(max_component_ranks[i]),
+                  bool(max_component_ranks[i] < result["rank"]),
+                  ",".join(map(str, component_ranks[i])))
+                 for i in range(len(component_ranks))))
+        if "harmonic_family_scan" in result:
+            # A Fourier mode and its sine/cosine rotation are a degenerate
+            # pair, not different circumferential wave numbers.
+            write_labeled_table(wb, "FOURIER_FAMILIES",
+                ("circumferential_n", "axial_candidate_index",
+                 "frequency_hz", "rotational_degeneracy",
+                 "axial_index_verified"),
+                ((int(row["n"]), int(row["axial_mode_index"]),
+                  float(row["frequency_hz"]), int(row["degeneracy"]),
+                  bool(row["axial_mode_index_verified"]))
+                 for row in result["harmonic_family_scan"]))
+            write_labeled_table(wb, "MODE_FAMILY_IDS",
+                ("mode", "circumferential_n", "axial_candidate_index",
+                 "mode_generation", "frequency_hz"),
+                ((i + 1, int(result["circumferential_wavenumbers"][i]),
+                  int(result["axial_mode_indices"][i]),
+                  result["mode_generation"][i],
+                  float(result["frequencies_hz"][i]))
+                 for i in range(len(result["frequencies_hz"]))))
         geo=case["geometry"];mat=case["material"]
         grid=case.get("mvi_grid" if case["method"]=="MVI" else "fdm_grid",
                       case.get("grid",{}))
