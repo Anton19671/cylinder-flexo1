@@ -49,8 +49,38 @@ def test_compact_y_space_enforces_both_ends_exactly():
     mask=np.zeros((1,21,63),dtype=bool)
     mask[:,0,:]=True
     mask[:,-1,:]=True
+    # Fixed-X Y variations must satisfy essential end traces exactly.
+    x[:,:,0]=0.
+    x[:,:,-1]=0.
     basis=projected_harmonic_y_basis(x,mask.ravel(),
                                       np.ones(mask.size),3)
     assert basis.shape==(mask.size,16)
     assert np.max(np.abs(basis[mask.ravel()]))<1.e-13
     np.testing.assert_allclose(basis.T@basis,np.eye(16),atol=1.e-12)
+
+
+
+def test_compact_y_space_does_not_enrich_invalid_frozen_x_partners():
+    # A rank-one X factor nonzero on a fixed end admits no nonzero
+    # Y variation there. Projecting nodal values to zero would be an
+    # illegal enrichment; the correct constrained intersection is empty.
+    x=np.ones((1,1,21))
+    mask=np.zeros((1,21,63),dtype=bool)
+    mask[:,0,:]=True
+    basis=projected_harmonic_y_basis(
+        x,mask.ravel(),np.ones(mask.size),3)
+    assert basis.shape==(mask.size,0)
+
+
+def test_compact_y_space_preserves_cancelling_frozen_factors():
+    # Two nonzero end traces can cancel without modifying frozen X.
+    x=np.zeros((1,2,21))
+    x[0,0]=np.linspace(1.,0.,21)
+    x[0,1]=np.linspace(1.,1.,21)
+    mask=np.zeros((1,21,63),dtype=bool)
+    mask[:,0,:]=True
+    basis=projected_harmonic_y_basis(
+        x,mask.ravel(),np.ones(mask.size),3)
+    assert basis.shape==(mask.size,2)
+    np.testing.assert_allclose(basis[mask.ravel()],0.,atol=1.e-11)
+    np.testing.assert_allclose(basis.T@basis,np.eye(2),atol=1.e-11)
