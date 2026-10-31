@@ -91,3 +91,15 @@ def test_x_halfstep_reaches_full_axial_sector_when_angular_partners_span(rank,ex
     # Each axial/component site has its own independent phase coordinates.
     gram=directions.T@directions
     np.testing.assert_allclose(gram,np.eye(nc*nx*expected_phases),atol=1e-12,rtol=1e-12)
+
+
+def test_modal_variational_implementation_does_not_use_svd():
+    """Guard the explicit no-SVD requirement in modal MVI and Fourier FDM."""
+    import cylinder_modal_mvi
+    import cylinder_modal_harmonic_spectrum
+    import cylinder_modal_fourier_fdm
+    for module in (cylinder_modal_mvi, cylinder_modal_harmonic_spectrum,
+                   cylinder_modal_fourier_fdm):
+        source = inspect.getsource(module)
+        assert "np.linalg.svd(" not in source
+        assert "scipy.linalg.svd(" not in source
