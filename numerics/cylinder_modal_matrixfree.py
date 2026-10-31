@@ -154,6 +154,15 @@ def solve_modal_matrixfree(prepared, density, requested, *, modal_options,
                             operator=family, actions=calls)
     k, m, scales, conversion, mass_scale = _projected_actions(
         prepared, density, projector, progress_callback=progress)
+    # For rotationally uniform SBP42/Fourier shells, use the exact angular
+    # block diagonalization of these same full-space physical operators.
+    from cylinder_modal_fourier_fdm import (
+        can_use_fourier_modal_fdm, solve_modal_fourier_fdm)
+    if can_use_fourier_modal_fdm(prepared, projector):
+        return solve_modal_fourier_fdm(
+            prepared, density, requested, projector, k, m, scales,
+            conversion, mass_scale, progress_callback=progress_callback,
+            detail_callback=detail_callback)
     # Include additional Ritz vectors around the requested spectral cutoff.
     # With rotational doublets, a block ending exactly at the requested
     # eigenvalue can converge poorly. Oversampling keeps the physical
