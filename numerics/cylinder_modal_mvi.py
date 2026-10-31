@@ -187,7 +187,7 @@ class _SeparatedModalProblem:
         if not 1 <= rank <= 8 or rank > min(self.nx, self.ns):
             raise ValueError("MODAL MVI rank must be 1..8 and <= min(nx, ns)")
         self.large_harmonic=bool(harmonic_scan and self.nx*self.ns>256
-                                 and not self.ne and self.nx<=21 and self.ns<=21)
+                                 and not self.ne and self.nx<=21 and self.ns<=63)
         count=(self.n_components*2*max(self.nx,rank) if self.large_harmonic
                else self.n_components*rank*max(self.nx,self.ns))
         if count > MAX_PROJECTED_DIRECTIONS:
@@ -196,9 +196,8 @@ class _SeparatedModalProblem:
         if self.large_harmonic:
             from cylinder_modal_large_harmonic import mechanical_fixed_trace_mask
             self.fixed_mask=mechanical_fixed_trace_mask(prepared.problem,self.q0)
-            c=np.zeros((int(self.fixed_mask.sum()),self.nm))
-            c[np.arange(c.shape[0]),np.flatnonzero(self.fixed_mask)]=1.
-            target=np.zeros(c.shape[0])
+            c=np.empty((0,self.nm))
+            target=np.empty(0)
         else:
             first=prepared.problem.assemble(self.q0,self.p0)
             if np.max(np.abs(first.space.origin),initial=0.)>1.e-10:
@@ -296,7 +295,11 @@ class _SeparatedModalProblem:
         dm = (separated_profile_directions(x[:ncm], y[:ncm], axis)
               if harmonic is None else _harmonic_variation_directions(
                   x[:ncm], y[:ncm], axis, harmonic))
-        bm = constrained_basis(self.cm, self.scales[:self.nm], dm)
+        if self.large_harmonic and self.ns>21 and harmonic is not None and axis=='Y':
+            from cylinder_modal_large_harmonic import projected_harmonic_y_basis
+            bm=projected_harmonic_y_basis(x[:ncm],self.fixed_mask,self.scales[:self.nm],harmonic)
+        else:
+            bm = constrained_basis(self.cm, self.scales[:self.nm], dm)
         if not bm.shape[1]:
             raise ValueError("MODAL MVI: no admissible mechanical directions in " + axis)
         if not self.ne:
@@ -319,8 +322,10 @@ class _SeparatedModalProblem:
             old_norm = float(np.linalg.norm(old_q))
             if old_norm <= 0.:
                 raise ValueError("MODAL MVI: zero previous mechanical field")
-            trace_error = float(np.linalg.norm(self.cm @ old_q, ord=np.inf))
-            trace_scale = max(1., float(np.linalg.norm(self.cm, ord=np.inf)) * old_norm)
+            trace_error = (float(np.max(np.abs(old_q[self.fixed_mask]),initial=0.))
+                           if self.large_harmonic else float(np.linalg.norm(self.cm @ old_q, ord=np.inf)))
+            trace_scale = (max(1., old_norm) if self.large_harmonic else
+                           max(1., float(np.linalg.norm(self.cm, ord=np.inf)) * old_norm))
             if trace_error > 1.e-9 * trace_scale:
                 raise ValueError("MODAL MVI: previous field violates essential traces")
             raw = (separated_profile_directions(
@@ -335,7 +340,9 @@ class _SeparatedModalProblem:
                 raise ValueError(
                     "MODAL MVI: previous field not in frozen-partner span "
                     f"axis={axis} difference={raw_error:.6g}")
-            old_coeff = np.linalg.lstsq(bm, old_q, rcond=None)[0]
+            old_coeff = ((bm.T@old_q)/np.einsum('ij,ij->j',bm,bm)
+                         if self.large_harmonic and self.ns>21 else
+                         np.linalg.lstsq(bm, old_q, rcond=None)[0])
             missing = old_q - bm @ old_coeff
             missing_ratio = float(np.linalg.norm(missing) / old_norm)
             if missing_ratio > 1.e-9:
