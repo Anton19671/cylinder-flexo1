@@ -10,6 +10,61 @@ import numpy as np
 from scipy.linalg import eigh
 
 
+def _axial_constraint_basis(prepared, projector):
+    """Obtain the exact axial/component null space for periodic-uniform traces.
+
+    Each physical boundary row must act within one circumferential node,
+    and every node must carry the same axial constraints. KL clamped-end
+    slopes use multi-node stencils, so merely deleting their touched DOFs
+    would change the boundary condition. The same null space is reused
+    in every Fourier sector instead.
+    """
+    q = prepared.mechanical
+    ncomp, nx, ns = q.shape
+    n_axial = ncomp * nx
+    c = projector.c.tocsr()
+    if c.shape != (projector.count, q.size):
+        return None
+    rows = [[] for _ in range(ns)]
+    for row in range(c.shape[0]):
+        start, stop = c.indptr[row:row + 2]
+        indices, values = c.indices[start:stop], c.data[start:stop]
+        if not len(indices) or np.any(indices % ns != indices[0] % ns):
+            return None
+        axial = np.zeros(n_axial)
+        axial[indices // ns] = values
+        first = np.flatnonzero(np.abs(axial) > 1.e-14)
+        if not len(first):
+            return None
+        axial /= np.linalg.norm(axial)
+        if axial[first[0]] < 0:
+            axial = -axial
+        rows[int(indices[0] % ns)].append(axial)
+    def canonical(entries):
+        return sorted(entries, key=lambda item: tuple(np.round(item, 12)))
+    reference = canonical(rows[0])
+    for other in rows[1:]:
+        candidate = canonical(other)
+        if (len(candidate) != len(reference) or
+                any(not np.allclose(a, b, rtol=1.e-10, atol=1.e-12)
+                    for a, b in zip(reference, candidate))):
+            return None
+    if not reference:
+        return np.eye(n_axial)
+    traces = np.stack(reference)
+    touches = np.count_nonzero(np.abs(traces) > 1.e-14, axis=1)
+    if np.all(touches == 1):
+        fixed = np.flatnonzero(np.any(np.abs(traces) > 1.e-14, axis=0))
+        if len(fixed) != len(reference):
+            return None
+        return np.eye(n_axial)[:, np.setdiff1d(np.arange(n_axial), fixed)]
+    _, singular, vt = np.linalg.svd(traces, full_matrices=True)
+    rank = int(np.count_nonzero(singular > 1.e-11 * singular[0]))
+    if rank != len(reference):
+        return None
+    return vt[rank:].T.copy()
+
+
 def can_use_fourier_modal_fdm(prepared, projector):
     """Allow only demonstrably Fourier-invariant, simple homogeneous traces."""
     f=prepared.problem.functional
@@ -21,17 +76,11 @@ def can_use_fourier_modal_fdm(prepared, projector):
     nx,ns=q.shape[1:]
     if nx<9 or ns<9 or ns%2!=1:
         return False
-    c=projector.c
-    if not (projector.count and (c.getnnz(axis=1)==1).all()
-            and (c.getnnz(axis=0)<=1).all()
-            and np.max(np.abs(projector.target),initial=0.)<1e-12
-            and np.max(np.abs(projector.lift),initial=0.)<1e-12):
+    if (np.max(np.abs(projector.target),initial=0.)>=1e-12
+            or np.max(np.abs(projector.lift),initial=0.)>=1e-12):
         return False
-    free=(c.getnnz(axis=0)==0).reshape(q.shape)
-    if not np.all(free==free[:,:,:1]):
-        return False
-    n_axial=int(np.count_nonzero(free[:,:,0]))
-    if n_axial<3 or n_axial>900:
+    axial_basis = _axial_constraint_basis(prepared, projector)
+    if axial_basis is None or not 3 <= axial_basis.shape[1] <= 900:
         return False
     ops=f.ops
     if not np.allclose(ops.ws,ops.ws[0],rtol=1e-12,atol=1e-14):
@@ -57,9 +106,10 @@ def solve_modal_fourier_fdm(prepared,density,requested,projector,
     q0=prepared.mechanical
     f=prepared.problem.functional
     nx,ns=q0.shape[1:]
-    mask=(projector.c.getnnz(axis=0)==0).reshape(q0.shape)
-    component_axial=np.argwhere(mask[:,:,0])
-    count=len(component_axial)
+    axial_basis = _axial_constraint_basis(prepared, projector)
+    if axial_basis is None:
+        raise ValueError('MODAL_FOURIER_AXIAL_TRACE_SPACE_MISMATCH')
+    count = axial_basis.shape[1]
     theta=2.*np.pi*np.arange(ns)/ns
     entries=[]
     families=[]
@@ -74,22 +124,23 @@ def solve_modal_fourier_fdm(prepared,density,requested,projector,
         km=np.empty((count,count),dtype=np.complex128)
         mm=np.empty((count,count),dtype=np.complex128)
         trial=np.zeros_like(q0)
-        for j,(component,axial) in enumerate(component_axial):
-            trial[component,axial,:]=phase.real
+        for j in range(count):
+            trial[:, :, :] = (axial_basis[:, j].reshape(q0.shape[:2])[:, :, None]
+                              * phase.real[None, None, :])
             ka=(k@trial.ravel()).reshape(q0.shape)
             ma=(m@trial.ravel()).reshape(q0.shape)
-            trial[component,axial,:]=0.
-            if j in (0,count-1):
-                for label,action in (('K',ka),('M',ma)):
-                    spectrum=np.fft.fft(action,axis=-1)/np.sqrt(ns)
-                    other=np.array([idx for idx in range(ns)
-                                    if idx not in {n,(-n)%ns}],dtype=int)
-                    leakage=(np.linalg.norm(spectrum[:,:,other])/
-                             max(np.linalg.norm(spectrum),1e-30))
-                    if leakage>1e-8:
-                        raise ValueError('MODAL_FOURIER_'+label+'_BREAKS_ANGULAR_SYMMETRY')
-            km[:,j]=factor*np.einsum('ij,j->i',ka[mask].reshape(count,ns),conjugate)
-            mm[:,j]=factor*np.einsum('ij,j->i',ma[mask].reshape(count,ns),conjugate)
+            for label,action in (('K',ka),('M',ma)):
+                spectrum=np.fft.fft(action,axis=-1)/np.sqrt(ns)
+                other=np.array([idx for idx in range(ns)
+                                if idx not in {n,(-n)%ns}],dtype=int)
+                leakage=(np.linalg.norm(spectrum[:,:,other])/
+                         max(np.linalg.norm(spectrum),1e-30))
+                if leakage>1e-8:
+                    raise ValueError('MODAL_FOURIER_'+label+'_BREAKS_ANGULAR_SYMMETRY')
+            k_axial=np.einsum('cxs,s->cx',ka,conjugate).reshape(-1)
+            m_axial=np.einsum('cxs,s->cx',ma,conjugate).reshape(-1)
+            km[:,j]=factor*(axial_basis.T@k_axial)
+            mm[:,j]=factor*(axial_basis.T@m_axial)
             if detail_callback and ((j+1)%100==0 or j+1==count):
                 detail_callback(stage='MATRIX_FREE_MODAL_FOURIER_COLUMN',
                                 circumferential_n=n,column=j+1,total_columns=count)
@@ -106,11 +157,12 @@ def solve_modal_fourier_fdm(prepared,density,requested,projector,
                             check_finite=True)
         if not np.isfinite(values).all() or np.any(values < -1e-8*max(1.,np.max(np.abs(values)))):
             raise ValueError('MODAL_FOURIER_INVALID_EIGENVALUE')
+        small=1.e-12*max(float(np.max(np.abs(values),initial=0.)),1.e-30)
+        values[np.abs(values)<=small]=0.
         for index, lam in enumerate(values):
             lam=max(float(lam),0.)
-            shape=np.zeros(q0.shape,dtype=np.complex128)
-            shape[component_axial[:,0],component_axial[:,1],:]=(
-                vectors[:,index,None]*phase[None,:])
+            axial_shape=(axial_basis@vectors[:,index]).reshape(q0.shape[:2])
+            shape=axial_shape[:,:,None]*phase[None,None,:]
             generation=('FOURIER_CONSTANT',) if n==0 else ('FOURIER_COS','FOURIER_SIN')
             candidates=(shape.real,) if n==0 else (
                 np.sqrt(2.)*shape.real,np.sqrt(2.)*shape.imag)
@@ -135,8 +187,17 @@ def solve_modal_fourier_fdm(prepared,density,requested,projector,
     error=k_vectors-m_vectors*values[None,:]
     relative=np.linalg.norm(error,axis=0)/np.maximum(
         np.linalg.norm(k_vectors,axis=0)+np.abs(values)*np.linalg.norm(m_vectors,axis=0),1e-14)
-    if np.any(relative>2e-7):
+    # Rigid-body modes can have eigenvalues at roundoff while the
+    # nonzero spectrum is well separated. Verify such zero modes using
+    # the overall spectral scale; the ordinary relative check becomes
+    # meaningless when both stiffness action and eigenvalue vanish.
+    largest = max(float(np.max(np.abs(values),initial=0.)),1.e-30)
+    zero_mask = np.abs(values) <= 1.e-12 * largest
+    near_zero_ok = (np.linalg.norm(error,axis=0) <=
+                    2.e-10 * largest * np.linalg.norm(m_vectors,axis=0))
+    if np.any((relative > 2.e-7) & ~(zero_mask & near_zero_ok)):
         raise ValueError('MODAL_FOURIER_EIGENPAIR_VERIFICATION_FAILED')
+    values[zero_mask & near_zero_ok] = 0.
     gram=vectors.T@m_vectors
     if np.max(np.abs(gram-np.eye(requested)))>1e-6:
         raise ValueError('MODAL_FOURIER_MODES_NOT_MASS_ORTHOGONAL')
