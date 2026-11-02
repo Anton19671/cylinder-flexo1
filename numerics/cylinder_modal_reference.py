@@ -395,66 +395,39 @@ def _use_harmonic_mvi_spectrum(case, requested):
 
 
 def solve_modal_case(case, *, base_dir=None, progress_callback=None, detail_callback=None):
-    """Compute consistent small-grid modes in Hz, with massless electric DOFs condensed."""
+    """Dispatch ONLY to the chosen independent numerical modal branch."""
     prepared, density, requested = _modal_spec(case, base_dir=base_dir)
     if prepared.method == "MVI":
         from cylinder_modal_mvi import solve_modal_mvi
         modal_options = case.get("modal") or {}
-        return solve_modal_mvi(prepared, density, requested,
-                               progress_callback=progress_callback,
-                               detail_callback=detail_callback,
-                               eigen_tolerance=float(modal_options.get("eigen_tolerance", 1.e-7)),
-                               mode_tolerance=float(modal_options.get("mode_tolerance", 1.e-5)),
-                               harmonic_scan=False)
-    if prepared.fdm_backend == "MATRIX_FREE_GMRES":
-        from cylinder_modal_matrixfree import solve_modal_matrixfree
-        return solve_modal_matrixfree(
+        result = solve_modal_mvi(
+            prepared, density, requested,
+            progress_callback=progress_callback,
+            detail_callback=detail_callback,
+            eigen_tolerance=float(modal_options.get("eigen_tolerance", 1.e-7)),
+            mode_tolerance=float(modal_options.get("mode_tolerance", 1.e-5)),
+            harmonic_scan=False)
+        if (not isinstance(result, dict) or result.get("method") != "MVI"
+                or result.get("rank") != prepared.mvi_settings.rank
+                or result.get("mvi_modal_algorithm") !=
+                   "fixed_rank_constrained_variational_YX_stationarity"
+                or result.get("classical_unrestricted_mvi") is not True
+                or result.get("harmonic_sector_restriction") is not False
+                or "mvi_sweeps" not in result
+                or result.get("fdm_backend") == "MATRIX_FREE_GMRES"):
+            raise ValueError("MODAL_MVI_RESULT_METHOD_CROSSCONTAMINATION")
+        result["modal_solver_branch"] = "MVI_FIXED_RANK_YX"
+        return result
+    if prepared.method == "FDM":
+        from cylinder_modal_mkr import solve_modal_mkr
+        result = solve_modal_mkr(
             prepared, density, requested, modal_options=case.get("modal"),
-            progress_callback=progress_callback, detail_callback=detail_callback)
-    k, m, bm, be, q_shape, p_shape = _linear_matrices(
-        prepared, density, progress_callback=progress_callback,detail_callback=detail_callback)
-    n_m = bm.shape[1]
-    if requested > n_m:
-        raise ValueError("requested modes exceed free mechanical DOFs")
-    k_mech = k[:n_m, :n_m]
-    electric_recovery = None
-    if be.shape[1]:
-        k_qp = k[:n_m, n_m:]
-        k_pq = k[n_m:, :n_m]
-        k_pp = k[n_m:, n_m:]
-        # Electric potential has NO inertia. Its stationary equation is
-        # K_pq q + K_pp phi = 0. Never add a fictitious electric mass.
-        electric_recovery = -solve(k_pp, k_pq, assume_a="sym", check_finite=True)
-        k_mech = k_mech + k_qp @ electric_recovery
-        k_mech = (k_mech + k_mech.T) * 0.5
-    if detail_callback:detail_callback(stage='EIGEN_BEGIN',n_modes=requested)
-    eigenvalues, eigvec = eigh(
-        k_mech, m, subset_by_index=(0, requested - 1),
-        check_finite=True, driver="gvx")
-    if not np.isfinite(eigenvalues).all():
-        raise ValueError("nonfinite MODAL eigenvalues")
-    negative_limit = -1.e-8 * max(float(np.max(np.abs(eigenvalues))), 1.)
-    if np.any(eigenvalues < negative_limit):
-        raise ValueError("negative squared frequency: unstable or incorrect modal linearization")
-    omega = np.sqrt(np.maximum(eigenvalues, 0.))
-    frequencies_hz = omega / (2. * np.pi)
-    q_modes = np.stack([(bm @ eigvec[:, j]).reshape(q_shape)
-                        for j in range(requested)])
-    if detail_callback:
-        for j in range(requested):
-            detail_callback(stage='FDM_MODE_DONE',mode=j+1,n_modes=requested,
-                frequency_hz=float(frequencies_hz[j]),omega_rad_s=float(omega[j]),
-                modal_amplitude_max=float(np.max(abs(q_modes[j]),initial=0.)))
-    p_modes = (None if electric_recovery is None else np.stack([
-        (be @ (electric_recovery @ eigvec[:, j])).reshape(p_shape)
-        for j in range(requested)]))
-    return {"theory": prepared.problem.functional.theory,
-            "density_kg_m3": density, "frequencies_hz": frequencies_hz,
-            "omega_rad_s": omega, "omega_squared_rad2_s2": eigenvalues,
-            "mechanical_modes": q_modes, "electrical_modes": p_modes,
-            "n_mechanical_free_dofs": n_m,
-            "n_electric_free_dofs": be.shape[1]}
-
+            progress_callback=progress_callback,
+            detail_callback=detail_callback)
+        if result.get("modal_solver_branch") != "MKR_FULL_SPACE":
+            raise ValueError("MODAL_MKR_RESULT_METHOD_CROSSCONTAMINATION")
+        return result
+    raise ValueError("MODAL_UNKNOWN_NUMERICAL_METHOD")
 
 def _component_separation_ranks(modes):
     """Effective axial/circumferential matrix ranks, per mode and component.
@@ -580,6 +553,7 @@ def run_modal_case(case, case_path):
         "method": result.get("method", "FDM"),
         "requested_method":str(original_case.get("method", "")).upper(),
         "modal_eigensolver":result.get("modal_eigensolver", "VARIATIONAL_REFERENCE"),
+        "modal_solver_branch":result["modal_solver_branch"],
         "mode": "LINEAR_ELASTIC", "theory": result["theory"],
         **({"circumferential_wavenumbers":result["circumferential_wavenumbers"],
             "axial_mode_indices":result["axial_mode_indices"],
