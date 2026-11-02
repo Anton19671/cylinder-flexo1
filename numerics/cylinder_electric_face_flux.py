@@ -77,8 +77,8 @@ def dielectric_face_flux_fdm(potential_v, *, length_m, radius_m, thickness_m,
             normalized=centered/amplitude
             alternating=(-1.)**np.arange(ns)
             nyquist=normalized@alternating
-            energy=float(np.sum(normalized*normalized))
-            checkerboard_fraction=float(np.sum(nyquist*nyquist)/(ns*energy))
+            spectral_energy=float(np.sum(normalized*normalized))
+            checkerboard_fraction=float(np.sum(nyquist*nyquist)/(ns*spectral_energy))
             checkerboard_fraction=min(1.,max(0.,checkerboard_fraction))
             checkerboard=checkerboard_fraction>=.05
     return DielectricFaceFluxResult(
