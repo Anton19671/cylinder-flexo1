@@ -1,4 +1,4 @@
-name: Modal MVI ranks 2-8 all theories
+name: Modal MVI 56 theory-rank combinations
 on:
   push:
     branches: [main]
@@ -6,6 +6,8 @@ on:
       - "ci/modal_mvi_all_ranks_theories_audit.py"
       - "numerics/cylinder_modal_mvi.py"
       - "ci/modal_mvi_case_comparison.py"
+      - "ci/modal_mvi_matrix_report.py"
+      - "tests/test_modal_mvi_matrix_report.py"
       - ".github/workflows/modal-mvi-all-ranks-theories.yml"
   workflow_dispatch:
 permissions:
@@ -17,7 +19,7 @@ jobs:
       max-parallel: 8
       matrix:
         model: [KL, FSDT, REDDY, CUF_TE1, CUF_TE2, CUF_TE3, CUF_TE4]
-        rank: [2, 3, 4, 5, 6, 7, 8]
+        rank: [1, 2, 3, 4, 5, 6, 7, 8]
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
@@ -42,4 +44,35 @@ jobs:
           path: |
             modal_${{ matrix.model }}_rank${{ matrix.rank }}_audit.json
             modal_${{ matrix.model }}_rank${{ matrix.rank }}_*.npz
+          if-no-files-found: warn
+
+  consolidate:
+    # A green individual job means nothing unless both frequencies and
+    # degenerate physical mass-MAC subspaces match the full FDM baseline.
+    name: Check all 56 saved comparisons
+    if: ${{ always() }}
+    needs: [modal]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Download every available theory-rank audit, including failed jobs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: modal-*-rank*
+          path: modal-matrix-56-input
+          merge-multiple: true
+      - name: Verify 56 physical spectral and mass-MAC comparisons
+        run: python ci/modal_mvi_matrix_report.py
+        env:
+          MODAL_MATRIX_ARTIFACT_DIR: modal-matrix-56-input
+      - name: Upload complete matrix report, including failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: modal-56-frequency-and-mass-mac-report
+          path: modal-matrix-56-report/
           if-no-files-found: warn

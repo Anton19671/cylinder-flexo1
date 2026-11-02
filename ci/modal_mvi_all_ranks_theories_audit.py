@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""C-C 13x13 FDM and MVI rank 2-8 audit for classical and CUF theories."""
+"""C-C 13x13 FDM and MVI rank 1-8 audit for classical and CUF theories."""
 import json
 import sys
 import time
@@ -17,8 +17,8 @@ def main():
     model, rank = sys.argv[1], int(sys.argv[2])
     if model not in ("KL", "FSDT", "REDDY", "CUF_TE1", "CUF_TE2", "CUF_TE3", "CUF_TE4"):
         raise ValueError("Unsupported model")
-    if rank not in range(2, 9):
-        raise ValueError("Expected MVI rank 2..8")
+    if rank not in range(1, 9):
+        raise ValueError("Expected MVI rank 1..8")
     rank_name = f"MVI_{rank}"
     stem = f"RAWAT2016_{model}_13x13_MODAL"
     cases = {
