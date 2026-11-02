@@ -1,0 +1,41 @@
+name: Independent Liang 2023 Carrera CUF Table10 CC benchmark
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ci/modal_carrera2023_table10_cc_r1.py'
+      - '.github/workflows/modal-carrera2023-table10-cc.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  compare:
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        theory: [CUF_TE1, CUF_TE2, CUF_TE3, CUF_TE4]
+        method: [FDM, MVI_1, MVI_2, MVI_3, MVI_4, MVI_5, MVI_6, MVI_7, MVI_8]
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    env:
+      PYTHONPATH: '.:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models'
+      OPENBLAS_NUM_THREADS: '1'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -r requirements.txt
+      - name: Compute independent 3D literature comparison
+        run: python ci/modal_carrera2023_table10_cc_r1.py ${{ matrix.theory }} ${{ matrix.method }} 13
+      - name: Preserve frequency and modes on success or failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: liang2023-${{ matrix.theory }}-${{ matrix.method }}
+          path: benchmark_carrera2023_cc_r1/${{ matrix.theory }}/${{ matrix.method }}/13x13/
+          if-no-files-found: warn
