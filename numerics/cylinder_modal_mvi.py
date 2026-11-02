@@ -940,15 +940,32 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
                         seed=seed, sweep=0, axis="X",
                         column=column, total_columns=total)
 
-            q, p, projected_value, old_projected = operator.halfstep(
-                x, y, "X", qmodes, current_q=initial_q,
-                on_stage=initial_x_trace)
-            if old_projected is None:
-                raise ValueError("MODAL MVI: missing initial X projected state")
-            _modal_variational_step_precision(
-                old_projected, projected_value, old_value,
-                operator.eigenvalue(q, p))
-            x, y = operator.fit(x, y, "X", q, p)
+            # For ranks 3..8, QR partner completion adds angular vectors
+            # outside the original seed's sine/cosine pair. The physical
+            # initial state was correctly projected onto one Fourier sector,
+            # but the unrestricted X trial space would immediately mix those
+            # other sectors back in. Restrict ONLY this initial conditioning
+            # halfstep to the harmonic actually present in the seed. After
+            # factor recovery, restore the unrestricted rank-r Y/X method;
+            # this is not a spectrum-by-Fourier-sector solver.
+            initialize_in_sector = (
+                operator.rank > 2 and operator.ne == 0 and
+                getattr(operator, "circumferential_harmonic", None) is None)
+            if initialize_in_sector:
+                operator.circumferential_harmonic = seed_n
+            try:
+                q, p, projected_value, old_projected = operator.halfstep(
+                    x, y, "X", qmodes, current_q=initial_q,
+                    on_stage=initial_x_trace)
+                if old_projected is None:
+                    raise ValueError("MODAL MVI: missing initial X projected state")
+                _modal_variational_step_precision(
+                    old_projected, projected_value, old_value,
+                    operator.eigenvalue(q, p))
+                x, y = operator.fit(x, y, "X", q, p)
+            finally:
+                if initialize_in_sector:
+                    del operator.circumferential_harmonic
             initial_q, initial_p = q, p
             report_candidate_state("MVI_CANDIDATE_INITIAL_X_DONE", q, p,
                                    axis="X")
