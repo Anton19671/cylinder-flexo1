@@ -551,41 +551,61 @@ class _SeparatedModalProblem:
                            max(1., float(np.linalg.norm(self.cm, ord=np.inf)) * old_norm))
             if trace_error > 1.e-9 * trace_scale:
                 raise ValueError("MODAL MVI: previous field violates essential traces")
-            raw = (separated_profile_directions(
-                x[:self.shape[0]], y[:self.shape[0]], axis)
-                if getattr(self, "circumferential_harmonic", None) is None
-                else _harmonic_variation_directions(
-                    x[:self.shape[0]], y[:self.shape[0]], axis,
-                    self.circumferential_harmonic))
-            # QR projection checks membership without the SVD-based lstsq path.
-            raw_q, raw_r, _ = qr(raw, mode="economic", pivoting=True,
-                                  check_finite=False)
-            raw_diag = np.abs(np.diag(raw_r))
-            raw_rank = int(np.count_nonzero(
-                raw_diag > 1.e-12 * np.max(raw_diag, initial=0.)))
-            raw_error = float(np.linalg.norm(
-                old_q - raw_q[:, :raw_rank] @
-                (raw_q[:, :raw_rank].T @ old_q)) / old_norm)
-            if not np.isfinite(raw_error) or raw_error > 1.e-9:
-                raise ValueError(
-                    "MODAL MVI: previous field not in frozen-partner span "
-                    f"axis={axis} difference={raw_error:.6g}")
-            # The admissible test basis must remain inside the current
-            # frozen-partner variation space. Appending a missing nodal
-            # vector changes the variational method into an enriched FDM
-            # subspace, even if that vector satisfies essential traces.
-            basis_q, basis_r, _ = qr(bm, mode="economic", pivoting=True,
+            if self.large_harmonic:
+                # fixed_trace_xy_basis returns an exactly constrained subset of
+                # the frozen-partner span. Its columns are disjoint across
+                # component/node groups and orthonormal BEFORE physical scales.
+                # Check both properties rather than repeat two global,
+                # pivoted QR factorizations on every modal halfstep.
+                normalized = bm / self.scales[:self.nm, None]
+                gram = normalized.T @ normalized
+                if not np.allclose(gram, np.eye(gram.shape[0]),
+                                   rtol=1.e-10, atol=1.e-10):
+                    raise ValueError("MODAL_MVI_LARGE_BASIS_NOT_ORTHONORMAL")
+                old_scaled = old_q / self.scales[:self.nm]
+                projected = normalized @ (normalized.T @ old_scaled)
+                missing_ratio = float(np.linalg.norm(old_scaled - projected) /
+                                      np.linalg.norm(old_scaled))
+                if not np.isfinite(missing_ratio) or missing_ratio > 1.e-9:
+                    raise ValueError(
+                        "MODAL_MVI_FROZEN_PARTNER_BASIS_LOST_CURRENT_FIELD: "
+                        f"axis={axis} difference={missing_ratio:.6g}")
+            else:
+                raw = (separated_profile_directions(
+                    x[:self.shape[0]], y[:self.shape[0]], axis)
+                    if getattr(self, "circumferential_harmonic", None) is None
+                    else _harmonic_variation_directions(
+                        x[:self.shape[0]], y[:self.shape[0]], axis,
+                        self.circumferential_harmonic))
+                # QR projection checks membership without the SVD-based lstsq path.
+                raw_q, raw_r, _ = qr(raw, mode="economic", pivoting=True,
                                       check_finite=False)
-            basis_diag = np.abs(np.diag(basis_r))
-            basis_rank = int(np.count_nonzero(
-                basis_diag > 1.e-12 * np.max(basis_diag, initial=0.)))
-            missing = old_q - basis_q[:, :basis_rank] @ (
-                basis_q[:, :basis_rank].T @ old_q)
-            missing_ratio = float(np.linalg.norm(missing) / old_norm)
-            if not np.isfinite(missing_ratio) or missing_ratio > 1.e-9:
-                raise ValueError(
-                    "MODAL_MVI_FROZEN_PARTNER_BASIS_LOST_CURRENT_FIELD: "
-                    f"axis={axis} difference={missing_ratio:.6g}")
+                raw_diag = np.abs(np.diag(raw_r))
+                raw_rank = int(np.count_nonzero(
+                    raw_diag > 1.e-12 * np.max(raw_diag, initial=0.)))
+                raw_error = float(np.linalg.norm(
+                    old_q - raw_q[:, :raw_rank] @
+                    (raw_q[:, :raw_rank].T @ old_q)) / old_norm)
+                if not np.isfinite(raw_error) or raw_error > 1.e-9:
+                    raise ValueError(
+                        "MODAL MVI: previous field not in frozen-partner span "
+                        f"axis={axis} difference={raw_error:.6g}")
+                # The admissible test basis must remain inside the current
+                # frozen-partner variation space. Appending a missing nodal
+                # vector changes the variational method into an enriched FDM
+                # subspace, even if that vector satisfies essential traces.
+                basis_q, basis_r, _ = qr(bm, mode="economic", pivoting=True,
+                                          check_finite=False)
+                basis_diag = np.abs(np.diag(basis_r))
+                basis_rank = int(np.count_nonzero(
+                    basis_diag > 1.e-12 * np.max(basis_diag, initial=0.)))
+                missing = old_q - basis_q[:, :basis_rank] @ (
+                    basis_q[:, :basis_rank].T @ old_q)
+                missing_ratio = float(np.linalg.norm(missing) / old_norm)
+                if not np.isfinite(missing_ratio) or missing_ratio > 1.e-9:
+                    raise ValueError(
+                        "MODAL_MVI_FROZEN_PARTNER_BASIS_LOST_CURRENT_FIELD: "
+                        f"axis={axis} difference={missing_ratio:.6g}")
         nm, ne = bm.shape[1], be.shape[1]
         # Report the ACTUAL BC-constrained frozen-partner dimensions.
         # This detects rank-independent trial spaces without forcing
