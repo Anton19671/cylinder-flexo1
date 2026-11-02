@@ -1,0 +1,40 @@
+name: KL clamped full YX MVI ranks one mode vs MKR
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ci/modal_kl_coupled_clamp_probe.py"
+      - ".github/workflows/modal-kl-one-mode-probe.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  solve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [low, high, mkr]
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements.txt
+      - name: Run independent physical KL clamp case
+        run: python ci/modal_kl_coupled_clamp_probe.py ${{ matrix.group }}
+      - name: Save actual numerical results, including failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kl-clamped-one-mode-${{ matrix.group }}
+          path: modal_kl_coupled_clamp_one_mode/${{ matrix.group }}/
+          if-no-files-found: warn
