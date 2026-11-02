@@ -14,6 +14,43 @@ import numpy as np
 from scipy.linalg import qr
 
 
+def normalize_modal_partner(x, y, axis, fixed_mask=None):
+    """QR in free coordinate rows, retaining exact homogeneous nodal traces.
+
+    Full QR of nearly dependent profiles can put O(eps/condition) entries
+    into an exactly zero endpoint row. The next constrained Y/X space then
+    excludes that artificial direction. Complete the partner family inside
+    the free rows instead. Nonuniform traces still use the usual exact
+    intersection in fixed_trace_xy_basis; no nodal space is added.
+    """
+    from cylinder_variational_mvi import _normalize_partner
+    if fixed_mask is None:
+        return _normalize_partner(x, y, axis)
+    if axis not in ("X", "Y"):
+        raise ValueError("MODAL_MVI_INVALID_HALFSTEP_AXIS")
+    x, y = x.copy(), y.copy()
+    fixed = np.asarray(fixed_mask, bool).reshape(len(x), x.shape[2], y.shape[2])
+    for c in range(len(x)):
+        partner = y[c].T if axis == "X" else x[c].T
+        blocked = np.all(fixed[c], axis=0 if axis == "X" else 1)
+        # Only exact zero factor rows may be removed here. Nonzero rows can
+        # cancel between rank terms and must go through the ordinary trace
+        # intersection, not be clipped or subjected to a relaxed tolerance.
+        blocked &= np.all(partner == 0., axis=1)
+        if np.count_nonzero(~blocked) < partner.shape[1]:
+            blocked[:] = False
+        q_free, r = np.linalg.qr(partner[~blocked], mode="reduced")
+        q = np.zeros_like(partner)
+        q[~blocked] = q_free
+        if axis == "X":
+            y[c] = q.T
+            x[c] = r @ x[c]
+        else:
+            x[c] = q.T
+            y[c] = r @ y[c]
+    return x, y
+
+
 def _coefficient_null(frozen_profiles, fixed_entries):
     """Orthonormal coefficient nullspace of a frozen-partner trace block."""
     partner = np.asarray(frozen_profiles, dtype=float)
@@ -187,4 +224,5 @@ def fixed_trace_harmonic_x_basis(y, harmonic, fixed_mask, scales,
     return scale[:, None] * basis
 
 
-__all__ = ("fixed_trace_xy_basis", "fixed_trace_harmonic_x_basis")
+__all__ = ("fixed_trace_xy_basis", "fixed_trace_harmonic_x_basis", "normalize_modal_partner")
+
