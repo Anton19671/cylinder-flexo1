@@ -229,8 +229,15 @@ def prepare_modal_case(case, *, base_dir=None):
     large_scan = (prepared.method=="MVI" and q.shape[1]*q.shape[2]>256)
     if large_scan:
         from cylinder_modal_large_harmonic import mechanical_fixed_trace_mask
-        fixed=mechanical_fixed_trace_mask(prepared.problem,q)
-        available=int(q.size-np.count_nonzero(fixed))
+        try:
+            fixed=mechanical_fixed_trace_mask(prepared.problem,q)
+            available=int(q.size-np.count_nonzero(fixed))
+        except ValueError as exc:
+            if str(exc) != "MODAL_LARGE_HARMONIC_UNSUPPORTED_COUPLED_TRACE":
+                raise
+            from cylinder_modal_axial_traces import uniform_axial_mechanical_traces
+            axial_bases, _, _ = uniform_axial_mechanical_traces(prepared.problem,q)
+            available=int(q.shape[2]*sum(b.shape[1] for b in axial_bases))
         if requested>available:
             raise ValueError("MODAL_LARGE_HARMONIC_INSUFFICIENT_FREE_DOFS")
         return {"theory":f.theory,"method":"MVI",
