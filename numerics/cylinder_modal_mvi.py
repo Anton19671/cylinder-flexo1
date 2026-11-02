@@ -465,6 +465,11 @@ class _SeparatedModalProblem:
                     "MODAL_MVI_FROZEN_PARTNER_BASIS_LOST_CURRENT_FIELD: "
                     f"axis={axis} difference={missing_ratio:.6g}")
         nm, ne = bm.shape[1], be.shape[1]
+        # Report the ACTUAL BC-constrained frozen-partner dimensions.
+        # This detects rank-independent trial spaces without forcing
+        # physically identical eigenfrequencies to differ.
+        if on_stage is not None:
+            on_stage("SUBSPACE_DIMENSIONS", nm, ne)
         b = np.zeros((self.nm + self.ne, nm + ne))
         b[:self.nm, :nm] = bm
         if ne:
@@ -691,10 +696,18 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
         raise ValueError(
             "MODAL_MVI_HARMONIC_SOLVER_RETIRED: use the unified unrestricted "
             "fixed-rank Y/X modal solver; inspect harmonics after the solve")
+    # A reused operator with an earlier rank or CASE silently solves the
+    # WRONG variational space while the output claims the requested rank.
+    if _cached_operator is not None and (
+            getattr(_cached_operator, "rank", None) != rank
+            or getattr(_cached_operator, "prepared", None) is not prepared):
+        raise ValueError("MODAL_MVI_CACHED_OPERATOR_CASE_OR_RANK_MISMATCH")
     operator = (_cached_operator if _cached_operator is not None else
                 _SeparatedModalProblem(prepared, density, rank))
     qmodes, pmodes, eigs, cycles = [], [], [], []
+    final_xy_spaces = []
     for mode in range(requested):
+        last_xy_spaces = {"Y": None, "X": None}
         x, y, initial_q, initial_p = operator.admissible_start(mode, qmodes)
         last_q = initial_q.copy()
         last_p = None if initial_p is None else initial_p.copy()
@@ -714,6 +727,17 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
                         max_sweeps=max_sweeps,axis=axis)
                 x, y = _normalize_partner(x, y, axis)
                 def trace(stage, column, total):
+                    if stage == "SUBSPACE_DIMENSIONS":
+                        actual = {
+                            "mechanical_directions": int(column),
+                            "electric_directions": int(total)}
+                        last_xy_spaces[axis] = actual
+                        if detail_callback is not None:
+                            detail_callback(stage="MVI_FROZEN_PARTNER_SPACE",
+                                mode=mode+1,n_modes=requested,rank=rank,
+                                sweep=sweep,max_sweeps=max_sweeps,axis=axis,
+                                **actual)
+                        return
                     if detail_callback is not None:
                         detail_callback(stage=stage,mode=mode+1,n_modes=requested,
                             rank=rank,sweep=sweep,max_sweeps=max_sweeps,
@@ -809,6 +833,10 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
         pmodes.append(None if p is None else p.copy())
         eigs.append(value)
         cycles.append(sweep)
+        final_xy_spaces.append({
+            axis: (None if last_xy_spaces[axis] is None
+                   else dict(last_xy_spaces[axis]))
+            for axis in ("Y", "X")})
         if detail_callback is not None:
             detail_callback(stage="MVI_MODE_DONE",mode=mode+1,
                 n_modes=requested,rank=rank,sweep=sweep,
@@ -846,6 +874,7 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
         "n_mechanical_free_dofs": operator.n_mechanical_free_dofs,
         "n_electric_free_dofs": operator.n_electric_free_dofs,
         "mvi_sweeps": [cycles[i] for i in order],
+        "mvi_final_xy_trial_dimensions": [final_xy_spaces[i] for i in order],
         "mode_discovery_indices": [int(i + 1) for i in order],
         # Sequential deflation certifies neither globally lowest ordering
         # nor completeness of the full discrete spectrum.
