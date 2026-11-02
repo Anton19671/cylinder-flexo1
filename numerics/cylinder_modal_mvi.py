@@ -513,12 +513,22 @@ class _SeparatedModalProblem:
         b[:self.nm, :nm] = bm
         if ne:
             b[self.nm:, nm:] = be
-        k = np.empty((nm + ne, nm + ne))
+        # Exact CUF tensor contractions compute the SAME projected K/M
+        # directly from frozen X/Y factors, without repeated 2D weak actions.
+        # Unsupported trial spaces retain the original columnwise assembly.
+        from cylinder_modal_separated_projector import exact_separated_cuf_projection
+        projected = (exact_separated_cuf_projection(
+            self.prepared.problem, self.density, self._local_tangent, bm)
+            if not ne else None)
+        k = np.empty((nm + ne, nm + ne)) if projected is None else projected[0]
         if on_stage is not None:on_stage("K_BEGIN",0,nm+ne)
-        for j in range(nm + ne):
-            if on_stage is not None:on_stage("K_COLUMN_START",j+1,nm+ne)
-            k[:, j] = b.T @ self.stiffness(b[:, j])
-            if on_stage is not None:on_stage("K_COLUMN_DONE",j+1,nm+ne)
+        if projected is None:
+            for j in range(nm + ne):
+                if on_stage is not None:on_stage("K_COLUMN_START",j+1,nm+ne)
+                k[:, j] = b.T @ self.stiffness(b[:, j])
+                if on_stage is not None:on_stage("K_COLUMN_DONE",j+1,nm+ne)
+        elif on_stage is not None:
+            on_stage("K_SEPARATED_CONTRACTION",nm+ne,nm+ne)
         if not np.isfinite(k).all():
             raise ValueError("nonfinite MODAL MVI tangent")
         asym = float(np.linalg.norm(k - k.T, ord=np.inf)) / max(
@@ -526,12 +536,15 @@ class _SeparatedModalProblem:
         if asym > 1.e-5:
             raise ValueError("MODAL MVI tangent is not symmetric")
         k = 0.5 * (k + k.T)
-        m = np.empty((nm, nm))
+        m = np.empty((nm, nm)) if projected is None else projected[1]
         if on_stage is not None:on_stage("M_BEGIN",0,nm)
-        for j in range(nm):
-            if on_stage is not None:on_stage("M_COLUMN_START",j+1,nm)
-            m[:, j] = bm.T @ self.mass(bm[:, j])
-            if on_stage is not None:on_stage("M_COLUMN_DONE",j+1,nm)
+        if projected is None:
+            for j in range(nm):
+                if on_stage is not None:on_stage("M_COLUMN_START",j+1,nm)
+                m[:, j] = bm.T @ self.mass(bm[:, j])
+                if on_stage is not None:on_stage("M_COLUMN_DONE",j+1,nm)
+        elif on_stage is not None:
+            on_stage("M_SEPARATED_CONTRACTION",nm,nm)
         if not np.isfinite(m).all():
             raise ValueError("nonfinite MODAL MVI mass matrix")
         if np.linalg.norm(m - m.T, ord=np.inf) > (

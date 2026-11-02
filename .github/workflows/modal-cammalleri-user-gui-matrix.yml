@@ -5,6 +5,8 @@ on:
     paths:
       - "ci/modal_cammalleri_user_gui_run.py"
       - "numerics/cylinder_modal_mvi.py"
+      - "numerics/cylinder_modal_separated_projector.py"
+      - "tests/test_modal_mvi_separated_cuf_projection.py"
       - "tests/test_modal_mvi_cammalleri_seed_coverage.py"
       - "ci/modal_cammalleri_user_gui_compare.py"
       - "config/verification/cammalleri2023/user_13x21/**"
@@ -35,6 +37,8 @@ jobs:
         with:
           python-version: "3.11"
       - run: python -m pip install -r requirements.txt
+      - name: Validate exact projected CUF stiffness and mass against original weak actions
+        run: python -m pytest -q tests/test_modal_mvi_separated_cuf_projection.py
       - name: Verify complete thin-shell seed harmonics before calculations
         run: python -m pytest -q tests/test_modal_mvi_cammalleri_seed_coverage.py
       - name: Run user's CASE with actual GUI child runner
