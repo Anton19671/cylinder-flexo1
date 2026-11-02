@@ -1,0 +1,39 @@
+name: Independent modal full K M audit
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ci/modal_full_matrix_audit.py"
+      - ".github/workflows/modal-full-matrix-audit.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements.txt
+      - name: Compare full matrices and Fourier spectra on three grids and two thicknesses
+        shell: bash
+        run: |
+          failures=0
+          for args in "9 9 0.000254" "13 13 0.000254" "13 21 0.000254" "13 21 0.00254"; do
+            python ci/modal_full_matrix_audit.py $args || failures=1
+          done
+          exit "$failures"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: modal-independent-full-matrix
+          path: modal_full_matrix_*.json
+          if-no-files-found: warn
