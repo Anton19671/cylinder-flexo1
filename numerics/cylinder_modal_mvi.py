@@ -802,6 +802,16 @@ def _modal_seed_plan(operator, mode, requested):
                     "index": int(mode + 1103 + 17*n + (7 if phase == "sin" else 0)),
                     "n": int(n), "phase": phase,
                     "component_phase": "circumferential_quadrature"})
+    # The C-C 13x13 benchmark has a low n=5 doublet. Rank-two
+    # random starts can miss it even when rank one finds it. Keep explicit
+    # starts through n=6 on small problems, using the verified probe seeds.
+    if count <= 2500:
+        for n in range(max(5, limit + 1), min(operator.ns // 2, 6) + 1):
+            for phase in ("cos", "sin"):
+                starts.append({
+                    "kind": "harmonic_partner",
+                    "index": int(mode + 4001 + 17*n + (7 if phase == "sin" else 0)),
+                    "n": n, "phase": phase})
     return starts
 
 
@@ -880,7 +890,7 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
         report_candidate_state("MVI_CANDIDATE_INITIAL_STATE",
                                initial_q, initial_p)
         seed_n, seed_fraction = harmonic_state(initial_q)
-        if (operator.rank == 1
+        if (operator.rank <= 2
                 and seed["kind"] in ("harmonic_partner", "quadrature_previous")
                 and seed_n > 0 and seed_fraction >= 1. - 1.e-8):
             x, y = _normalize_partner(x, y, "X")
