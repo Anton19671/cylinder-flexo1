@@ -1,0 +1,32 @@
+name: Modal MVI rank-one component phase forensic
+on:
+  push:
+    branches: [main]
+    paths:
+      - ci/modal_mvi_phase_pattern_probe.py
+      - .github/workflows/modal-mvi-phase-pattern-probe.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  phase-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements.txt
+      - name: KL component-phase and rank-one admissible X halfstep
+        run: python ci/modal_mvi_phase_pattern_probe.py
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: modal-phase-pattern-forensic
+          path: modal_mvi_phase_pattern_probe_result.json
+          if-no-files-found: warn
