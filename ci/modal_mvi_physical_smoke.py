@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Small REAL shell modal smoke: MKR/FDM versus unrestricted fixed-rank MVI.
 
-This is not a literature benchmark or proof of full-spectrum completeness.
+This is an axially ASYMMETRIC C-S shell test, not proof of spectrum completeness.
 No physical matrices/BC/kinematics are modified for the comparison.
 """
 from __future__ import annotations
@@ -29,6 +29,10 @@ def reference_case():
         (HERE / "config" / "CASE_REFERENCE_MODAL_SEVEN_THEORIES.json")
         .read_text(encoding="utf-8"))
     base["theory"] = "KL"
+    # Break axial reflection symmetry: left clamped, right simply supported.
+    # The uniform circumferential material and geometry are unchanged.
+    base["boundary_conditions"]["variational"]["mechanical"]["right"] = {
+        "support": "SIMPLY_SUPPORTED", "higher": "NATURAL"}
     base.pop("cuf_model", None)
     base["geometry_model"] = "LINEAR"
     base["quadrature"]["n_gauss"] = 4
@@ -52,7 +56,7 @@ def reference_case():
 def main():
     base = reference_case()
     report = {
-        "scope": "KL_LINEAR_MACRO_CC_SBP42_9x9_unloaded",
+        "scope": "KL_LINEAR_MACRO_CS_SBP42_9x9_unloaded",
         "physical_model": {
             "geometry": base["geometry"],
             "material": base["material"],
