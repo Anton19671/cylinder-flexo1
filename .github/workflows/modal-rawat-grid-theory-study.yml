@@ -17,8 +17,12 @@ jobs:
       fail-fast: false
       max-parallel: 2
       matrix:
-        theory: [CUF_TE1, CUF_TE4]
-        grid: [13, 17]
+        include:
+          - {theory: CUF_TE1, grid: 13}
+          - {theory: CUF_TE1, grid: 17}
+          - {theory: CUF_TE4, grid: 13}
+          - {theory: CUF_TE4, grid: 17}
+          - {theory: CUF_TE4, grid: 21}
     env:
       PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
       OPENBLAS_NUM_THREADS: "1"
