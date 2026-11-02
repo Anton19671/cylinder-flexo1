@@ -208,27 +208,49 @@ def solve_modal_fourier_fdm(prepared,density,requested,projector,
                             total_sectors=(ns+1)//2,sector_dofs=count)
         phase=np.exp(1j*n*theta)/np.sqrt(ns)
         conjugate=np.conjugate(phase)
-        factor=2. if n else 1.
         km=np.empty((count,count),dtype=np.complex128)
         mm=np.empty((count,count),dtype=np.complex128)
         trial=np.zeros_like(q0)
+        permitted={n,(-n)%ns}
+        other=np.array([idx for idx in range(ns)
+                        if idx not in permitted],dtype=int)
         for j in range(count):
-            trial[:, :, :] = (axial_basis[:, j].reshape(q0.shape[:2])[:, :, None]
-                              * phase.real[None, None, :])
-            ka=(k@trial.ravel()).reshape(q0.shape)
-            ma=(m@trial.ravel()).reshape(q0.shape)
-            for label,action in (('K',ka),('M',ma)):
+            axial=axial_basis[:,j].reshape(q0.shape[:2])
+            # Use the actual complex Fourier trial exp(i*n*theta) on the
+            # original real-valued K/M actions. A single cosine action,
+            # doubled afterwards, assumes its sine partner is numerically
+            # identical. Thin-shell tangent actions are poorly scaled and
+            # their two real phases can differ by accumulated roundoff.
+            # K(cos+i*sin) = K(cos)+i*K(sin) holds by linearity, so building
+            # both is the direct Galerkin block, not an altered shell model.
+            trial[:]=axial[:,:,None]*phase.real[None,None,:]
+            kr=(k@trial.ravel()).reshape(q0.shape)
+            mr=(m@trial.ravel()).reshape(q0.shape)
+            for label,action in (('K_COS',kr),('M_COS',mr)):
                 spectrum=np.fft.fft(action,axis=-1)/np.sqrt(ns)
-                other=np.array([idx for idx in range(ns)
-                                if idx not in {n,(-n)%ns}],dtype=int)
                 leakage=(np.linalg.norm(spectrum[:,:,other])/
                          max(np.linalg.norm(spectrum),1e-30))
                 if leakage>1e-8:
                     raise ValueError('MODAL_FOURIER_'+label+'_BREAKS_ANGULAR_SYMMETRY')
+            if n:
+                trial[:]=axial[:,:,None]*phase.imag[None,None,:]
+                ki=(k@trial.ravel()).reshape(q0.shape)
+                mi=(m@trial.ravel()).reshape(q0.shape)
+                for label,action in (('K_SIN',ki),('M_SIN',mi)):
+                    spectrum=np.fft.fft(action,axis=-1)/np.sqrt(ns)
+                    leakage=(np.linalg.norm(spectrum[:,:,other])/
+                             max(np.linalg.norm(spectrum),1e-30))
+                    if leakage>1e-8:
+                        raise ValueError('MODAL_FOURIER_'+label+'_BREAKS_ANGULAR_SYMMETRY')
+                ka=kr+1j*ki
+                ma=mr+1j*mi
+            else:
+                ka=kr
+                ma=mr
             k_axial=np.einsum('cxs,s->cx',ka,conjugate).reshape(-1)
             m_axial=np.einsum('cxs,s->cx',ma,conjugate).reshape(-1)
-            km[:,j]=factor*(axial_basis.T@k_axial)
-            mm[:,j]=factor*(axial_basis.T@m_axial)
+            km[:,j]=axial_basis.T@k_axial
+            mm[:,j]=axial_basis.T@m_axial
             if detail_callback and ((j+1)%100==0 or j+1==count):
                 detail_callback(stage='MATRIX_FREE_MODAL_FOURIER_COLUMN',
                                 circumferential_n=n,column=j+1,total_columns=count)
