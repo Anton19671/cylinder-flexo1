@@ -97,6 +97,12 @@ def test_fast_membership_all_ranks_preserves_physical_scales(rank, axis):
     ncomp, nx, ns = 5, 13, 21
     x = rng.standard_normal((ncomp, rank, nx))
     y = rng.standard_normal((ncomp, rank, ns))
+    # Clamped ends require admissible frozen X partners before a Y
+    # variation. Random nonzero endpoint profiles can leave the exact
+    # constrained Y space EMPTY at ranks 1 and 2. That is physics, not
+    # a membership-check failure.
+    x[:, :, 0] = 0.0
+    x[:, :, -1] = 0.0
     fixed = np.zeros((ncomp, nx, ns), dtype=bool)
     fixed[:, 0, :] = fixed[:, -1, :] = True
     scales = np.broadcast_to(
