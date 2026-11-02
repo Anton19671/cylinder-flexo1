@@ -34,7 +34,8 @@ NX = NS = 9
 N_MODES = 2
 POINT_MASS_KG = 500.0
 TOLS = (1e-5, 1e-7, 1e-9)
-RANKS = (1, 2)
+RANKS = (1, 2, 4, 6)
+MASS_SERIES_KG = (0.0, 100.0, 250.0, POINT_MASS_KG)
 
 
 def read(path):
@@ -227,6 +228,12 @@ def solve_mvi(case, point, mass_kg, tolerance, full_freq, full_modes):
         "absolute_fdm_differences_hz": np.abs(f - full_freq).tolist(),
         "relative_fdm_differences": (
             np.abs(f - full_freq) / full_freq).tolist(),
+        "signed_frequency_differences_hz": (f - full_freq).tolist(),
+        "signed_lambda_differences_rad2_s2": (
+            (2.0 * np.pi) ** 2 * (f ** 2 - full_freq ** 2)).tolist(),
+        "lowest_mode_rayleigh_upper_bound_check": bool(
+            f[0] >= full_freq[0] -
+            max(1e-9, 1e-10 * float(full_freq[0]))),
         "pair_gap_hz": float(f[1] - f[0]),
         "pair_gap_difference_hz": float((f[1] - f[0]) -
                                         (full_freq[1] - full_freq[0])),
@@ -248,6 +255,9 @@ def main():
     report = {
         "problem": "CUF TE1 C-C 9x9 SBP42, added local point mass on w0",
         "point_mass_kg": POINT_MASS_KG,
+        "mass_series_kg": list(MASS_SERIES_KG),
+        "mvi_ranks": list(RANKS),
+        "mvi_main_mass_tolerances": list(TOLS),
         "point_component": "w0",
         "point_grid_index": [NX // 2, NS // 3],
         "n_modes": N_MODES, "physical_operator_changed": False,
@@ -255,7 +265,14 @@ def main():
         "fdm_bc": "SparseTraceProjector from independent FDM case",
         "mvi_bc": "affine_trace_space from MVI case",
         "reference_is_independent_physical_validation": False,
-        "runs": {}, "completed": False
+        "fdm_by_mass_kg": {},
+        "runs": {}, "completed": False,
+        "notes": [
+            "rank applies per CUF component, not to the complete six-component field",
+            "a fixed rank can exhibit approximation plateau even with converged Y/X iterations",
+            "the same physical mass perturbation is assembled separately by each branch",
+            "identical discrete shell equations do not constitute independent physical validation",
+        ],
     }
     try:
         fdm_case = make_case("FDM")
@@ -270,19 +287,30 @@ def main():
                 eff_mvi["mvi_grid"]["operator_scheme"] + "_CSR"):
             raise ValueError("Different physical discretization for pointmass test")
         point = point_index((6, NX, NS))
-        fdm, frequencies, fields = full_space_fdm(
-            fdm_case, point, POINT_MASS_KG)
-        report["fdm"] = fdm
-        print("[POINTMASS] FDM " + json.dumps(fdm), flush=True)
-        for rank in RANKS:
-            tolerances = TOLS if rank == 1 else (1e-7,)
-            for tol in tolerances:
-                name = f"MVI_{rank}_tol_{tol:.0e}"
+        for mass_kg in MASS_SERIES_KG:
+            mass_key = f"{mass_kg:g}"
+            print(f"[POINTMASS] START FDM mass_kg={mass_kg:g}", flush=True)
+            fdm, frequencies, fields = full_space_fdm(
+                fdm_case, point, mass_kg)
+            report["fdm_by_mass_kg"][mass_key] = fdm
+            print(f"[POINTMASS] FDM mass_kg={mass_kg:g} " +
+                  json.dumps(fdm), flush=True)
+            # Rank-1 mass series identifies whether the plateau is truly
+            # caused by nonseparability and vanishes as mass -> 0.
+            # At the main mass independently compare ranks 1,2,4,6 and
+            # tolerances 1e-5,1e-7,1e-9 without any full-space MVI fallback.
+            conditions = (
+                [(1, 1e-7)] if mass_kg != POINT_MASS_KG else
+                [(rank, tol) for rank in RANKS for tol in
+                 (TOLS if rank == 1 else (1e-7, 1e-9))]
+            )
+            for rank, tol in conditions:
+                name = f"m{mass_key}_MVI_{rank}_tol_{tol:.0e}"
                 print(f"[POINTMASS] START {name}", flush=True)
                 case = make_case("MVI", rank)
                 t = time.monotonic()
                 try:
-                    result = solve_mvi(case, point, POINT_MASS_KG,
+                    result = solve_mvi(case, point, mass_kg,
                                        tol, frequencies, fields)
                 except Exception as error:
                     result = {
@@ -293,6 +321,7 @@ def main():
                         "traceback": traceback.format_exc(limit=6),
                         "wall_seconds": round(time.monotonic() - t, 3)
                     }
+                result["point_mass_kg"] = mass_kg
                 report["runs"][name] = result
                 print("[POINTMASS] RESULT " + name + " " +
                       json.dumps({k: v for k, v in result.items()
