@@ -878,7 +878,13 @@ def _modal_seed_plan(operator, mode, requested):
     # random starts can miss it even when rank one finds it. Keep explicit
     # starts through n=6 on small problems, using the verified probe seeds.
     if count <= 2500:
-        for n in range(max(5, limit + 1), min(operator.ns // 2, 6) + 1):
+        # Higher-n angular branches can be among the first twelve modes on
+        # thin shells. The former n<=6 cutoff missed the n=7 second axial
+        # doublet of the actual Cammalleri CUF TE1 13x21 case (843.00958 Hz).
+        # Extend the seed bank only for a requested spectrum of >=10 modes;
+        # these are initial partners, never Fourier-restricted MVI equations.
+        upper = 6 if requested < 10 else 8
+        for n in range(max(5, limit + 1), min(operator.ns // 2, upper) + 1):
             for phase in ("cos", "sin"):
                 starts.append({
                     "kind": "harmonic_partner",
