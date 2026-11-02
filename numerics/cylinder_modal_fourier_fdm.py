@@ -149,7 +149,16 @@ def _certify_full_mode(k,m,vector,value,prediction_k,prediction_m,
     if (projected>5.e-9 or mismatch>quality_limit or
             physical>projected+mismatch+2.e-8 or
             abs(physical_quotient-value)>5.e-8*max(1.,abs(value))):
-        raise ValueError('MODAL_FOURIER_EIGENPAIR_VERIFICATION_FAILED')
+        # Numerical failure and actual violation of the variational Fourier
+        # block must not look identical in the GitHub journal. Report every
+        # independent physical-action check; do not weaken its acceptance.
+        raise ValueError(
+            'MODAL_FOURIER_EIGENPAIR_VERIFICATION_FAILED: '
+            f'physical={physical:.6e}, projected={projected:.6e}, '
+            f'block_action_mismatch={mismatch:.6e}, '
+            f'physical_rayleigh={physical_quotient:.12g}, '
+            f'projected_eigenvalue={value:.12g}, '
+            f'mass={mass:.6e}')
     return physical,projected,mismatch
 
 
