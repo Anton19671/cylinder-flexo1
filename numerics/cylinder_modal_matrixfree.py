@@ -64,7 +64,7 @@ def _projected_actions(prepared, density, projector, *, progress_callback=None):
     # This is restricted to homogeneous LINEAR macro elasticity.
     local_tangent = None
     if is_linear and not functional.material.ell_m:
-        from cylinder_modal_mvi import _LocalMechanicalTangent
+        from cylinder_modal_linear_physics import _LocalMechanicalTangent
         local_tangent = _LocalMechanicalTangent(
             prepared.problem, functional, step)
     elif is_linear:
