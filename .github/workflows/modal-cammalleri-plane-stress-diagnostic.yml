@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - "ci/modal_cammalleri_plane_stress_diagnostic.py"
+      - "tests/test_modal_cammalleri_plane_stress_diagnostic.py"
       - ".github/workflows/modal-cammalleri-plane-stress-diagnostic.yml"
   workflow_dispatch:
 permissions:
@@ -25,7 +26,7 @@ jobs:
           python-version: "3.11"
       - run: python -m pip install -r requirements.txt
       - name: Confirm current 3D KL and Fourier regressions are unchanged
-        run: python -m pytest -q tests/test_modal_kl_exact_tangent.py tests/test_modal_fourier_thin_shell_accuracy.py
+        run: python -m pytest -q tests/test_modal_kl_exact_tangent.py tests/test_modal_fourier_thin_shell_accuracy.py tests/test_modal_cammalleri_plane_stress_diagnostic.py
       - name: Contrast physical 3D and plane stress diagnostic constitutive laws
         run: python ci/modal_cammalleri_plane_stress_diagnostic.py
       - name: Store independently identified material-model comparison and fields
