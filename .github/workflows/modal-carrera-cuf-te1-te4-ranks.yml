@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - 'ci/modal_carrera_cuf_te1_te4_mvi_all_ranks.py'
+      - 'ci/modal_carrera_cuf_te1_te4_consolidate.py'
       - '.github/workflows/modal-carrera-cuf-te1-te4-ranks.yml'
   workflow_dispatch:
 permissions:
@@ -38,4 +39,32 @@ jobs:
         with:
           name: carrera-${{ matrix.model }}-${{ matrix.group }}
           path: benchmark_carrera_cuf_te_ranks/${{ matrix.model }}/${{ matrix.group }}/
+          if-no-files-found: warn
+
+  consolidate:
+    name: Consolidate 32 measured modes and Word appendix
+    if: ${{ always() }}
+    needs: [verify]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CARRERA_ARTIFACT_DIR: benchmark_carrera_downloads
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install python-docx
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: carrera-*
+          path: benchmark_carrera_downloads
+      - name: Consolidate strictly from saved completed outputs
+        run: python ci/modal_carrera_cuf_te1_te4_consolidate.py
+      - name: Preserve CSV JSON and Word even when incomplete
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: carrera-CUF-TE1-TE4-MVI1-8-final-report
+          path: benchmark_carrera_consolidated/
           if-no-files-found: warn
