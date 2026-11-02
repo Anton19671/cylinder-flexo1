@@ -1,0 +1,78 @@
+name: Cammalleri CUF TE1 user CASEs actual GUI runner FDM MVI1-8
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ci/modal_cammalleri_user_gui_run.py"
+      - "ci/modal_cammalleri_user_gui_compare.py"
+      - "config/verification/cammalleri2023/user_13x21/**"
+      - ".github/workflows/modal-cammalleri-user-gui-matrix.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  solver:
+    name: Actual GUI solver ${{ matrix.case }}
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        case: [FDM, MVI_1, MVI_1_AUTO, MVI_2, MVI_3, MVI_4, MVI_5, MVI_6, MVI_7, MVI_8]
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements.txt
+      - name: Run user's CASE with actual GUI child runner
+        run: python ci/modal_cammalleri_user_gui_run.py ${{ matrix.case }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: user-cammalleri-${{ matrix.case }}
+          path: modal_cammalleri_user_results/${{ matrix.case }}/
+          if-no-files-found: warn
+  compare:
+    name: Verify all ten user CASEs, frequencies, modal fields and elapsed time
+    if: always()
+    needs: [solver]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements.txt
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: user-cammalleri-*
+          path: modal-cammalleri-10-input
+      - name: Relabel downloaded artifact folders by CASE identifier
+        run: |
+          for d in modal-cammalleri-10-input/user-cammalleri-*; do
+            [ -d "$d" ] || continue
+            mv "$d" "modal-cammalleri-10-input/$(basename "$d" | sed 's/^user-cammalleri-//')"
+          done
+      - name: Compare all ten real solver jobs using physical mass-MAC
+        run: python ci/modal_cammalleri_user_gui_compare.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: user-cammalleri-full-matrix-comparison
+          path: modal-cammalleri-10-report/
+          if-no-files-found: warn
