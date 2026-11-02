@@ -135,7 +135,8 @@ def _refine_fourier_eigenpair(km,mm,value,vector,*,max_iterations=3):
 
 def _certify_full_mode(k,m,vector,value,prediction_k,prediction_m,
                        *,quality_limit=1.e-6, field_shape=None,
-                       circumferential_n=None, mode_index=None, origin=None):
+                       circumferential_n=None, mode_index=None, origin=None,
+                       raw_prediction_k=None, axial_basis=None):
     """Verify physical actions and quantify numerical block-action disagreement."""
     kv,mv=k@vector,m@vector
     denominator=max(np.linalg.norm(kv)+abs(value)*np.linalg.norm(mv),1.e-30)
@@ -158,6 +159,19 @@ def _certify_full_mode(k,m,vector,value,prediction_k,prediction_m,
         k_mismatch=float(np.linalg.norm(k_delta)/denominator)
         m_mismatch=float(abs(value)*np.linalg.norm(m_delta)/denominator)
         angular_diagnostic=''
+        if raw_prediction_k is not None and axial_basis is not None:
+            raw_delta=kv-raw_prediction_k
+            shape=tuple(field_shape)
+            flat=kv.reshape(shape).reshape(-1,shape[-1])
+            restricted=(axial_basis@(axial_basis.T@flat)).reshape(-1)
+            per_component=np.linalg.norm(k_delta.reshape(shape),axis=(1,2))/denominator
+            per_axial=np.linalg.norm(k_delta.reshape(shape),axis=(0,2))/denominator
+            angular_diagnostic += (
+                f', raw_K_mismatch={np.linalg.norm(raw_delta)/denominator:.6e}'
+                f', symmetrization_effect={np.linalg.norm(prediction_k-raw_prediction_k)/denominator:.6e}'
+                f', axial_projection_difference={np.linalg.norm(kv-restricted)/denominator:.6e}'
+                f', component_K_delta={per_component.tolist()}'
+                f', axial_K_delta={per_axial.tolist()}')
         if field_shape is not None and circumferential_n is not None:
             n=int(circumferential_n)
             ns=int(field_shape[-1])
@@ -167,7 +181,7 @@ def _certify_full_mode(k,m,vector,value,prediction_k,prediction_m,
                               axis=-1)
                 return float(np.linalg.norm(ft[:,:,other])/
                              max(np.linalg.norm(ft),1.e-30))
-            angular_diagnostic=(
+            angular_diagnostic+=(
                 f', K_off_harmonic={harmonic_leakage(kv):.6e}'
                 f', M_off_harmonic={harmonic_leakage(mv):.6e}'
                 f', K_delta_off_harmonic={harmonic_leakage(k_delta):.6e}'
@@ -254,6 +268,7 @@ def solve_modal_fourier_fdm(prepared,density,requested,projector,
             if detail_callback and ((j+1)%100==0 or j+1==count):
                 detail_callback(stage='MATRIX_FREE_MODAL_FOURIER_COLUMN',
                                 circumferential_n=n,column=j+1,total_columns=count)
+        raw_km=km.copy()
         for label,mat in (('K',km),('M',mm)):
             if not np.isfinite(mat).all():
                 raise ValueError('MODAL_FOURIER_NONFINITE_'+label)
@@ -279,6 +294,10 @@ def solve_modal_fourier_fdm(prepared,density,requested,projector,
             generation=('FOURIER_CONSTANT',) if n==0 else ('FOURIER_COS','FOURIER_SIN')
             candidates=(shape.real,) if n==0 else (
                 np.sqrt(2.)*shape.real,np.sqrt(2.)*shape.imag)
+            raw_kpred_ax=(axial_basis@(raw_km@vec)).reshape(q0.shape[:2])
+            raw_kpred=raw_kpred_ax[:,:,None]*phase[None,None,:]
+            raw_pk=(raw_kpred.real,) if n==0 else (
+                np.sqrt(2.)*raw_kpred.real,np.sqrt(2.)*raw_kpred.imag)
             kpred_ax=(axial_basis@(km@vec)).reshape(q0.shape[:2])
             mpred_ax=(axial_basis@(mm@vec)).reshape(q0.shape[:2])
             kpred=kpred_ax[:,:,None]*phase[None,None,:]
@@ -287,9 +306,10 @@ def solve_modal_fourier_fdm(prepared,density,requested,projector,
                 np.sqrt(2.)*kpred.real,np.sqrt(2.)*kpred.imag)
             pm=(mpred.real,) if n==0 else (
                 np.sqrt(2.)*mpred.real,np.sqrt(2.)*mpred.imag)
-            for origin,field,pred_k,pred_m in zip(generation,candidates,pk,pm):
+            for origin,field,pred_k,pred_m,raw_pred_k in zip(generation,candidates,pk,pm,raw_pk):
                 entries.append((lam,n,index+1,origin,field.ravel().copy(),
-                                pred_k.ravel().copy(),pred_m.ravel().copy()))
+                                pred_k.ravel().copy(),pred_m.ravel().copy(),
+                                raw_pred_k.ravel().copy()))
             families.append({'n':n,'axial_mode_index':index+1,
                              'axial_mode_index_verified':False,
                              'frequency_hz':float(np.sqrt(lam*conversion)/(2*np.pi)),
@@ -307,7 +327,8 @@ def solve_modal_fourier_fdm(prepared,density,requested,projector,
     for j,row in enumerate(chosen):
         _certify_full_mode(k,m,vectors[:,j],values[j],row[5],row[6],
                            field_shape=q0.shape, circumferential_n=row[1],
-                           mode_index=j+1, origin=row[3])
+                           mode_index=j+1, origin=row[3], raw_prediction_k=row[7],
+                           axial_basis=axial_basis)
     m_vectors=m@vectors
     gram=vectors.T@m_vectors
     if np.max(np.abs(gram-np.eye(requested)))>1e-6:
