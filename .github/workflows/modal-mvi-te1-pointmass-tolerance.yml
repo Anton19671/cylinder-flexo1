@@ -1,0 +1,36 @@
+name: Modal CUF TE1 point-mass rank and tolerance audit
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ci/modal_mvi_te1_pointmass_tolerance_audit.py"
+      - ".github/workflows/modal-mvi-te1-pointmass-tolerance.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements.txt
+      - name: Compare MVI 1 2 4 6 and FDM over point mass and tolerance
+        run: python ci/modal_mvi_te1_pointmass_tolerance_audit.py
+      - name: Upload complete result even on failed comparisons
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: modal-te1-pointmass-rank-tolerance-audit
+          path: modal_te1_pointmass_tolerance_audit.json
+          if-no-files-found: warn
