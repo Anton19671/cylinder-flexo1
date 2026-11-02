@@ -104,8 +104,14 @@ class FunctionalAssemblyChecks(unittest.TestCase):
                 fd=(np.sum((u+h*d)*fp)-np.sum((u-h*d)*fm))/(4*h)
                 np.testing.assert_allclose(fd,np.sum(force*d),rtol=5e-5,atol=1e-7)
         f=CylinderFunctional("KL",mat,**self.kw)
-        with self.assertRaises(NotImplementedError):
-            f.mass_action(np.zeros((3,*self.ops.shape)),density_kg_m3=1300)
+        acceleration=np.ones((3,*self.ops.shape))
+        with self.assertRaisesRegex(ValueError,"requires current mechanical state"):
+            f.mass_action(acceleration,density_kg_m3=1300)
+        actual=f.mass_action(acceleration,density_kg_m3=1300,
+                             mechanical=np.zeros_like(acceleration),
+                             velocity=np.zeros_like(acceleration))
+        self.assertTrue(np.isfinite(actual).all())
+        self.assertGreater(np.linalg.norm(actual),0.)
 
 
 if __name__=="__main__":
