@@ -77,9 +77,10 @@ def main():
         name=f"MVI_{rank}_SEEDOFFSET_{offset}"
         start=ORIGINAL_START
         if offset:
-            def other_start(self,mode,previous,_offset=offset):
-                # Seed choice only; physical equations and order unchanged.
-                return start(self,mode+_offset,previous)
+            def other_start(self,mode,previous,_offset=offset,**kwargs):
+                # Forward the expanded MVI seed interface without changing
+                # operator, rank, boundary conditions or Y/X halfsteps.
+                return start(self,mode+_offset,previous,**kwargs)
             mvi._SeparatedModalProblem.admissible_start=other_start
         else:
             mvi._SeparatedModalProblem.admissible_start=ORIGINAL_START
