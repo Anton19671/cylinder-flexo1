@@ -1,0 +1,41 @@
+name: KL FSDT Reddy modal branch audit
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ci/modal_mvi_classical_theories_audit.py"
+      - ".github/workflows/modal-mvi-classical-theories.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  modal:
+    strategy:
+      fail-fast: false
+      matrix:
+        model: [KL, FSDT, REDDY]
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      PYTHONDONTWRITEBYTECODE: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install solver requirements
+        run: python -m pip install -r requirements.txt
+      - name: Compare modal branches
+        run: python ci/modal_mvi_classical_theories_audit.py ${{ matrix.model }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: classical-${{ matrix.model }}-modal-branch-audit
+          path: |
+            modal_${{ matrix.model }}_audit.json
+            modal_${{ matrix.model }}_*_modes.npz
+          if-no-files-found: warn
