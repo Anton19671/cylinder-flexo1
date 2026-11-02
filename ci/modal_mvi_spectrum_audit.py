@@ -75,6 +75,24 @@ def overlap_matrices(reference, trial, f, density):
     self_mac = self_gram**2 / (norms_trial[:, None] * norms_trial[None, :])
     return mac, self_mac
 
+def degenerate_subspace_mass_mac(reference, trial, f, density):
+    """Squared mass-metric principal overlaps of two equally sized subspaces.
+
+    A member of a degenerate pair may rotate within its exact eigenspace, so
+    individual-vector MAC is not a valid pass/fail measure for that pair.
+    """
+    mref = mass_actions(reference, f, density)
+    mtrial = mass_actions(trial, f, density)
+    qref = reference.reshape(len(reference), -1)
+    qtrial = trial.reshape(len(trial), -1)
+    norms_ref = np.einsum("ij,ij->i", qref, mref.reshape(len(reference), -1))
+    norms_trial = np.einsum("ij,ij->i", qtrial, mtrial.reshape(len(trial), -1))
+    gram = qref @ mtrial.reshape(len(trial), -1).T
+    normalized_gram = gram / np.sqrt(norms_ref[:, None] * norms_trial[None, :])
+    # The eigenvalues of GᵀG are squared cosines of principal angles.
+    values = np.linalg.eigvalsh(normalized_gram.T @ normalized_gram)
+    return np.clip(values[::-1], 0.0, 1.0)
+
 
 def main():
     start = time.monotonic()
@@ -204,6 +222,14 @@ def main():
                     "mass_mac": float(mac[i, j])}
                     for i, j in zip(rows, cols)],
                     key=lambda e: e["fdm_mode"])
+                degenerate_pairs = {}
+                for left, right in ((0, 1), (2, 3), (4, 5), (6, 7)):
+                    principal_mac = degenerate_subspace_mass_mac(
+                        ref_shapes[[left, right]], shapes[[left, right]], f, density)
+                    degenerate_pairs[f"{left + 1}-{right + 1}"] = {
+                        "principal_mass_mac": principal_mac.tolist(),
+                        "minimum_principal_mass_mac": float(np.min(principal_mac)),
+                        "subspace_verified": bool(np.min(principal_mac) >= 0.999)}
                 report["comparisons"][name] = {
                     "by_frequency_index": [
                         {"mode": i+1, "fdm_hz": float(ref_freq[i]),
@@ -213,6 +239,7 @@ def main():
                          "mass_mac_same_index": float(mac[i,i])}
                         for i in range(N)],
                     "optimal_mass_mac_assignment": matches,
+                    "degenerate_pair_subspaces": degenerate_pairs,
                     "max_offdiag_mass_mac": float(np.max(
                         np.abs(self_mac-np.diag(np.diag(self_mac))))),
                     "mac_matrix": mac.tolist()}
