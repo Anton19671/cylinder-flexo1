@@ -31,13 +31,13 @@ class ModalCacheTests(unittest.TestCase):
                           'spring': [10000.] * 9}}, 'electrical': {}}},
             'modal': {'density_kg_m3': 7800., 'n_modes': 1},
             'output_dir': 'modal_regression_unused',
-            'reference_newton': {'tangent_step_scaled': 2e-6, 'max_free_dofs': 1024},
-            'mvi_grid': {'nx': 9, 'ns': 9, 'operator_scheme': 'SBP42_FOURIER_ODD'},
+            'reference_newton': {'tangent_step_scaled': 2e-6, 'max_free_dofs': 512},
+            'mvi_grid': {'nx': 9, 'ns': 5, 'operator_scheme': 'SBP42_FOURIER_ODD'},
         }
         prepared, density, _ = _modal_spec(case)
         operator = _SeparatedModalProblem(prepared, density, 1)
-        # Nine components, 9x9 nodes, one clamped end (9x9 traces).
-        self.assertEqual(operator.n_mechanical_free_dofs, 9 * 9 * 9 - 9 * 9)
+        # Nine components, 9x5 nodes, one clamped end (9x5 traces).
+        self.assertEqual(operator.n_mechanical_free_dofs, 9 * 9 * 5 - 9 * 5)
         self.assertEqual(operator.n_electric_free_dofs, 0)
         direction = np.random.default_rng(829).normal(size=operator.nm) * operator.scales
         def force(sign):
