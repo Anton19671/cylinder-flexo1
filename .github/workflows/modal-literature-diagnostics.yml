@@ -1,0 +1,61 @@
+name: Modal literature diagnostics - Rawat grid and Cammalleri eigenpair
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "ci/modal_literature_diagnostics.py"
+      - ".github/workflows/modal-literature-diagnostics.yml"
+permissions:
+  contents: read
+jobs:
+  rawat-grid:
+    name: Rawat 2016 CUF TE1 grid 13 17 21
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      PYTHONDONTWRITEBYTECODE: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements.txt
+      - name: Independently compute FDM grid dependence and axial nodes
+        run: python ci/modal_literature_diagnostics.py rawat
+      - name: Save all grid results, including partial failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rawat2016-cuf-te1-three-grid-diagnostic
+          path: modal_literature_diagnostic_rawat_grid.json
+          if-no-files-found: warn
+  cammalleri-cutoff:
+    name: Cammalleri 2023 Fourier eigenpair cutoff 2 4 8 12
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      PYTHONDONTWRITEBYTECODE: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements.txt
+      - name: Isolate failing eigenpair while keeping strict certification
+        run: python ci/modal_literature_diagnostics.py cammalleri
+      - name: Save per-cutoff physical-action verification
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cammalleri2023-eigenpair-cutoff-diagnostic
+          path: modal_literature_diagnostic_cammalleri_cutoff.json
+          if-no-files-found: warn
