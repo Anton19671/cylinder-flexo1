@@ -889,7 +889,16 @@ def _modal_seed_plan(operator, mode, requested):
                 starts.append({
                     "kind": "harmonic_partner",
                     "index": int(mode + 4001 + 17*n + (7 if phase == "sin" else 0)),
-                    "n": n, "phase": phase})
+                    "n": n, "phase": phase,
+                    # Only the newly added high harmonics in the 12-mode
+                    # thin CUF rank-one case need physical u/v quadrature
+                    # to initialize the low bending branch. Uniform u/v
+                    # phases reach a high membrane basin (~8.3 kHz),
+                    # even though the n=7 second axial family is 843 Hz.
+                    **({"component_phase": "circumferential_quadrature"}
+                       if operator.rank == 1 and n >= 7 and
+                       _circumferential_seed_components(operator.f)
+                       else {})})
     return starts
 
 

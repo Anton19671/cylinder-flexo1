@@ -25,11 +25,24 @@ def _coefficient_null(frozen_profiles, fixed_entries):
     if not np.any(mask):
         return np.eye(rank)
     boundary = partner[mask, :]
+    # All columns were normalized by the corresponding X/Y partner QR.
+    # On a truly clamped endpoint their remaining entries can be 1e-15:
+    # a rank test relative ONLY to boundary would treat that roundoff as
+    # independent essential constraints and delete an admissible current
+    # MVI field (Cammalleri TE1 ranks 2-4, frozen Y partner).
+    #
+    # Compare the boundary singular scale with the FULL frozen partner.
+    # This is a numerical zero decision in the constraint assembly, not
+    # a relaxation of mode orthogonality, eigenvalue, or K/M tolerances.
+    partner_scale = float(np.linalg.norm(partner, ord=2))
+    if partner_scale <= 0.:
+        return np.eye(rank)
     q, r, _ = qr(boundary.T, mode="full", pivoting=True,
                  check_finite=False)
     diagonal = np.abs(np.diag(r))
     active = int(np.count_nonzero(
-        diagonal > 1.e-12 * np.max(diagonal, initial=0.)))
+        diagonal > 1.e-12 * max(
+            partner_scale, float(np.max(diagonal, initial=0.)))))
     return q[:, active:]
 
 
