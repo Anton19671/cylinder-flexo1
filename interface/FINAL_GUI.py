@@ -8833,6 +8833,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self._online_last_event_wall=self._online_wall_start
         self._online_last_heartbeat_wall=self._online_wall_start
         self._live_journal_path=None
+        self._modal_diagnostic_path=None
         try:
             output=Path(self.run_output_dir).resolve()
             kind=str(getattr(self,"_live_run_calculation_kind",self._v("calculation_kind","STATIC").get())).upper()
@@ -8845,6 +8846,10 @@ class FinalSolverGUI(EnhancedSolverGUI):
             path=folder/name
             path.touch(exist_ok=False)
             self._live_journal_path=path
+            if kind=="MODAL":
+                diagnostic=path.with_name(path.stem+"__EVENTS.jsonl")
+                diagnostic.touch(exist_ok=False)
+                self._modal_diagnostic_path=diagnostic
         except (OSError,ValueError) as exc:
             # Logging must never prevent a legitimate solver run.
             self._log(f"Журнал: ошибка создания файла: {exc}\\n")
@@ -8867,6 +8872,24 @@ class FinalSolverGUI(EnhancedSolverGUI):
     def _log(self,text):
         message=str(text)
         archive_message=message  # Preserve the complete machine-readable event.
+        # Write complete machine-readable modal diagnostics separately. The
+        # human journal deliberately contains no per-column K/M spam.
+        if message.startswith("MODAL_EVENT "):
+            try:
+                from cylinder_modal_journal import format_modal_event
+                event=json.loads(message[len("MODAL_EVENT "):])
+                self._reference_last_modal_event=dict(event)
+                self._online_last_event_wall=time.monotonic()
+                diagnostic=getattr(self,"_modal_diagnostic_path",None)
+                if diagnostic is not None:
+                    with Path(diagnostic).open("a",encoding="utf-8") as stream:
+                        stream.write(json.dumps(event,ensure_ascii=False)+"\\n")
+                formatted=format_modal_event(event)
+                if formatted is None:
+                    return
+                archive_message=formatted+"\\n"
+            except (ValueError,TypeError,KeyError,OSError) as exc:
+                archive_message="MODAL JOURNAL FORMAT ERROR: "+str(exc)+"\\n"
         if message.startswith("MODAL_EVENT "):
             try:
                 raw_event=json.loads(message[len("MODAL_EVENT "):])
@@ -8946,7 +8969,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
                 if event.get("sweep") is not None:
                     self._online_set("mvi",f"rank {event.get('rank')} | {event['sweep']} | {event.get('axis','XY')}")
                 if hasattr(self,"progress_status_label"):self.progress_status_label.configure(text=label[:100])
-                message=label+"\n"
+                message=archive_message
             except (ValueError,TypeError,KeyError):pass
         for name in ("log","online_log","online_log_detached"):
             w=getattr(self,name,None)
