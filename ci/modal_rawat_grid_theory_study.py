@@ -12,6 +12,7 @@ from cylinder_paths import activate
 activate()
 from cylinder_modal_reference import solve_modal_case
 from modal_mvi_rawat_te1_cc_audit import harmonic_numbers
+from modal_literature_diagnostics import axial_harmonic_signature
 
 ROOT = Path(__file__).resolve().parents[1]
 BASE = ROOT / "config/verification/rawat2016/modal_linear"
@@ -52,10 +53,15 @@ def run(theory, grid):
             sector=[x for x in scan if int(x["n"])==n and int(x.get("axial_mode_index",0))==1]
             saved=[float(f) for f,k in zip(freq,harmonics) if int(k)==n]
             value=(float(sector[0]["frequency_hz"]) if sector else (min(saved) if saved else None))
+            index=next((i for i,k in enumerate(harmonics) if int(k)==n),None)
+            radial_component=2*(int(theory[-1])+1)
+            signature=(None if index is None else axial_harmonic_signature(
+                modes[index,radial_component],int(n)))
             rows.append({"circumferential_n":n,"published_m1_hz":reference[n],
                          "first_sector_branch_hz":value,
                          "difference_percent":None if value is None else 100*(value-reference[n])/reference[n],
                          "source":"full_sector_scan" if sector else ("saved_modes" if saved else "missing"),
+                         "radial_axial_signature":signature,
                          "axial_m1_verified":False})
         np.savez_compressed(ROOT/(prefix+"_fields.npz"),mechanical_modes=modes,
                             frequencies_hz=freq,circumferential_wavenumbers=np.asarray(harmonics,int))
