@@ -8883,13 +8883,13 @@ class FinalSolverGUI(EnhancedSolverGUI):
                 diagnostic=getattr(self,"_modal_diagnostic_path",None)
                 if diagnostic is not None:
                     with Path(diagnostic).open("a",encoding="utf-8") as stream:
-                        stream.write(json.dumps(event,ensure_ascii=False)+"\\n")
+                        stream.write(json.dumps(event,ensure_ascii=False)+"\n")
                 formatted=format_modal_event(event)
                 if formatted is None:
                     return
-                archive_message=formatted+"\\n"
+                archive_message=formatted+"\n"
             except (ValueError,TypeError,KeyError,OSError) as exc:
-                archive_message="MODAL JOURNAL FORMAT ERROR: "+str(exc)+"\\n"
+                archive_message="MODAL JOURNAL FORMAT ERROR: "+str(exc)+"\n"
         if message.startswith("MODAL_EVENT "):
             try:
                 raw_event=json.loads(message[len("MODAL_EVENT "):])
