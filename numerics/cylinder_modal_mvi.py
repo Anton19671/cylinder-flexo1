@@ -288,11 +288,20 @@ class _SeparatedModalProblem:
         if count > MAX_PROJECTED_DIRECTIONS:
             raise ValueError("MODAL MVI small-grid limit: projected X/Y family has "
                              f"{count} directions, maximum {MAX_PROJECTED_DIRECTIONS}")
+        self.axial_trace_bases = None
         if self.large_harmonic:
             from cylinder_modal_large_harmonic import mechanical_fixed_trace_mask
-            self.fixed_mask=mechanical_fixed_trace_mask(prepared.problem,self.q0)
-            c=np.empty((0,self.nm))
-            target=np.empty(0)
+            from cylinder_modal_axial_traces import uniform_axial_mechanical_traces
+            try:
+                self.fixed_mask=mechanical_fixed_trace_mask(prepared.problem,self.q0)
+                c=np.empty((0,self.nm))
+                target=np.empty(0)
+            except ValueError as exc:
+                if str(exc) != "MODAL_LARGE_HARMONIC_UNSUPPORTED_COUPLED_TRACE":
+                    raise
+                self.axial_trace_bases, self.fixed_mask, c = (
+                    uniform_axial_mechanical_traces(prepared.problem,self.q0))
+                target=np.zeros(c.shape[0])
         else:
             first=prepared.problem.assemble(self.q0,self.p0)
             if np.max(np.abs(first.space.origin),initial=0.)>1.e-10:
@@ -307,7 +316,9 @@ class _SeparatedModalProblem:
         self.cm = c[has_m, :self.nm]
         self.ce = c[has_e, self.nm:]
         self.n_mechanical_free_dofs = (self.nm-int(self.fixed_mask.sum())
-                                      if self.large_harmonic else _free_dof_count(self.cm))
+                                      if self.large_harmonic and self.axial_trace_bases is None else
+                                      self.nm-sum(self.nx-b.shape[1] for b in self.axial_trace_bases)*self.ns
+                                      if self.large_harmonic else _free_dof_count(self.cm) else _free_dof_count(self.cm))
         self.n_electric_free_dofs = (0 if self.large_harmonic else _free_dof_count(self.ce))
         self.step = prepared.settings.tangent_step_scaled
         self.scales = state_scales(self.f, self.q0, self.p0, prepared.settings)
