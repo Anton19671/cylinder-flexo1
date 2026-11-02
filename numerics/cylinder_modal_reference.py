@@ -592,6 +592,7 @@ def run_modal_case(case, case_path):
            if result.get("method")=="MVI" and "circumferential_wavenumbers" not in result else {}),
         **({"rank": result["rank"], "mvi_sweeps": result["mvi_sweeps"],
             "mode_discovery_indices": result.get("mode_discovery_indices"),
+            "mvi_final_xy_trial_dimensions": result.get("mvi_final_xy_trial_dimensions"),
             "mvi_modal_algorithm": result["mvi_modal_algorithm"],
             "mvi_spectrum_method": "UNRESTRICTED",
             "modal_component_separation_ranks": rank_audit["mechanical_ranks"],
