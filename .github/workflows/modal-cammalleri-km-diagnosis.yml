@@ -5,6 +5,8 @@ on:
     paths:
       - ".github/workflows/modal-cammalleri-km-diagnosis.yml"
       - "numerics/cylinder_modal_fourier_fdm.py"
+      - "numerics/cylinder_modal_mvi.py"
+      - "tests/test_modal_kl_exact_tangent.py"
       - "ci/modal_article_benchmarks.py"
   workflow_dispatch:
 permissions:
@@ -25,7 +27,7 @@ jobs:
           python-version: "3.11"
       - run: python -m pip install -r requirements.txt
       - name: Regression of Fourier mode checks
-        run: python -m pytest -q tests/test_modal_fourier_fdm.py tests/test_modal_fourier_bc_spaces.py tests/test_modal_fourier_thin_shell_accuracy.py
+        run: python -m pytest -q tests/test_modal_fourier_fdm.py tests/test_modal_fourier_bc_spaces.py tests/test_modal_fourier_thin_shell_accuracy.py tests/test_modal_kl_exact_tangent.py
       - name: Diagnose Cammalleri 12-mode Fourier certification
         run: python ci/modal_article_benchmarks.py cammalleri
       - uses: actions/upload-artifact@v4

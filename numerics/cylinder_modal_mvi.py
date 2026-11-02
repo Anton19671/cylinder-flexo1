@@ -227,6 +227,42 @@ def _initial_factors(components, rank, nx, ns, mode):
     return x, y
 
 
+def _kl_linear_local_tangent(functional):
+    """Exact Hessian of the linear KL weak energy in surface-jet coordinates.
+
+    Form B^T C B directly at each thickness point.  Differencing weak
+    forces after constructing F = I + grad(u) loses small diagonal strains
+    when I is subtracted again, which contaminates thin-shell bending terms.
+    """
+    from cylinder_kl_g3d_weak import (
+        _kl_small_virtual_F_library, _variation, gauss_thickness)
+    from flexo_gradient_g3d import covariant_strain_gradients, enthalpy_derivatives
+
+    radius, thickness = functional.R, functional.h
+    local = np.zeros((30, 30))
+    identity = np.eye(3)
+    zero = np.zeros((3, 3))
+    for z, weight in zip(*gauss_thickness(thickness, functional.n_gauss)):
+        z = float(z)
+        virtual = _kl_small_virtual_F_library(
+            radius, thickness, z, "LINEAR").reshape(30, 4, 3, 3)
+        strains = np.empty((30, 6))
+        gradients = np.empty((30, 6, 3))
+        for i, direction in enumerate(virtual):
+            strain, derivs = _variation(
+                identity, zero, zero, zero, *direction, "LINEAR")
+            strains[i] = strain
+            gradients[i] = covariant_strain_gradients(
+                strain, *derivs, radius_m=radius, z_m=z)
+        for j in range(30):
+            stress, higher_stress, _ = enthalpy_derivatives(
+                strains[j], gradients[j], np.zeros(3), functional.material)
+            local[:, j] += weight * (1. + z / radius) * (
+                strains @ stress +
+                np.einsum("ijk,jk->i", gradients, higher_stress))
+    return local
+
+
 class _LocalMechanicalTangent:
     """Cache local linearized weak coefficients, not a full-grid matrix."""
     def __init__(self, problem, functional, step):
@@ -236,15 +272,18 @@ class _LocalMechanicalTangent:
         nc, nd = functional.n_mechanical, len(self.spec)
         mechanical = [np.zeros((nc, 1, 1)) for _ in range(nd)]
         electrical = [np.zeros((1, 1, 1)) for _ in range(3)]
-        self.local = np.empty((nc * nd, nc * nd))
-        for j in range(nc * nd):
-            c, d = divmod(j, nd)
-            mechanical[d][c, 0, 0] = step
-            plus = functional._local(functional._make_jets(mechanical, electrical, 0, 0)).mechanical.ravel()
-            mechanical[d][c, 0, 0] = -step
-            minus = functional._local(functional._make_jets(mechanical, electrical, 0, 0)).mechanical.ravel()
-            mechanical[d][c, 0, 0] = 0.
-            self.local[:, j] = (plus - minus) / (2. * step)
+        if functional.theory == "KL" and functional.geometry_model == "LINEAR":
+            self.local = _kl_linear_local_tangent(functional)
+        else:
+            self.local = np.empty((nc * nd, nc * nd))
+            for j in range(nc * nd):
+                c, d = divmod(j, nd)
+                mechanical[d][c, 0, 0] = step
+                plus = functional._local(functional._make_jets(mechanical, electrical, 0, 0)).mechanical.ravel()
+                mechanical[d][c, 0, 0] = -step
+                minus = functional._local(functional._make_jets(mechanical, electrical, 0, 0)).mechanical.ravel()
+                mechanical[d][c, 0, 0] = 0.
+                self.local[:, j] = (plus - minus) / (2. * step)
         if not np.isfinite(self.local).all():
             raise ValueError("MODAL MVI local tangent is nonfinite")
 
