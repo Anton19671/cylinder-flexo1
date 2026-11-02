@@ -259,3 +259,37 @@ def test_modal_deflation_selects_second_and_third_mass_orthogonal_modes():
     np.testing.assert_allclose(q3@op.mass(first),0.,atol=1.e-12)
     np.testing.assert_allclose(q3@op.mass(second),0.,atol=1.e-12)
     np.testing.assert_allclose(q3@op.mass(q3),1.,atol=1.e-12)
+
+
+
+def test_modal_reused_operator_rejects_wrong_rank_before_any_solve():
+    """The reported MVI rank must equal the operator's actual rank."""
+    from types import SimpleNamespace
+    from cylinder_modal_mvi import solve_modal_mvi
+    prepared = SimpleNamespace(
+        method="MVI", mvi_settings=SimpleNamespace(rank=3, max_sweeps=2))
+    cached = SimpleNamespace(rank=1, prepared=prepared)
+    with pytest.raises(ValueError, match="CACHED_OPERATOR_CASE_OR_RANK_MISMATCH"):
+        solve_modal_mvi(prepared, 7850., 1, _cached_operator=cached)
+
+
+def test_modal_reused_operator_rejects_different_case_before_any_solve():
+    """A same-rank operator built for another CASE is not interchangeable."""
+    from types import SimpleNamespace
+    from cylinder_modal_mvi import solve_modal_mvi
+    prepared = SimpleNamespace(
+        method="MVI", mvi_settings=SimpleNamespace(rank=2, max_sweeps=2))
+    other = SimpleNamespace(
+        method="MVI", mvi_settings=SimpleNamespace(rank=2, max_sweeps=2))
+    cached = SimpleNamespace(rank=2, prepared=other)
+    with pytest.raises(ValueError, match="CACHED_OPERATOR_CASE_OR_RANK_MISMATCH"):
+        solve_modal_mvi(prepared, 7850., 1, _cached_operator=cached)
+
+
+def test_modal_final_xy_dimension_diagnostic_contract():
+    """Both Y and X dimensions must be reported, never substituted by rank."""
+    source = (Path(__file__).resolve().parents[1] / "numerics" /
+              "cylinder_modal_mvi.py").read_text(encoding="utf-8")
+    assert 'on_stage("SUBSPACE_DIMENSIONS", nm, ne)' in source
+    assert 'stage="MVI_FROZEN_PARTNER_SPACE"' in source
+    assert '"mvi_final_xy_trial_dimensions"' in source
