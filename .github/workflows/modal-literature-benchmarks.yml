@@ -1,0 +1,66 @@
+name: Article modal benchmarks - Rawat 2016 and Cammalleri 2023
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ci/modal_article_benchmarks.py"
+      - ".github/workflows/modal-literature-benchmarks.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  rawat:
+    name: Rawat 2016 Table 2 / CUF TE1 FDM MVI1
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements.txt
+      - name: Compute Rawat CUF TE1 FDM and MVI1
+        run: python ci/modal_mvi_rawat_te1_cc_audit.py
+      - name: Match Rawat modes with published Table 2
+        if: always()
+        run: python ci/modal_article_benchmarks.py rawat
+      - name: Save Rawat comparison
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: article-rawat2016-modal
+          path: |
+            modal_mvi_rawat_te1_cc_audit_result.json
+            modal_article_rawat2016_result.json
+          if-no-files-found: warn
+  cammalleri:
+    name: Cammalleri 2023 Tables A2 and 16 / KL FDM
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements.txt
+      - name: Compare Cammalleri with independent ANSYS frequencies
+        run: python ci/modal_article_benchmarks.py cammalleri
+      - name: Save Cammalleri comparison
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: article-cammalleri2023-modal
+          path: modal_article_cammalleri2023_result.json
+          if-no-files-found: warn
