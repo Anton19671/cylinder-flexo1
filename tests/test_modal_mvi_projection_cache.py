@@ -9,6 +9,27 @@ from cylinder_modal_mvi import _SeparatedModalProblem
 
 
 class ProjectionCacheTests(unittest.TestCase):
+    def test_higher_ranks_cache_large_bases_with_bounded_memory(self):
+        for rank in range(2, 9):
+            with self.subTest(rank=rank):
+                op = _SeparatedModalProblem.__new__(_SeparatedModalProblem)
+                op.ne, op.rank, op.density = 0, rank, 7800.
+                op.prepared = SimpleNamespace(problem=object())
+                op._local_tangent = object()
+                a = np.eye(150, 132)  # TE1 rank-two X space exceeds old limit.
+                pair = (np.eye(132), np.eye(132))
+                budget = a.nbytes + sum(m.nbytes for m in pair)
+                with patch('cylinder_modal_mvi.MAX_PROJECTED_CACHE_BYTES', budget), patch(
+                        'cylinder_modal_separated_projector.exact_separated_cuf_projection',
+                        return_value=pair) as project:
+                    op.cached_cuf_projection(a)
+                    op.cached_cuf_projection(a.copy())
+                    self.assertEqual(project.call_count, 1)
+                    op.cached_cuf_projection(2. * a)
+                    self.assertEqual(len(op._projected_basis_cache), 1)
+                    op.cached_cuf_projection(a)
+                    self.assertEqual(project.call_count, 3)
+
     def test_reuse_only_identical_basis_and_keep_cached_values_immutable(self):
         op = _SeparatedModalProblem.__new__(_SeparatedModalProblem)
         op.ne, op.rank, op.density = 0, 1, 7800.

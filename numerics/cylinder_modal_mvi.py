@@ -28,6 +28,7 @@ from cylinder_modal_harmonic_spectrum import (
 )
 
 MAX_PROJECTED_DIRECTIONS = 1600
+MAX_PROJECTED_CACHE_BYTES = 64 * 1024 * 1024
 
 
 def _free_dof_count(constraints):
@@ -501,7 +502,7 @@ class _SeparatedModalProblem:
         """
         from hashlib import blake2b
         from cylinder_modal_separated_projector import exact_separated_cuf_projection
-        if self.ne or self.rank != 1 or bm.shape[1] > 128:
+        if self.ne or bm.shape[1] > 512:
             return exact_separated_cuf_projection(
                 self.prepared.problem, self.density, self._local_tangent, bm)
         cache = getattr(self, "_projected_basis_cache", None)
@@ -512,11 +513,22 @@ class _SeparatedModalProblem:
                                    digest_size=16).digest())
         entry = cache.get(key)
         if entry is not None and np.array_equal(entry[0], basis):
+            cache.pop(key)
+            cache[key] = entry
             return entry[1][0].copy(), entry[1][1].copy()
         projected = exact_separated_cuf_projection(
             self.prepared.problem, self.density, self._local_tangent, bm)
         if projected is not None:
-            if len(cache) >= 32:
+            required = basis.nbytes + sum(matrix.nbytes for matrix in projected)
+            if required > MAX_PROJECTED_CACHE_BYTES:
+                return projected
+            cache.pop(key, None)
+            def entry_bytes(item):
+                return item[0].nbytes + sum(matrix.nbytes for matrix in item[1])
+            used = sum(entry_bytes(item) for item in cache.values())
+            while cache and (len(cache) >= 64 or
+                             used + required > MAX_PROJECTED_CACHE_BYTES):
+                used -= entry_bytes(cache[next(iter(cache))])
                 cache.pop(next(iter(cache)))
             cache[key] = (basis.copy(), (projected[0].copy(), projected[1].copy()))
         return projected
