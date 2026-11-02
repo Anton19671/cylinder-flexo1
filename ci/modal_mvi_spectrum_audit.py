@@ -94,6 +94,72 @@ def degenerate_subspace_mass_mac(reference, trial, f, density):
     return np.clip(values[::-1], 0.0, 1.0)
 
 
+def check_spectrum_acceptance(report, *,
+                              max_relative_frequency_difference=2.e-5,
+                              min_principal_mass_mac=0.999,
+                              max_mass_orthogonality_mac=1.e-6,
+                              max_stiffness_operator_difference=1.e-6):
+    """Require physical eight-mode FDM agreement, not merely completed jobs.
+
+    A repeated eigenvalue has an arbitrary orthogonal rotation of its
+    cosine/sine pair. Only the two-dimensional mass-metric eigenspace is
+    invariant: pairwise vector MAC is diagnostic, never the pass/fail rule.
+    This verifier inspects EXISTING audit outputs; it cannot change K, M,
+    MVI iteration, eigenvalues, modes, ranks, or acceptance tolerances.
+    """
+    issues = []
+    all_names = ["MKR_FDM"] + [f"MVI_{rank}" for rank in range(1, 9)]
+    for name in all_names:
+        if report.get("runs", {}).get(name, {}).get("status") != "SOLVED":
+            issues.append(name + ":NOT_SOLVED")
+    fdm_orth = report.get("fdm_max_offdiag_mass_mac")
+    if (fdm_orth is None or not np.isfinite(fdm_orth)
+            or fdm_orth > max_mass_orthogonality_mac):
+        issues.append("FDM:MASS_ORTHOGONALITY_NOT_VERIFIED")
+    for name in all_names[1:]:
+        comparison = report.get("comparisons", {}).get(name)
+        if comparison is None:
+            issues.append(name + ":COMPARISON_MISSING")
+            continue
+        rows = comparison.get("by_frequency_index", [])
+        if len(rows) != 8:
+            issues.append(name + ":EIGHT_FREQUENCIES_NOT_COMPARED")
+        else:
+            for row in rows:
+                percent = row.get("difference_percent")
+                if (percent is None or not np.isfinite(percent)
+                        or percent > 100. * max_relative_frequency_difference):
+                    issues.append(name + ":FREQUENCY_MISMATCH_MODE_" +
+                                  str(row.get("mode")))
+        orthogonality = comparison.get("max_offdiag_mass_mac")
+        if (orthogonality is None or not np.isfinite(orthogonality)
+                or orthogonality > max_mass_orthogonality_mac):
+            issues.append(name + ":MASS_ORTHOGONALITY_NOT_VERIFIED")
+        pairs = comparison.get("degenerate_pair_subspaces", {})
+        if set(pairs) != {"1-2", "3-4", "5-6", "7-8"}:
+            issues.append(name + ":DOUBLET_SUBSPACE_MISSING")
+            continue
+        for key, pair in pairs.items():
+            values = np.asarray(pair.get("principal_mass_mac", []), float)
+            if (values.shape != (2,) or not np.isfinite(values).all()
+                    or np.min(values) < min_principal_mass_mac):
+                issues.append(name + ":DOUBLET_SUBSPACE_FAILED_" + key)
+    probe = report.get("stiffness_operator_probe", {}).get(
+        "relative_norm_difference")
+    if (probe is None or not np.isfinite(probe)
+            or probe > max_stiffness_operator_difference):
+        issues.append("K_OPERATOR_NOT_VERIFIED")
+    return {
+        "status": "PASS" if not issues else "FAIL",
+        "issues": issues,
+        "max_relative_frequency_difference": max_relative_frequency_difference,
+        "minimum_required_principal_mass_mac": min_principal_mass_mac,
+        "max_mass_orthogonality_mac": max_mass_orthogonality_mac,
+        "max_stiffness_operator_difference": max_stiffness_operator_difference,
+        "scope": "same_discretization_FDM_vs_fixed_rank_MVI",
+    }
+
+
 def main():
     start = time.monotonic()
     base = physical_case()
@@ -109,6 +175,8 @@ def main():
         "runs": {},
         "comparisons": {},
         "all_nine_solved": False,
+        "all_spectra_verified": False,
+        "spectrum_acceptance": {"status": "NOT_RUN", "issues": []},
     }
     physical = {}
     result = {}
@@ -278,6 +346,9 @@ def main():
         report["all_nine_solved"] = all(
             report["runs"].get(name, {}).get("status") == "SOLVED"
             for name in ["MKR_FDM"] + [f"MVI_{rank}" for rank in range(1,9)])
+        report["spectrum_acceptance"] = check_spectrum_acceptance(report)
+        report["all_spectra_verified"] = (
+            report["spectrum_acceptance"]["status"] == "PASS")
     except Exception as exc:
         report["harness_error"] = traceback.format_exc(limit=12)
         print("[SPECTRUM] AUDIT ERROR " + repr(exc), flush=True)
@@ -288,8 +359,10 @@ def main():
         print("[SPECTRUM] SUMMARY " + json.dumps({
             "statuses": {n:v["status"] for n,v in report["runs"].items()},
             "all_nine_solved": report["all_nine_solved"],
+            "all_spectra_verified": report["all_spectra_verified"],
+            "acceptance_issues": report["spectrum_acceptance"]["issues"],
             "elapsed_s": report["elapsed_s"]}), flush=True)
-    return 0 if report["all_nine_solved"] else 1
+    return 0 if report["all_nine_solved"] and report["all_spectra_verified"] else 1
 
 
 if __name__ == "__main__":

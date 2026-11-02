@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - "ci/modal_mvi_spectrum_audit.py"
+      - "tests/test_modal_mvi_spectrum_acceptance.py"
       - "numerics/cylinder_modal_mvi.py"
       - ".github/workflows/modal-mvi-spectrum-audit.yml"
   workflow_dispatch:
@@ -26,7 +27,9 @@ jobs:
           python-version: "3.11"
       - name: Install solver requirements
         run: python -m pip install -r requirements.txt
-      - name: Audit physical eight-frequency spectrum
+      - name: Verify that completed modes cannot bypass spectral or modal-shape checks
+        run: python -m pytest -q tests/test_modal_mvi_spectrum_acceptance.py
+      - name: Audit eight physical frequencies and all degenerate mode subspaces
         run: python ci/modal_mvi_spectrum_audit.py
       - name: Upload spectrum audit
         if: always()
