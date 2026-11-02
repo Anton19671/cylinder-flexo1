@@ -7063,10 +7063,16 @@ class FinalSolverGUI(EnhancedSolverGUI):
             draft=copy.deepcopy(cfg)
             draft["output_dir"]=folder
             self.open_reference_case(draft,path)
+        from cylinder_result_folder_preferences import save_results_folder
+        try:
+            save_results_folder(folder)
+        except (OSError,ValueError) as exc:
+            messagebox.showerror("Сохранение папки результатов",str(exc))
+            return
         self._v("output_dir").set(folder)
         if editor is not None and "output_dir" in editor.fields:
             editor.fields["output_dir"].set(folder)
-        self._log(f"Выбрана папка результатов: {folder}\n")
+        self._log(f"Папка результатов сохранена: {folder}\n")
 
     def _release_reference_locks(self):
         for widget,state in getattr(self,"_reference_widget_states",{}).items():
@@ -7405,8 +7411,10 @@ class FinalSolverGUI(EnhancedSolverGUI):
                 else:
                     from cylinder_reference_case import prepare_reference_case
                     prepare_reference_case(cfg,base_dir=Path(p).parent)
+                self._v("run_label").set(Path(p).stem.split("__AUTO_",1)[0])
                 self._v("case_path").set(p)
                 self.open_reference_case(cfg,p)
+                self._sync_reference_case()
                 self._log(f"Вариационный CASE загружен: {p}\n")
                 return
             if cfg.get("format")=="CYLINDER_GUI_PARAMETERS_V2":
@@ -7803,6 +7811,13 @@ class FinalSolverGUI(EnhancedSolverGUI):
         style.map("Green.Vertical.TScrollbar",background=[("active","#17883a"),("pressed","#126f30")])
 
     def _install_standard_defaults(self):
+        if not getattr(self,"_results_preference_loaded",False):
+            self._results_preference_loaded=True
+            try:
+                from cylinder_result_folder_preferences import load_results_folder
+                saved=load_results_folder()
+                if saved:self._v("output_dir").set(saved)
+            except (OSError,ValueError):pass
         for key,value in self._STANDARD_DEFAULTS.items():
             if not self._v(key,value).get().strip():self._v(key).set(value)
         if _is_legacy_program_results_root(self._v("output_dir").get()):
