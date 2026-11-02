@@ -16,10 +16,13 @@ jobs:
   modal:
     strategy:
       fail-fast: false
-      max-parallel: 8
+      # A separate runner for each of 56 combinations over-schedules
+      # hosted capacity. Run four ranks in each job, preserving their
+      # separate comparison JSON and field arrays.
+      max-parallel: 2
       matrix:
         model: [KL, FSDT, REDDY, CUF_TE1, CUF_TE2, CUF_TE3, CUF_TE4]
-        rank: [1, 2, 3, 4, 5, 6, 7, 8]
+        group: [low, high]
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
@@ -35,15 +38,28 @@ jobs:
           python-version: "3.11"
       - name: Install solver requirements
         run: python -m pip install -r requirements.txt
-      - name: Compare modal branches
-        run: python ci/modal_mvi_all_ranks_theories_audit.py ${{ matrix.model }} ${{ matrix.rank }}
+      - name: Compare four rank cases independently against MKR/FDM
+        shell: bash
+        run: |
+          if [ "${{ matrix.group }}" = "low" ]; then
+            ranks="1 2 3 4"
+          else
+            ranks="5 6 7 8"
+          fi
+          failures=0
+          for rank in $ranks; do
+            echo "::group::${{ matrix.model }} MVI-$rank vs FDM"
+            python ci/modal_mvi_all_ranks_theories_audit.py "${{ matrix.model }}" "$rank" || failures=1
+            echo "::endgroup::"
+          done
+          exit "$failures"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: modal-${{ matrix.model }}-rank${{ matrix.rank }}
+          name: modal-${{ matrix.model }}-rankgroup-${{ matrix.group }}
           path: |
-            modal_${{ matrix.model }}_rank${{ matrix.rank }}_audit.json
-            modal_${{ matrix.model }}_rank${{ matrix.rank }}_*.npz
+            modal_${{ matrix.model }}_rank*_audit.json
+            modal_${{ matrix.model }}_rank*_*.npz
           if-no-files-found: warn
 
   consolidate:
@@ -62,7 +78,7 @@ jobs:
       - name: Download every available theory-rank audit, including failed jobs
         uses: actions/download-artifact@v4
         with:
-          pattern: modal-*-rank*
+          pattern: modal-*-rankgroup-*
           path: modal-matrix-56-input
           merge-multiple: true
       - name: Verify 56 physical spectral and mass-MAC comparisons
