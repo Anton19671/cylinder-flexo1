@@ -197,15 +197,6 @@ def validate_case_scalars(cfg:dict,system:str)->dict:
     if m.get("E0") is not None:
         out["checked"]["material.E0"]=_diag(m["E0"],"stress",s,"material.E0")
 
-    b=cfg.get("birger") or {}
-    for key in ("G_ref","sigma_ref"):
-        if isinstance(b,dict) and b.get(key) is not None:
-            out["checked"][f"birger.{key}"]=_diag(b[key],"stress",s,f"birger.{key}")
-    curve=b.get("curve") if isinstance(b,dict) else None
-    if isinstance(curve,dict) and curve.get("yield_stress") is not None:
-        out["checked"]["birger.curve.yield_stress"]=_diag(
-            curve["yield_stress"],"stress",s,"birger.curve.yield_stress")
-
     ld=cfg.get("load_definition")
     if isinstance(ld,dict):
         for key in ("x1","x2","band_width"):
