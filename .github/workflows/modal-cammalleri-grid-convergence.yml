@@ -1,0 +1,40 @@
+name: Cammalleri 2023 KL SBP42 three-grid convergence
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ci/modal_cammalleri_grid_convergence.py"
+      - ".github/workflows/modal-cammalleri-grid-convergence.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  kl-grid:
+    name: KL Fourier 13x21 17x31 21x41
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements.txt
+      - name: Verify exact KL linear tangent and Fourier eigenpair regressions
+        run: python -m pytest -q tests/test_modal_kl_exact_tangent.py tests/test_modal_fourier_thin_shell_accuracy.py tests/test_modal_fourier_bc_spaces.py
+      - name: Compute fixed-SBP42 three-grid KL frequencies and axial shape diagnostics
+        run: python ci/modal_cammalleri_grid_convergence.py
+      - name: Store mode fields and all partial diagnostic results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cammalleri2023-kl-sbp42-grid-convergence
+          path: |
+            modal_cammalleri2023_grid_convergence.json
+            modal_cammalleri2023_KL_*_fields.npz
+          if-no-files-found: warn
