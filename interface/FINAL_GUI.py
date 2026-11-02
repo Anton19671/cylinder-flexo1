@@ -6869,6 +6869,8 @@ class FinalSolverGUI(EnhancedSolverGUI):
 
     def _populate_reference_view(self,cfg):
         def put(key,value):self._v(key).set("" if value is None else str(value))
+        self._v("run_label").set(
+            Path(self._v("case_path").get()).stem.split("__AUTO_",1)[0])
         unit=str((cfg.get("units") or {}).get("system","SI_N_M_PA"))
         self._last_unit_system=unit
         put("unit_system",unit)
@@ -7641,6 +7643,7 @@ class FinalSolverGUI(EnhancedSolverGUI):
             self._update_kinematics_labels();self._refresh_visibility()
             self._refresh_load_step_mode();self._refresh_curve_visibility()
             self._update_units();self._update_grid_info();self._schedule_problem_scheme_redraw(20)
+            self._v("run_label").set(Path(p).stem.split("__AUTO_",1)[0])
             self._log(f"CASE fully loaded: {p}\n")
         except Exception as exc:
             messagebox.showerror("Ошибка загрузки CASE",str(exc))
@@ -8094,7 +8097,15 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self.top_choose_output_btn=ttk.Button(
             calculation_actions,text="Папка результатов…",
             command=self._choose_results_folder)
-        self.top_choose_output_btn.pack(side="right",padx=5)
+        self.top_choose_output_btn.pack_forget()
+        results_row=ttk.Frame(self,padding=(12,0,12,6))
+        results_row.pack(fill="x")
+        ttk.Label(results_row,text="Папка сохранения результатов:").pack(side="left",padx=(0,8))
+        self.top_choose_output_btn=ttk.Button(results_row,text="Выбрать папку...",
+            command=self._choose_results_folder)
+        self.top_choose_output_btn.pack(side="left",padx=(0,8))
+        ttk.Entry(results_row,textvariable=self._v("output_dir"),
+            state="readonly").pack(side="left",fill="x",expand=True)
         self.run_btn=self.top_run_btn
         self.parameter_toolbar=actions
         progress_row=ttk.Frame(self,padding=(12,0,12,7))
