@@ -14,43 +14,6 @@ import numpy as np
 from scipy.linalg import qr
 
 
-def normalize_modal_partner(x, y, axis, fixed_mask=None):
-    """QR in free coordinate rows, retaining exact homogeneous nodal traces.
-
-    Full QR of nearly dependent profiles can put O(eps/condition) entries
-    into an exactly zero endpoint row. The next constrained Y/X space then
-    excludes that artificial direction. Complete the partner family inside
-    the free rows instead. Nonuniform traces still use the usual exact
-    intersection in fixed_trace_xy_basis; no nodal space is added.
-    """
-    from cylinder_variational_mvi import _normalize_partner
-    if fixed_mask is None:
-        return _normalize_partner(x, y, axis)
-    if axis not in ("X", "Y"):
-        raise ValueError("MODAL_MVI_INVALID_HALFSTEP_AXIS")
-    x, y = x.copy(), y.copy()
-    fixed = np.asarray(fixed_mask, bool).reshape(len(x), x.shape[2], y.shape[2])
-    for c in range(len(x)):
-        partner = y[c].T if axis == "X" else x[c].T
-        blocked = np.all(fixed[c], axis=0 if axis == "X" else 1)
-        # Only exact zero factor rows may be removed here. Nonzero rows can
-        # cancel between rank terms and must go through the ordinary trace
-        # intersection, not be clipped or subjected to a relaxed tolerance.
-        blocked &= np.all(partner == 0., axis=1)
-        if np.count_nonzero(~blocked) < partner.shape[1]:
-            blocked[:] = False
-        q_free, r = np.linalg.qr(partner[~blocked], mode="reduced")
-        q = np.zeros_like(partner)
-        q[~blocked] = q_free
-        if axis == "X":
-            y[c] = q.T
-            x[c] = r @ x[c]
-        else:
-            x[c] = q.T
-            y[c] = r @ y[c]
-    return x, y
-
-
 def _coefficient_null(frozen_profiles, fixed_entries):
     """Orthonormal coefficient nullspace of a frozen-partner trace block."""
     partner = np.asarray(frozen_profiles, dtype=float)
@@ -153,5 +116,75 @@ def fixed_trace_xy_basis(x, y, axis, fixed_mask, scales,
     return scale[:, None] * result
 
 
-__all__ = ("fixed_trace_xy_basis", "normalize_modal_partner")
 
+def fixed_trace_harmonic_x_basis(y, harmonic, fixed_mask, scales,
+                                 *, max_directions=1600):
+    """Actual frozen-Y X trial space intersected with one Fourier sector.
+
+    Only for conditioning an initial rank>2 MVI candidate. Do not project
+    arbitrary angular vectors onto a Fourier sector: that would leave the
+    true frozen-partner span and modify the variational problem.
+    """
+    from cylinder_modal_harmonic_spectrum import _harmonic_phase_basis
+
+    y = np.asarray(y, dtype=float)
+    if y.ndim != 3 or not np.isfinite(y).all():
+        raise ValueError("MODAL_MVI_INVALID_HARMONIC_PARTNER")
+    ncomp, rank, ns = y.shape
+    fixed = np.asarray(fixed_mask, dtype=bool)
+    scale = np.asarray(scales, dtype=float)
+    if (fixed.size != scale.size or fixed.size % (ncomp * ns) != 0
+            or not np.isfinite(scale).all() or np.any(scale <= 0.)):
+        raise ValueError("MODAL_MVI_INVALID_HARMONIC_TRACES_OR_SCALES")
+    nx = fixed.size // (ncomp * ns)
+    fixed = fixed.reshape(ncomp, nx, ns)
+    phases = _harmonic_phase_basis(ns, harmonic)
+    columns = []
+    for c in range(ncomp):
+        partner = y[c].T
+        # Coefficient nullspace of the off-sector part of frozen Y;
+        # every retained direction remains exactly in span(frozen Y).
+        off = partner - phases.T @ (phases @ partner)
+        q, r, _ = qr(off.T, mode="full", pivoting=True, check_finite=False)
+        diagonal = np.abs(np.diag(r))
+        cutoff = 1.e-12 * max(
+            float(np.linalg.norm(partner, ord=2)),
+            float(np.max(diagonal, initial=0.)))
+        active = int(np.count_nonzero(diagonal > cutoff))
+        null = q[:, active:]
+        if not null.shape[1]:
+            continue
+        allowed = partner @ null
+        frame, triangular, _ = qr(
+            allowed, mode="economic", pivoting=True, check_finite=False)
+        sizes = np.abs(np.diag(triangular))
+        keep = int(np.count_nonzero(
+            sizes > 1.e-12 * max(
+                float(np.linalg.norm(partner, ord=2)),
+                float(np.max(sizes, initial=0.)))))
+        for rindex in range(keep):
+            vector = frame[:, rindex]
+            outside = vector - phases.T @ (phases @ vector)
+            if float(np.linalg.norm(outside)) > 1.e-10:
+                raise ValueError("MODAL_MVI_INITIAL_HARMONIC_NOT_IN_FROZEN_Y")
+            for i in range(nx):
+                # Drop a complete inadmissible X-column. Never zero its
+                # boundary entries, which would invent nodal directions.
+                if np.max(np.abs(vector[fixed[c, i, :]]), initial=0.) > 1.e-12:
+                    continue
+                field = np.zeros((ncomp, nx, ns))
+                field[c, i, :] = vector
+                columns.append(field.ravel())
+    if not columns:
+        return np.empty((scale.size, 0))
+    if len(columns) > max_directions:
+        raise ValueError(
+            "MODAL_MVI_PROJECTED_DIRECTION_LIMIT: "
+            f"{len(columns)} > {max_directions}")
+    basis = np.column_stack(columns)
+    if np.max(np.abs(basis[fixed.ravel(), :]), initial=0.) > 1.e-12:
+        raise ValueError("MODAL_MVI_INITIAL_HARMONIC_TRACE_MISMATCH")
+    return scale[:, None] * basis
+
+
+__all__ = ("fixed_trace_xy_basis", "fixed_trace_harmonic_x_basis")
