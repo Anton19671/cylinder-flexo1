@@ -35,7 +35,7 @@ N_MODES = 2
 POINT_MASS_KG = 500.0
 TOLS = (1e-5, 1e-7, 1e-9)
 RANKS = (1, 2, 4, 6)
-MASS_SERIES_KG = (0.0, 100.0, 250.0, POINT_MASS_KG)
+MASS_SERIES_KG = (0.0, 25.0, 100.0, 250.0, POINT_MASS_KG)
 
 
 def read(path):
@@ -62,7 +62,7 @@ def point_index(qshape):
     # TE1 mechanical component layout is u0,u1,v0,v1,w0,w1.
     if qshape != (6, NX, NS):
         raise ValueError(f"Unexpected physical CUF TE1 field ordering: {qshape}")
-    return int(np.ravel_multi_index((4, NX // 2, NS // 3), qshape))
+    return int(np.ravel_multi_index((4, NX // 2, 0), qshape))
 
 
 def full_space_fdm(case, point, mass_kg):
@@ -175,14 +175,34 @@ def solve_mvi(case, point, mass_kg, tolerance, full_freq, full_modes):
     op.cached_cuf_projection = lumped_projected_matrices
 
     current_attempt = {}
+    candidate_started = {}
+    candidate_wall_seconds = {}
+    halfstep_started = {}
+    halfstep_wall_seconds = []
+    completed_sweeps = {"n": 0}
     histories = {}
     def trace(**event):
         stage = event.get("stage")
         mode = event.get("mode")
         if stage == "MVI_CANDIDATE_START":
-            current_attempt[mode] = event["attempt"]
+            current_attempt[mode] = int(event["attempt"])
+            candidate_started[(mode, current_attempt[mode])] = time.monotonic()
+        attempt = current_attempt.get(mode, 0)
+        if stage in ("MVI_CANDIDATE_CONVERGED", "MVI_CANDIDATE_REJECTED"):
+            key = (mode, attempt)
+            if key in candidate_started:
+                candidate_wall_seconds[key] = time.monotonic() - candidate_started.pop(key)
+        if stage == "MVI_HALFSTEP_START":
+            halfstep_started[(mode, attempt, event.get("sweep"),
+                              event.get("axis"))] = time.monotonic()
+        if stage == "MVI_HALFSTEP_DONE":
+            key = (mode, attempt, event.get("sweep"), event.get("axis"))
+            if key in halfstep_started:
+                halfstep_wall_seconds.append(time.monotonic() - halfstep_started.pop(key))
+        if stage == "MVI_SWEEP_DONE":
+            completed_sweeps["n"] += 1
         if stage in ("MVI_HALFSTEP_DONE", "MVI_SWEEP_DONE"):
-            key = f"{mode}:{current_attempt.get(mode, 0)}"
+            key = f"{mode}:{attempt}"
             histories.setdefault(key, []).append({
                 "stage": stage,
                 "sweep": event.get("sweep"),
@@ -219,6 +239,13 @@ def solve_mvi(case, point, mass_kg, tolerance, full_freq, full_modes):
         original_mode = result["mode_discovery_indices"][j]
         selected_histories.append(
             histories.get(f"{original_mode}:{record['selected_attempt']}", []))
+    accepted_attempt_time = []
+    for j, audit in enumerate(result["mvi_multistart_audit"]):
+        mode = int(result["mode_discovery_indices"][j])
+        selected = int(audit["selected_attempt"])
+        accepted_attempt_time.append(
+            candidate_wall_seconds.get((mode, selected)))
+    selected_total = sum(t for t in accepted_attempt_time if t is not None)
     return {
         "status": "SOLVED",
         "rank": rank,
@@ -244,6 +271,16 @@ def solve_mvi(case, point, mass_kg, tolerance, full_freq, full_modes):
         ],
         "mvi_sweeps": result["mvi_sweeps"],
         "accepted_candidate_histories": selected_histories,
+        "accepted_mode_wall_seconds": accepted_attempt_time,
+        "accepted_mode_wall_seconds_total": selected_total,
+        "wall_seconds_per_reported_mode": elapsed / requested,
+        "wall_seconds_per_completed_sweep_all_attempts": (
+            elapsed / completed_sweeps["n"] if completed_sweeps["n"] else None),
+        "completed_sweeps_all_attempts": completed_sweeps["n"],
+        "wall_seconds_per_timed_halfstep": (
+            sum(halfstep_wall_seconds) / len(halfstep_wall_seconds)
+            if halfstep_wall_seconds else None),
+        "timed_halfsteps_all_attempts": len(halfstep_wall_seconds),
         "global_spectrum_completeness_verified": result.get(
             "global_spectrum_completeness_verified"),
         "wall_seconds": round(elapsed, 3)
@@ -256,10 +293,16 @@ def main():
         "problem": "CUF TE1 C-C 9x9 SBP42, added local point mass on w0",
         "point_mass_kg": POINT_MASS_KG,
         "mass_series_kg": list(MASS_SERIES_KG),
+        "shell_mass_kg": float(2.0 * np.pi * 1.0 * 2.0 * 0.05 * 7850.0),
+        "mass_ratio_to_shell": {
+            f"{m:g}": float(m / (2.0 * np.pi * 1.0 * 2.0 * 0.05 * 7850.0))
+            for m in MASS_SERIES_KG
+        },
         "mvi_ranks": list(RANKS),
         "mvi_main_mass_tolerances": list(TOLS),
         "point_component": "w0",
-        "point_grid_index": [NX // 2, NS // 3],
+        "point_grid_index": [NX // 2, 0],
+        "point_theta_rad": 0.0,
         "n_modes": N_MODES, "physical_operator_changed": False,
         "perturbation": "additive physical point kinetic energy, applied separately to FDM/MVI",
         "fdm_bc": "SparseTraceProjector from independent FDM case",
@@ -300,6 +343,7 @@ def main():
             # At the main mass independently compare ranks 1,2,4,6 and
             # tolerances 1e-5,1e-7,1e-9 without any full-space MVI fallback.
             conditions = (
+                [(rank, 1e-7) for rank in RANKS] if mass_kg == 0.0 else
                 [(1, 1e-7)] if mass_kg != POINT_MASS_KG else
                 [(rank, tol) for rank in RANKS for tol in
                  (TOLS if rank == 1 else (1e-7, 1e-9))]
