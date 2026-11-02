@@ -9,7 +9,8 @@ import numpy as np
 from modal_mvi_rawat_te1_cc_audit import (
     CONFIG, check_comparable_cases, harmonic_numbers, read_case,
 )
-from cylinder_modal_reference import solve_modal_case
+from cylinder_modal_reference import _modal_spec, solve_modal_case
+from modal_mvi_case_comparison import compare_modal_results
 
 
 def main():
@@ -27,6 +28,7 @@ def main():
     operators = check_comparable_cases(cases["FDM"], cases[rank_name])
     report = {"model": model, "rank": rank, "grid": [13, 13],
               "boundary": "C-C", "effective_operators": operators, "runs": {}}
+    computed = {}
     try:
         for name, case in cases.items():
             case["modal"]["n_modes"] = 8
@@ -39,6 +41,7 @@ def main():
             modes = np.asarray(result["mechanical_modes"], dtype=float)
             if len(frequencies) != 8 or len(modes) != 8:
                 raise ValueError(f"{name} returned {len(frequencies)} frequencies and {len(modes)} modes")
+            computed[name] = (frequencies, modes)
             np.savez_compressed(f"modal_{model}_rank{rank}_{name}.npz",
                                 frequencies_hz=frequencies, mechanical_modes=modes)
             report["runs"][name] = {
@@ -49,6 +52,16 @@ def main():
                 "elapsed_s": round(time.monotonic() - start, 3)}
             print("[RANK-AUDIT] RESULT " + model + " " + name + " " +
                   json.dumps(report["runs"][name]), flush=True)
+        prepared, density, _ = _modal_spec(cases["FDM"])
+        ref, trial = computed["FDM"], computed[rank_name]
+        report["comparison"] = compare_modal_results(
+            ref[0], trial[0], ref[1], trial[1],
+            prepared.problem.functional, density)
+        print("[RANK-AUDIT] COMPARISON " + model + " " + rank_name + " " +
+              json.dumps(report["comparison"]), flush=True)
+        if report["comparison"]["status"] != "PASS":
+            raise AssertionError("MODAL_MVI_MKR_MISMATCH: " +
+                                 str(report["comparison"]["issues"]))
         report["completed"] = True
     except Exception as exc:
         report["completed"] = False

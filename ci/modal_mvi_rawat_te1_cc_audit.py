@@ -16,7 +16,8 @@ import numpy as np
 
 from cylinder_paths import activate
 activate()
-from cylinder_modal_reference import _effective_modal_case, solve_modal_case
+from cylinder_modal_reference import _effective_modal_case, _modal_spec, solve_modal_case
+from modal_mvi_case_comparison import compare_modal_results
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "config" / "verification" / "rawat2016" / "modal_linear"
@@ -64,7 +65,7 @@ def solve(path):
         "wavenumbers": harmonic_numbers(result["mechanical_modes"]),
         "mvi_sweeps": result.get("mvi_sweeps"),
         "global_spectrum_completeness_verified":
-            result.get("global_spectrum_completeness_verified")}
+            result.get("global_spectrum_completeness_verified")}, np.asarray(result["mechanical_modes"], float)
 
 
 def closest_branches(frequencies):
@@ -85,17 +86,28 @@ def main():
         "effective_operators": check_comparable_cases(read_case(FDM_CONFIG), read_case(MVI_CONFIG)),
         "runs": {},
     }
+    computed = {}
     try:
         for name, path in (("FDM", FDM_CONFIG), ("MVI_1", MVI_CONFIG)):
             print(f"[RAWAT] START {name}", flush=True)
             run_started = time.monotonic()
-            report["runs"][name] = solve(path)
+            report["runs"][name], modes = solve(path)
+            computed[name] = (np.asarray(report["runs"][name]["frequencies_hz"], float), modes)
             report["runs"][name]["elapsed_s"] = round(
                 time.monotonic() - run_started, 3)
             report["runs"][name]["closest_published_branches"] = closest_branches(
                 report["runs"][name]["frequencies_hz"])
             print("[RAWAT] RESULT " + name + " " +
                   json.dumps(report["runs"][name]), flush=True)
+        prepared, density, _ = _modal_spec(read_case(FDM_CONFIG))
+        ref, trial = computed["FDM"], computed["MVI_1"]
+        report["comparison"] = compare_modal_results(
+            ref[0], trial[0], ref[1], trial[1],
+            prepared.problem.functional, density)
+        print("[RAWAT] COMPARISON " + json.dumps(report["comparison"]), flush=True)
+        if report["comparison"]["status"] != "PASS":
+            raise AssertionError("MODAL_MVI_MKR_MISMATCH: " +
+                                 str(report["comparison"]["issues"]))
         report["completed"] = True
     except Exception as exc:
         report["completed"] = False

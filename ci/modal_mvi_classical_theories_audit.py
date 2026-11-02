@@ -10,7 +10,8 @@ import numpy as np
 from modal_mvi_rawat_te1_cc_audit import (
     CONFIG, check_comparable_cases, harmonic_numbers, read_case,
 )
-from cylinder_modal_reference import solve_modal_case
+from cylinder_modal_reference import _modal_spec, solve_modal_case
+from modal_mvi_case_comparison import compare_modal_results
 
 
 def main():
@@ -27,6 +28,7 @@ def main():
                  for name in ("MVI_1", "MVI_2")}
     report = {"model": model, "effective_operators": operators,
               "grid": [13, 13], "boundary": "C-C", "runs": {}}
+    computed = {}
     try:
         for name, case in cases.items():
             case["modal"]["n_modes"] = 8
@@ -37,6 +39,7 @@ def main():
             result = solve_modal_case(case)
             modes = np.asarray(result["mechanical_modes"], dtype=float)
             frequencies = np.asarray(result["frequencies_hz"], dtype=float)
+            computed[name] = (frequencies, modes)
             np.savez_compressed(f"modal_{model}_{name}_modes.npz",
                                 mechanical_modes=modes, frequencies_hz=frequencies)
             report["runs"][name] = {
@@ -48,6 +51,19 @@ def main():
             }
             print("[SHELL-AUDIT] RESULT " + model + " " + name + " " +
                   json.dumps(report["runs"][name]), flush=True)
+        prepared, density, _ = _modal_spec(cases["FDM"])
+        report["comparisons"] = {}
+        for name in ("MVI_1", "MVI_2"):
+            ref, trial = computed["FDM"], computed[name]
+            report["comparisons"][name] = compare_modal_results(
+                ref[0], trial[0], ref[1], trial[1],
+                prepared.problem.functional, density)
+            print("[SHELL-AUDIT] COMPARISON " + model + " " + name + " " +
+                  json.dumps(report["comparisons"][name]), flush=True)
+        failures = [name for name, item in report["comparisons"].items()
+                    if item["status"] != "PASS"]
+        if failures:
+            raise AssertionError("MODAL_MVI_MKR_MISMATCH: " + str(failures))
         report["completed"] = True
     except Exception as exc:
         report["completed"] = False
