@@ -103,7 +103,7 @@ def run_cammalleri():
         def inspect_init(self, problem, functional, step):
             original_init(self, problem, functional, step)
             matrices = {}
-            for trial_step in (step, 1.e-4, 1.e-2, 1.):
+            for trial_step in (step, 1.e-4, 1.e-2):
                 probe = object.__new__(_LocalMechanicalTangent)
                 original_init(probe, problem, functional, trial_step)
                 mat = probe.local
