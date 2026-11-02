@@ -134,7 +134,8 @@ def _refine_fourier_eigenpair(km,mm,value,vector,*,max_iterations=3):
 
 
 def _certify_full_mode(k,m,vector,value,prediction_k,prediction_m,
-                       *,quality_limit=1.e-6):
+                       *,quality_limit=1.e-6, field_shape=None,
+                       circumferential_n=None, mode_index=None, origin=None):
     """Verify physical actions and quantify numerical block-action disagreement."""
     kv,mv=k@vector,m@vector
     denominator=max(np.linalg.norm(kv)+abs(value)*np.linalg.norm(mv),1.e-30)
@@ -149,16 +150,38 @@ def _certify_full_mode(k,m,vector,value,prediction_k,prediction_m,
     if (projected>5.e-9 or mismatch>quality_limit or
             physical>projected+mismatch+2.e-8 or
             abs(physical_quotient-value)>5.e-8*max(1.,abs(value))):
-        # Numerical failure and actual violation of the variational Fourier
-        # block must not look identical in the GitHub journal. Report every
-        # independent physical-action check; do not weaken its acceptance.
+        # The rejected pair is still a failure: report independently where
+        # the physical and Fourier-predicted actions disagree, without
+        # weakening the acceptance threshold or modifying K/M.
+        k_delta=kv-prediction_k
+        m_delta=mv-prediction_m
+        k_mismatch=float(np.linalg.norm(k_delta)/denominator)
+        m_mismatch=float(abs(value)*np.linalg.norm(m_delta)/denominator)
+        angular_diagnostic=''
+        if field_shape is not None and circumferential_n is not None:
+            n=int(circumferential_n)
+            ns=int(field_shape[-1])
+            other=[i for i in range(ns) if i not in {n,(-n)%ns}]
+            def harmonic_leakage(field):
+                ft=np.fft.fft(np.asarray(field).reshape(field_shape),
+                              axis=-1)
+                return float(np.linalg.norm(ft[:,:,other])/
+                             max(np.linalg.norm(ft),1.e-30))
+            angular_diagnostic=(
+                f', K_off_harmonic={harmonic_leakage(kv):.6e}'
+                f', M_off_harmonic={harmonic_leakage(mv):.6e}'
+                f', K_delta_off_harmonic={harmonic_leakage(k_delta):.6e}'
+                f', M_delta_off_harmonic={harmonic_leakage(m_delta):.6e}')
         raise ValueError(
             'MODAL_FOURIER_EIGENPAIR_VERIFICATION_FAILED: '
+            f'mode={mode_index}, n={circumferential_n}, phase={origin}, '
             f'physical={physical:.6e}, projected={projected:.6e}, '
             f'block_action_mismatch={mismatch:.6e}, '
+            f'K_action_mismatch={k_mismatch:.6e}, '
+            f'M_action_mismatch={m_mismatch:.6e}, '
             f'physical_rayleigh={physical_quotient:.12g}, '
             f'projected_eigenvalue={value:.12g}, '
-            f'mass={mass:.6e}')
+            f'mass={mass:.6e}' + angular_diagnostic)
     return physical,projected,mismatch
 
 
@@ -260,7 +283,9 @@ def solve_modal_fourier_fdm(prepared,density,requested,projector,
     values=np.array([v[0] for v in chosen])
     vectors=np.column_stack([v[4] for v in chosen])
     for j,row in enumerate(chosen):
-        _certify_full_mode(k,m,vectors[:,j],values[j],row[5],row[6])
+        _certify_full_mode(k,m,vectors[:,j],values[j],row[5],row[6],
+                           field_shape=q0.shape, circumferential_n=row[1],
+                           mode_index=j+1, origin=row[3])
     m_vectors=m@vectors
     gram=vectors.T@m_vectors
     if np.max(np.abs(gram-np.eye(requested)))>1e-6:
