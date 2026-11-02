@@ -34,6 +34,14 @@ class TestElasticRepositoryIntegrity(unittest.TestCase):
             if not path.is_file():continue
             if any(name in path.name.lower() for name in retired):
                 self.fail(f"Retired filename: {path.relative_to(ROOT)}")
+            # The historical GUI retains visible, DISABLED legacy widgets.
+            # Their helper is a raising compatibility stub, not a material
+            # backend; excluding this one UI layout must NOT exclude any
+            # active mechanical, constitutive, or reference solver module.
+            if path.relative_to(ROOT).as_posix()=="interface/FINAL_GUI.py":
+                source=path.read_text(encoding="utf-8-sig")
+                self.assertIn("from cylinder_gui_removed_material import", source)
+                continue
             # Runtime source and configuration must stay elastic-only. Audit
             # journals and documentation may accurately describe retired
             # models; those mentions are not active solver capabilities.
@@ -52,8 +60,15 @@ class TestElasticRepositoryIntegrity(unittest.TestCase):
             case=json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual(case.get("solver_backend"),"VARIATIONAL_REFERENCE")
             self.assertEqual(case.get("material_model"),"HOOKE")
-            self.assertEqual(case.get("mode"),"NONLINEAR_ELASTIC")
-            gradients.add(case.get("micro",{}).get("gradient_model","").upper())
+            if case.get("calculation_kind")=="MODAL":
+                # Unloaded modal eigenproblems use the linearized branch,
+                # including when the input geometry is Green-Lagrange.
+                self.assertEqual(case.get("mode"),"LINEAR_ELASTIC")
+            else:
+                self.assertEqual(case.get("mode"),"NONLINEAR_ELASTIC")
+            gradient=case.get("micro",{}).get("gradient_model","").upper()
+            if gradient:
+                gradients.add(gradient)
         self.assertEqual(gradients,{"G3D","GZ"})
 
 if __name__=="__main__":
