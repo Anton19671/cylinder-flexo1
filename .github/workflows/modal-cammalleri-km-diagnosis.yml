@@ -4,6 +4,8 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/modal-cammalleri-km-diagnosis.yml"
+      - "numerics/cylinder_modal_fourier_fdm.py"
+      - "ci/modal_article_benchmarks.py"
   workflow_dispatch:
 permissions:
   contents: read
