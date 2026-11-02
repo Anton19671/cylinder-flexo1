@@ -4,6 +4,8 @@ on:
     branches: [main]
     paths:
       - numerics/cylinder_modal_mvi.py
+      - numerics/cylinder_modal_separated_projector.py
+      - tests/test_modal_mvi_separated_cuf_projection.py
       - tests/test_modal_mvi_fast_membership.py
       - tests/test_modal_mvi_energy_reuse.py
       - tests/test_modal_mvi_mass_factor_reuse.py

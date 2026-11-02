@@ -5,6 +5,7 @@ on:
     paths:
       - "ci/modal_mvi_all_ranks_theories_audit.py"
       - "numerics/cylinder_modal_mvi.py"
+      - "numerics/cylinder_modal_separated_projector.py"
       - "ci/modal_mvi_case_comparison.py"
       - "ci/modal_mvi_matrix_report.py"
       - "tests/test_modal_mvi_matrix_report.py"

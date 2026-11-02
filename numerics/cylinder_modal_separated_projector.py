@@ -20,45 +20,48 @@ from cylinder_functional_assembly import MECHANICAL_DERIVATIVES
 
 
 def _one_component_factors(basis, ncomp, nx, ns):
-    """Recover exact rank-one columns of the EXISTING constrained MVI basis.
+    """Extract exact rank-one columns, vectorized without rank approximation.
 
-    There is no singular-value truncation or enrichment: reject a column
-    unless its full field is already a single separated outer product.
+    Identical algebra to the former per-column loop: one mechanical
+    component and one separable X/Y profile per existing frozen basis column.
+    Reject mixed or nonseparable vectors rather than modifying the MVI space.
     """
     field = np.asarray(basis, float)
     if field.ndim != 2 or field.shape[0] != ncomp * nx * ns:
         return None
     count = field.shape[1]
-    axes = np.zeros((count, nx))
-    angles = np.zeros((count, ns))
-    components = np.empty(count, dtype=int)
+    if not count:
+        return (np.empty(0, dtype=int),
+                np.empty((0, nx)), np.empty((0, ns)))
     values = field.T.reshape(count, ncomp, nx, ns)
-    for j in range(count):
-        candidate = values[j]
-        norms = np.linalg.norm(candidate.reshape(ncomp, -1), axis=1)
-        c = int(np.argmax(norms))
-        if norms[c] <= 0. or not np.isfinite(norms).all():
-            return None
-        if np.max(np.delete(norms, c), initial=0.) > 1.e-12 * norms[c]:
-            return None
-        profile = candidate[c]
-        index = int(np.argmax(np.abs(profile)))
-        ix, is_ = divmod(index, ns)
-        pivot = float(profile[ix, is_])
-        if pivot == 0.:
-            return None
-        axial = profile[:, is_].copy()
-        angular = profile[ix, :] / pivot
-        difference = np.linalg.norm(
-            profile - axial[:, None] * angular[None, :])
-        if not np.isfinite(difference) or (
-                difference > 1.e-10 * max(np.linalg.norm(profile), 1.e-30)):
-            return None
-        components[j] = c
-        axes[j] = axial
-        angles[j] = angular
-    return components, axes, angles
-
+    norms = np.linalg.norm(values, axis=(2, 3))
+    components = np.argmax(norms, axis=1)
+    rows = np.arange(count)
+    selected_norms = norms[rows, components]
+    if not np.isfinite(norms).all() or np.any(selected_norms <= 0.):
+        return None
+    other_norms = norms.copy()
+    other_norms[rows, components] = 0.
+    if np.any(np.max(other_norms, axis=1) > 1.e-12 * selected_norms):
+        return None
+    profiles = values[rows, components]
+    index = np.argmax(np.abs(profiles.reshape(count, nx * ns)), axis=1)
+    ix, is_ = np.divmod(index, ns)
+    pivots = profiles[rows, ix, is_]
+    if np.any(pivots == 0.):
+        return None
+    axial = profiles[
+        rows[:, None], np.arange(nx)[None, :], is_[:, None]]
+    angular = (profiles[
+        rows[:, None], ix[:, None], np.arange(ns)[None, :]] /
+        pivots[:, None])
+    difference = np.linalg.norm(
+        profiles - axial[:, :, None] * angular[:, None, :], axis=(1, 2))
+    if (not np.isfinite(difference).all()
+            or np.any(difference > 1.e-10 *
+                      np.maximum(selected_norms, 1.e-30))):
+        return None
+    return components, axial, angular
 
 def _spring_free_modal_edges(problem):
     """Conservative spring Hessians are not part of the bulk local Hessian.

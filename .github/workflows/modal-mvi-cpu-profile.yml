@@ -5,6 +5,7 @@ on:
     paths:
       - ci/modal_mvi_cpu_profile.py
       - numerics/cylinder_modal_mvi.py
+      - numerics/cylinder_modal_separated_projector.py
       - .github/workflows/modal-mvi-cpu-profile.yml
   workflow_dispatch:
 permissions:

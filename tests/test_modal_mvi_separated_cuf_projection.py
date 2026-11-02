@@ -66,3 +66,86 @@ def test_spring_hessian_is_left_to_original_projection():
         SimpleNamespace(spec={"mechanical":{"left":{"spring":[0.,0.]}}}))
     assert not _spring_free_modal_edges(
         SimpleNamespace(spec={"mechanical":{"left":{"spring":[1.,0.]}}}))
+
+
+def _serial_one_component_factors(basis, ncomp, nx, ns):
+    """Unoptimized implementation kept as an independent test oracle."""
+    field = np.asarray(basis, float)
+    if field.ndim != 2 or field.shape[0] != ncomp * nx * ns:
+        return None
+    count = field.shape[1]
+    axes = np.zeros((count, nx))
+    angles = np.zeros((count, ns))
+    components = np.empty(count, dtype=int)
+    values = field.T.reshape(count, ncomp, nx, ns)
+    for j in range(count):
+        candidate = values[j]
+        norms = np.linalg.norm(candidate.reshape(ncomp, -1), axis=1)
+        c = int(np.argmax(norms))
+        if norms[c] <= 0. or not np.isfinite(norms).all():
+            return None
+        if np.max(np.delete(norms, c), initial=0.) > 1.e-12 * norms[c]:
+            return None
+        profile = candidate[c]
+        index = int(np.argmax(np.abs(profile)))
+        ix, is_ = divmod(index, ns)
+        pivot = float(profile[ix, is_])
+        if pivot == 0.:
+            return None
+        axial = profile[:, is_].copy()
+        angular = profile[ix, :] / pivot
+        difference = np.linalg.norm(
+            profile - axial[:, None] * angular[None, :])
+        if not np.isfinite(difference) or (
+                difference > 1.e-10 * max(np.linalg.norm(profile), 1.e-30)):
+            return None
+        components[j] = c
+        axes[j] = axial
+        angles[j] = angular
+    return components, axes, angles
+
+
+@pytest.mark.parametrize("rank", range(1, 9))
+@pytest.mark.parametrize("axis", ("X", "Y"))
+def test_vectorized_factors_equal_original_at_every_rank(rank, axis):
+    rng = np.random.default_rng(2084 + rank * 11 + (axis == "Y"))
+    ncomp, nx, ns = 6, 13, 21
+    count = rank * (nx if axis == "X" else ns)
+    basis = np.zeros((ncomp * nx * ns, count))
+    for j in range(count):
+        c = (j * 5 + rank) % ncomp
+        x = rng.standard_normal(nx)
+        y = rng.standard_normal(ns)
+        field = np.zeros((ncomp, nx, ns))
+        field[c] = (0.000254 if c < 3 else 1.) * np.outer(x, y)
+        basis[:, j] = field.ravel()
+    slow = _serial_one_component_factors(basis, ncomp, nx, ns)
+    fast = _one_component_factors(basis, ncomp, nx, ns)
+    assert slow is not None and fast is not None
+    np.testing.assert_array_equal(fast[0], slow[0])
+    np.testing.assert_array_equal(fast[1], slow[1])
+    np.testing.assert_array_equal(fast[2], slow[2])
+
+    mixed = basis[:, :1].copy()
+    other = (int(slow[0][0]) + 1) % ncomp
+    mixed[other * nx * ns + (nx // 2) * ns + 1, 0] = 0.01
+    assert _one_component_factors(mixed, ncomp, nx, ns) is None
+    assert _serial_one_component_factors(mixed, ncomp, nx, ns) is None
+
+    nonseparable = basis[:, :1].copy()
+    original = int(slow[0][0])
+    nonseparable[original * nx * ns + ns + 2, 0] += 0.02
+    assert _one_component_factors(nonseparable, ncomp, nx, ns) is None
+    assert _serial_one_component_factors(nonseparable, ncomp, nx, ns) is None
+
+
+def test_vectorized_factors_reject_invalid_fields_without_approximating():
+    for count in (1, 2):
+        bad = np.zeros((2 * 5 * 7, count))
+        assert _one_component_factors(bad, 2, 5, 7) is None
+        bad[0, 0] = np.nan
+        assert _one_component_factors(bad, 2, 5, 7) is None
+    assert _one_component_factors(np.zeros((71, 3)), 2, 5, 7) is None
+    empty = _one_component_factors(np.zeros((2 * 5 * 7, 0)), 2, 5, 7)
+    assert empty is not None
+    assert [v.shape for v in empty] == [(0,), (0, 5), (0, 7)]

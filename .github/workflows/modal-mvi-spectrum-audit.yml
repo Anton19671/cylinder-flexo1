@@ -6,6 +6,7 @@ on:
       - "ci/modal_mvi_spectrum_audit.py"
       - "tests/test_modal_mvi_spectrum_acceptance.py"
       - "numerics/cylinder_modal_mvi.py"
+      - "numerics/cylinder_modal_separated_projector.py"
       - ".github/workflows/modal-mvi-spectrum-audit.yml"
   workflow_dispatch:
 permissions:

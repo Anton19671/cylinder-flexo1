@@ -5,6 +5,7 @@ on:
     paths:
       - "ci/modal_mvi_rawat_te1_cc_audit.py"
       - "numerics/cylinder_modal_mvi.py"
+      - "numerics/cylinder_modal_separated_projector.py"
       - ".github/workflows/modal-mvi-rawat-te1-cc.yml"
   workflow_dispatch:
 permissions:
