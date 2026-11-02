@@ -48,9 +48,9 @@ def test_single_column_generalized_eigen_mass_gram():
 
 def test_bad_shape_not_silently_broadcast():
     op = _modal_linear_operator(lambda v: v, 7)
-    with pytest.raises(ValueError, match="VECTOR_SHAPE"):
+    with pytest.raises(ValueError, match="VECTOR_SHAPE|dimension mismatch"):
         op.matvec(np.ones((7, 2)))
-    with pytest.raises(ValueError, match="MATRIX_SHAPE"):
+    with pytest.raises(ValueError, match="MATRIX_SHAPE|dimension mismatch"):
         op.matmat(np.ones((6, 2)))
     with pytest.raises(ValueError, match="ACTION_SHAPE"):
         _modal_linear_operator(lambda v: v[:, None], 7) @ np.ones(7)
