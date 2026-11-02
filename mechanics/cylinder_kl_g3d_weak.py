@@ -232,9 +232,9 @@ def _kl_normal_virtual(delta,R,model,linearization=None):
     dB=np.stack((dv[0],dv[1]+dq[2]/R,dv[2]-dq[1]/R))
     dN=_cross(dA,B)+_cross(A,dB)
     dnorm2=2.*_dot(N,dN)
-    dn=np.stack((
+    dn=np.stack([
         _mul(dN[i],inv)-.5*_mul(_mul(N[i],dnorm2),inv_cubed)
-        for i in range(3)))
+        for i in range(3)])
     return (dn[:,0],dn[:,1],dn[:,2],
             2*dn[:,3],dn[:,4],2*dn[:,5])
 
