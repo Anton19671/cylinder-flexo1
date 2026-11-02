@@ -58,8 +58,43 @@ the eight-mode spectrum for:
 | MVI-2 | 398.603192, 398.603192 |
 | MVI-4, offsets 0, 31, 101 | 398.603192, 398.603192 |
 
-The full FDM versus MVI-1..8 MAC audit and the Rawat TE1 C-C 13x13 follow-up
-remain the final acceptance checks.
+## Final KL acceptance audit
+
+The full FDM versus MVI-1..8 audit completed successfully
+(run 41423315137, 2026-11-02).  All nine solves (FDM plus MVI ranks 1..8)
+returned the requested eight modes.
+
+| Modes | FDM, Hz | MVI-1 before | MVI-2 before | MVI-1 after | MVI-2 after | n after |
+|---|---:|---:|---:|---:|---:|---:|
+| 1-2 | 275.266096 | 275.266096 | 275.266096 | 275.266096 | 275.266096 | 3 |
+| 3-4 | 293.138249 | 293.138249 | 293.138249 | 293.138249 | 293.138249 | 4 |
+| 5-6 | 347.495011 | 347.495011 | 347.495011 | 347.495011 | 347.495011 | 2 |
+| 7-8 | 398.603192 | 521.701083 | 406.912967 | 398.603192 | 398.603192 | 4 |
+
+MVI-3..8 retained the same eight frequencies as FDM to the displayed
+precision.  The maximum frequency difference in the final run was below
+5.3e-8 percent.
+
+For the degenerate 7-8 pair, individual-vector MAC is phase-basis dependent,
+so the audit compares two-dimensional mass-metric subspaces.  The squared
+principal mass overlaps were [1.0, 0.9999999999999997] for both MVI-1 and
+MVI-2; their two forms are mutually mass-orthogonal.  Thus the accepted
+object is the same n=4 two-dimensional eigenspace, not merely two equal
+frequencies.
+
+## Rawat CUF TE1 C-C 13x13 follow-up
+
+The standalone Rawat audit completed successfully (run 41423596503).  It is
+kept as a separate observation, because the KL-only correction deliberately
+does not change CUF operators or rank-one CUF starts.
+
+| Branch observation | FDM, Hz | MVI-1, Hz |
+|---|---:|---:|
+| Near published 342 Hz branch | 340.806 (n=4, doublet) | 346.059 (n=2, doublet) |
+| Near published 352 Hz branch | 353.577 (n=3, doublet) | 346.059 (same nearest MVI-1 branch) |
+
+This exposes an existing CUF-TE1 rank-one approximation discrepancy; it is
+not hidden, and it is outside the scope of the KL component-phase correction.
 
 ## Rollback points
 
