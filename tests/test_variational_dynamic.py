@@ -100,7 +100,9 @@ class DynamicCaseTest(unittest.TestCase):
         self.assertTrue(np.isfinite(inertia).all())
         self.assertGreater(np.max(np.abs(inertia)),0.)
         c=self.sample();c['dynamics']['time_law']={'kind':'CONSTANT','amplitude':1.}
-        with self.assertRaisesRegex(ValueError,'not in equilibrium'):prepare_reference_case(c)
+        preflight=prepare_reference_case(c)
+        self.assertIsNotNone(preflight.initial_acceleration)
+        self.assertTrue(np.isfinite(preflight.initial_acceleration).all())
         c=self.sample();c['boundary_conditions']['variational']['mechanical']['left']['time_law']={
             'kind':'RAMP','amplitude':1.,'duration_s':1.}
         with self.assertRaisesRegex(ValueError,'C2 SMOOTHSTEP'):prepare_reference_case(c)
@@ -122,7 +124,7 @@ class DynamicCaseTest(unittest.TestCase):
             prescribed=[.002,0.,0.,0.,0.,0.],
             time_law={"kind":"SMOOTHSTEP","amplitude":1.,
                       "start_time_s":-.24,"duration_s":.24})
-        with self.assertRaisesRegex(ValueError,"not in equilibrium|initial"):
+        with self.assertRaisesRegex(ValueError,"MVI_NONZERO_ESSENTIAL_TRACE_UNSUPPORTED"):
             prepare_reference_case(c)
 
     def test_time_dependent_electrode_is_assembled_by_newmark(self):
@@ -131,8 +133,11 @@ class DynamicCaseTest(unittest.TestCase):
             value=2.,time_law={
                 "kind":"RAMP","amplitude":1.,"start_time_s":0.,
                 "duration_s":0.02})
-        prepared=prepare_reference_case(c)
-        self.assertEqual(prepared.calculation_kind,"DYNAMIC")
+        # Nonhomogeneous electrode values need an additive trace lift in
+        # fixed-rank MVI, so preflight must fail instead of running Newmark.
+        with self.assertRaisesRegex(ValueError,"MVI_NONZERO_ESSENTIAL_TRACE_UNSUPPORTED"):
+            prepare_reference_case(c)
+        return
         at_start=prepared.problem.assemble(
             prepared.mechanical,prepared.electrical,time_s=0.,
             dead_load=np.zeros_like(prepared.mechanical),
