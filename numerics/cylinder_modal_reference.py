@@ -644,14 +644,18 @@ def run_modal_case(case, case_path):
         write_labeled_table(wb,"HARMONIC_CATALOG",CATALOG_COLUMNS,
             (tuple(entry[col] for col in CATALOG_COLUMNS)
              for entry in harmonic_catalog))
-        if component_ranks is not None:
+        if rank_audit is not None:
+            # Persist only the already-computed rank audit. The former
+            # component_ranks/max_component_ranks names were undefined here,
+            # making successful MVI modal solves fail during Excel export.
             write_labeled_table(wb, "MVI_RANK_AUDIT",
                 ("mode", "selected_mvi_rank", "max_effective_component_rank",
                  "unused_rank_capacity", "effective_rank_by_component"),
-                ((i + 1, int(result["rank"]), int(max_component_ranks[i]),
-                  bool(max_component_ranks[i] < result["rank"]),
-                  ",".join(map(str, component_ranks[i])))
-                 for i in range(len(component_ranks))))
+                ((i + 1, int(result["rank"]),
+                  int(rank_audit["mechanical_max"][i]),
+                  bool(rank_audit["mechanical_max"][i] < result["rank"]),
+                  ",".join(map(str, rank_audit["mechanical_ranks"][i])))
+                 for i in range(len(rank_audit["mechanical_ranks"]))))
         if "harmonic_family_scan" in result:
             # A Fourier mode and its sine/cosine rotation are a degenerate
             # pair, not different circumferential wave numbers.
