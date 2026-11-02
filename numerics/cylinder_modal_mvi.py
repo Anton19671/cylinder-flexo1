@@ -656,13 +656,18 @@ class _SeparatedModalProblem:
             first = first / np.linalg.norm(first)
             second = (np.sin(n * angle) if harmonic_phase == "cos"
                       else np.cos(n * angle))
+            quadrature_components = (
+                _circumferential_seed_components(self.f)
+                if component_phase == "circumferential_quadrature" else ())
+            if component_phase == "circumferential_quadrature" and (
+                    n == 0 or not quadrature_components):
+                raise ValueError("MODAL_MVI_INVALID_COMPONENT_PHASE")
             for c in range(self.n_components):
                 choices = y[c].T.copy()
-                # For rank one, allow the circumferential displacement to
-                # start in quadrature with axial and radial displacements.
-                # This is an initial factor only; Y variations remain free.
-                selected = (second if component_phase == "circumferential_quadrature"
-                            and c == 1 else first)
+                # CUF fields are grouped [u_0..u_N, v_0..v_N, w_0..w_N].
+                # Change only the initial angular factors of v coefficients;
+                # electrical fields and all later variations remain free.
+                selected = (second if c in quadrature_components else first)
                 choices[:, 0] = selected / np.linalg.norm(selected)
                 if self.rank > 1 and n > 0 and np.linalg.norm(second) > 1.e-12:
                     choices[:, 1] = second / np.linalg.norm(second)
@@ -754,6 +759,20 @@ class _SeparatedModalProblem:
         return float(field @ self.stiffness(field) / denominator)
 
 
+def _circumferential_seed_components(functional):
+    """Indices of v thickness coefficients in the mechanical field ordering."""
+    theory = str(functional.theory).upper()
+    if theory == "KL":
+        return (1,)
+    if theory in ("CUF_TE1", "CUF_TE2", "CUF_TE3", "CUF_TE4"):
+        n_mechanical = int(functional.n_mechanical)
+        n_thickness = n_mechanical // 3
+        if n_mechanical != 3 * n_thickness or n_thickness != int(theory[-1]) + 1:
+            raise ValueError("MODAL_MVI_INVALID_CUF_COMPONENT_ORDER")
+        return tuple(range(n_thickness, 2 * n_thickness))
+    return ()
+
+
 def _modal_seed_plan(operator, mode, requested):
     """Bounded restarts; partners never restrict the variational halfsteps.
 
@@ -775,7 +794,7 @@ def _modal_seed_plan(operator, mode, requested):
                            "index": int(mode + 503 + 17*n +
                                         (7 if phase == "sin" else 0)),
                            "n": int(n), "phase": phase})
-    if operator.rank == 1 and str(operator.f.theory).upper() == "KL":
+    if operator.rank == 1 and _circumferential_seed_components(operator.f):
         for n in range(1, limit + 1):
             for phase in ("cos", "sin"):
                 starts.append({
