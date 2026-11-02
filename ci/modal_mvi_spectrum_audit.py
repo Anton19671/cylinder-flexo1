@@ -122,16 +122,29 @@ def main():
         for rank in range(1, 9):
             name = f"MVI_{rank}"
             mode_events = []
+            branch_events = []
             t = time.monotonic()
             print("[SPECTRUM] START " + name, flush=True)
 
             def details(**event):
-                if event.get("stage") == "MVI_MODE_DONE":
+                stage = event.get("stage")
+                if stage == "MVI_MODE_DONE":
                     data = {k: event.get(k) for k in (
                         "mode", "frequency_hz", "sweep", "rank")}
                     mode_events.append(data)
                     print("[SPECTRUM] MODE " + name + " " +
                           json.dumps(data), flush=True)
+                if (int(event.get("mode", 0)) >= 7 and stage in (
+                        "MVI_CANDIDATE_INITIAL_STATE",
+                        "MVI_CANDIDATE_INITIAL_X_DONE",
+                        "MVI_HALFSTEP_HARMONIC_AUDIT",
+                        "MVI_CANDIDATE_REJECTED",
+                        "MVI_CANDIDATE_SELECTED")):
+                    branch_events.append({k: event.get(k) for k in (
+                        "stage", "mode", "attempt", "seed", "sweep", "axis",
+                        "frequency_hz", "circumferential_harmonic",
+                        "circumferential_harmonic_energy_fraction",
+                        "max_previous_mass_overlap", "reason")})
             try:
                 r = solve_modal_case(
                     make_case(base, "MVI", rank),
@@ -150,6 +163,8 @@ def main():
                     "global_mode_ranks": r.get("global_mode_ranks"),
                     "mvi_sweeps": r.get("mvi_sweeps"),
                     "xy_directions": r.get("mvi_final_xy_trial_dimensions"),
+                    "mvi_multistart_audit": r.get("mvi_multistart_audit"),
+                    "modes_7_8_branch_audit": branch_events,
                     "global_spectrum_completeness_verified":
                         bool(r.get("global_spectrum_completeness_verified", False))}
                 print("[SPECTRUM] RESULT " + name + " " +
