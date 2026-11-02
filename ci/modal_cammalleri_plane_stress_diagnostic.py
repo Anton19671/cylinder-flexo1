@@ -31,7 +31,7 @@ OUTPUT=ROOT/"modal_cammalleri_3d_vs_plane_stress.json"
 PUBLISHED={5:{"model_hz":605.,"ansys_hz":581.},
            6:{"model_hz":555.,"ansys_hz":538.},
            7:{"model_hz":611.,"ansys_hz":600.}}
-GRIDS=((13,21),(17,31))
+GRIDS=((13,21),(17,31),(21,41))
 
 
 def reduced_plane_stress_matrix(material):
@@ -193,6 +193,28 @@ def main():
                     "plane_stress_diagnostic_hz":f1,
                     "difference_percent":100.*(f1/f0-1.)})
         result["comparisons"]=comparisons
+        # Report the actual mesh trend for each material model and angular
+        # branch. This is a diagnostic, not proof of a continuum limit.
+        refinement=[]
+        for variant in ("production_3d","plane_stress_diagnostic"):
+            by_grid=[
+                next(r for r in result["runs"]
+                     if r["grid"]==[nx,ns] and r["model_variant"]==variant)
+                for nx,ns in GRIDS
+            ]
+            for j,n in enumerate(PUBLISHED):
+                frequencies=[r["rows"][j]["frequency_hz"] for r in by_grid]
+                refinement.append({
+                    "variant":variant,
+                    "circumferential_n":n,
+                    "grid_frequencies_hz":frequencies,
+                    "successive_grid_changes_percent":[
+                        100.*(frequencies[i]/frequencies[i-1]-1.)
+                        for i in range(1,len(frequencies))
+                    ],
+                    "continuum_limit_verified":False
+                })
+        result["mesh_refinement"]=refinement
     result["diagnostic_complete"]=not failed
     OUTPUT.write_text(json.dumps(result,indent=2,ensure_ascii=False)+"\n",
                       encoding="utf-8")
