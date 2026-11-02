@@ -1,0 +1,43 @@
+name: Rawat 2016 FDM shell theory and grid study
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ci/modal_rawat_grid_theory_study.py"
+      - ".github/workflows/modal-rawat-grid-theory-study.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  compare:
+    name: Rawat ${{ matrix.theory }} ${{ matrix.grid }}x${{ matrix.grid }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        theory: [CUF_TE1, CUF_TE4]
+        grid: [13, 17]
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements.txt
+      - name: Compute independent FDM modal fields and Rawat Table 2 comparison
+        run: python ci/modal_rawat_grid_theory_study.py ${{ matrix.theory }} ${{ matrix.grid }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rawat-${{ matrix.theory }}-${{ matrix.grid }}
+          path: |
+            modal_rawat_*_report.json
+            modal_rawat_*_fields.npz
+          if-no-files-found: warn
