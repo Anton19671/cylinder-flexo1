@@ -4,6 +4,11 @@ Only the isolated Cammalleri diagnostic uses the Schur-reduced material;
 the production KL material law and the 1e-6 modal certification stay intact.
 """
 from types import SimpleNamespace
+from pathlib import Path
+import sys
+
+# The full project CI does not always add ci/ to PYTHONPATH.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ci"))
 
 import numpy as np
 import pytest

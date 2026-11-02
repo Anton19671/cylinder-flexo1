@@ -1,5 +1,10 @@
 """The eight-rank CI audit must reject incorrect modal shapes or spectra."""
 from copy import deepcopy
+from pathlib import Path
+import sys
+
+# Works in both the standalone modal workflow and full test collection.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ci"))
 
 from modal_mvi_spectrum_audit import check_spectrum_acceptance
 
