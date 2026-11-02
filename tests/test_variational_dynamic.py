@@ -127,38 +127,18 @@ class DynamicCaseTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"MVI_NONZERO_ESSENTIAL_TRACE_UNSUPPORTED"):
             prepare_reference_case(c)
 
-    def test_time_dependent_electrode_is_assembled_by_newmark(self):
+    def test_time_dependent_electrode_requires_additive_mvi_lift(self):
+        # A nonzero prescribed electric trace is not representable by
+        # homogeneous fixed-rank X/Y factors without an affine lift.
+        # Reject rather than misrepresent it as a completed MVI trajectory.
         c=self.sample()
         c["boundary_conditions"]["variational"]["electrical"]["inner"].update(
             value=2.,time_law={
                 "kind":"RAMP","amplitude":1.,"start_time_s":0.,
                 "duration_s":0.02})
-        # Nonhomogeneous electrode values need an additive trace lift in
-        # fixed-rank MVI, so preflight must fail instead of running Newmark.
-        with self.assertRaisesRegex(ValueError,"MVI_NONZERO_ESSENTIAL_TRACE_UNSUPPORTED"):
+        with self.assertRaisesRegex(
+                ValueError,"MVI_NONZERO_ESSENTIAL_TRACE_UNSUPPORTED"):
             prepare_reference_case(c)
-        return
-        at_start=prepared.problem.assemble(
-            prepared.mechanical,prepared.electrical,time_s=0.,
-            dead_load=np.zeros_like(prepared.mechanical),
-            acceleration=np.zeros_like(prepared.mechanical),
-            density_kg_m3=prepared.dynamics.density_kg_m3)
-        at_end=prepared.problem.assemble(
-            prepared.mechanical,prepared.electrical,time_s=.02,
-            dead_load=np.zeros_like(prepared.mechanical),
-            acceleration=np.zeros_like(prepared.mechanical),
-            density_kg_m3=prepared.dynamics.density_kg_m3)
-        self.assertEqual(at_start.space.matrix.shape,at_end.space.matrix.shape)
-        self.assertAlmostEqual(float(np.max(abs(at_start.space.target))),0.)
-        # The original physical electrode rows prescribe 2 V. The reduced
-        # orthonormal constraint basis uses rescaled target coordinates.
-        initial_rows=[row for row in at_start.edge.constraints if row.field=="electrical"]
-        final_rows=[row for row in at_end.edge.constraints if row.field=="electrical"]
-        self.assertTrue(initial_rows)
-        self.assertEqual(len(initial_rows),len(final_rows))
-        self.assertTrue(all(abs(row.prescribed)<1e-14 for row in initial_rows))
-        self.assertTrue(all(abs(row.prescribed-2.)<1e-14 for row in final_rows))
-        self.assertGreater(float(np.max(abs(at_end.space.target))),0.)
 
     def test_boundary_time_law_rejects_undersampled_frequency(self):
         c=self.sample()
