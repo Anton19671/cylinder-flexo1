@@ -81,3 +81,12 @@ def test_mkr_branch_rejects_rank_or_mvi_steps(monkeypatch):
     monkeypatch.setattr(cylinder_modal_matrixfree, "solve_modal_matrixfree", poison)
     with pytest.raises(ValueError, match="CROSSCONTAMINATION"):
         solve_modal_mkr(_prepared("FDM", backend="MATRIX_FREE_GMRES"), 7850., 1)
+
+
+def test_shared_physical_tangent_does_not_import_numerical_mvi():
+    from pathlib import Path
+    import cylinder_modal_linear_physics as physics
+    import cylinder_modal_matrixfree as full
+    assert physics._LocalMechanicalTangent is not None
+    assert "from cylinder_modal_mvi import _LocalMechanicalTangent" not in Path(full.__file__).read_text()
+    assert "from cylinder_modal_linear_physics import _LocalMechanicalTangent" in Path(full.__file__).read_text()
