@@ -1,0 +1,37 @@
+name: Rawat CUF TE1 C-C modal audit
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ci/modal_mvi_rawat_te1_cc_audit.py"
+      - "numerics/cylinder_modal_mvi.py"
+      - ".github/workflows/modal-mvi-rawat-te1-cc.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  rawat-te1:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      PYTHONDONTWRITEBYTECODE: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install solver requirements
+        run: python -m pip install -r requirements.txt
+      - name: Audit Rawat CUF TE1 C-C branches
+        run: python ci/modal_mvi_rawat_te1_cc_audit.py
+      - name: Upload Rawat audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rawat-cuf-te1-cc-modal-audit
+          path: modal_mvi_rawat_te1_cc_audit_result.json
+          if-no-files-found: warn
