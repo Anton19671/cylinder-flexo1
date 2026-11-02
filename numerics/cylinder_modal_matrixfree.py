@@ -21,6 +21,41 @@ from cylinder_matrixfree_fdm import SparseTraceProjector
 from cylinder_variational_fdm import state_scales
 
 
+def _modal_linear_operator(action, size):
+    """Preserve SciPy LinearOperator's (n,) and (n,1) matvec contract.
+
+    When exactly one eigenmode is requested, SciPy may call matvec on an
+    (n,1) array (not matmat). The physical trace projector correctly demands
+    1D nodal vectors; convert only this documented singleton-column shape.
+    This does not change the operator, mass, physical boundary constraints or
+    the generalized eigenproblem.
+    """
+    n = int(size)
+    if n < 1 or n != size:
+        raise ValueError("MATRIX_FREE_MODAL_OPERATOR_INVALID_SIZE")
+
+    def matvec(value):
+        v = np.asarray(value, dtype=float)
+        if v.shape == (n, 1):
+            v = v[:, 0]
+        if v.shape != (n,):
+            raise ValueError("MATRIX_FREE_MODAL_OPERATOR_VECTOR_SHAPE")
+        output = np.asarray(action(v), dtype=float)
+        if output.shape != (n,):
+            raise ValueError("MATRIX_FREE_MODAL_OPERATOR_ACTION_SHAPE")
+        return output
+
+    def matmat(values):
+        a = np.asarray(values, dtype=float)
+        if a.ndim != 2 or a.shape[0] != n:
+            raise ValueError("MATRIX_FREE_MODAL_OPERATOR_MATRIX_SHAPE")
+        if a.shape[1] == 0:
+            return np.empty((n, 0), dtype=float)
+        return np.column_stack([matvec(a[:, j]) for j in range(a.shape[1])])
+
+    return LinearOperator((n, n), dtype=float, matvec=matvec, matmat=matmat)
+
+
 def _projected_actions(prepared, density, projector, *, progress_callback=None):
     """Construct constrained K and M actions in consistently scaled coordinates.
 
@@ -102,13 +137,9 @@ def _projected_actions(prepared, density, projector, *, progress_callback=None):
             progress_callback("M", calls["M"])
         return projector.project_null(scales * action.ravel() / mass_scale)
 
-    def as_operator(action):
-        return LinearOperator(
-            (n, n), dtype=float, matvec=action,
-            matmat=lambda values: np.column_stack(
-                [action(values[:, j]) for j in range(values.shape[1])]))
-
-    return as_operator(k_action), as_operator(m_action), scales, stiffness_scale / mass_scale, mass_scale
+    return (_modal_linear_operator(k_action, n),
+            _modal_linear_operator(m_action, n),
+            scales, stiffness_scale / mass_scale, mass_scale)
 
 
 def solve_modal_matrixfree(prepared, density, requested, *, modal_options,

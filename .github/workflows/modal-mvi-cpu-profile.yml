@@ -5,6 +5,8 @@ on:
     paths:
       - ci/modal_mvi_cpu_profile.py
       - numerics/cylinder_modal_mvi.py
+      - numerics/cylinder_modal_matrixfree.py
+      - tests/test_modal_matrixfree_column_vectors.py
       - numerics/cylinder_modal_separated_projector.py
       - .github/workflows/modal-mvi-cpu-profile.yml
   workflow_dispatch:
@@ -26,6 +28,8 @@ jobs:
         with:
           python-version: "3.11"
       - run: python -m pip install -r requirements.txt
+      - name: Regression for scalar and singleton-column mass and stiffness actions
+        run: python -m pytest -q tests/test_modal_matrixfree_column_vectors.py
       - name: Profile same Cammalleri geometry and grid
         run: python ci/modal_mvi_cpu_profile.py
       - uses: actions/upload-artifact@v4
