@@ -1,0 +1,59 @@
+name: Verify modal MVI and MKR branches independently
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/modal-mvi-mkr-isolation-proof.yml"
+      - "numerics/cylinder_modal_reference.py"
+      - "numerics/cylinder_modal_mkr.py"
+      - "numerics/cylinder_modal_mvi.py"
+      - "tests/test_modal_mvi_mkr_branch_isolation.py"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify-dispatch:
+    name: Prove mutually exclusive solver dispatch
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      PYTHONDONTWRITEBYTECODE: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install solver requirements
+        run: python -m pip install -r requirements.txt
+      - name: Verify MVI/MKR cannot call or accept each other's solver result
+        run: python -m pytest -q tests/test_modal_mvi_mkr_branch_isolation.py tests/test_modal_mvi_case_comparison.py
+  verify-physical:
+    name: Solve Rawat CUF TE1 with real MVI and full-space FDM
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      PYTHONDONTWRITEBYTECODE: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install solver requirements
+        run: python -m pip install -r requirements.txt
+      - name: Run actual independent Rawat C-C 13x13 MVI-1 and FDM solves
+        run: python ci/modal_mvi_rawat_te1_cc_audit.py
+      - name: Save independent modal spectra and comparison
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: modal-mvi-mkr-branch-independence-rawat
+          path: modal_mvi_rawat_te1_cc_audit_result.json
+          if-no-files-found: warn
