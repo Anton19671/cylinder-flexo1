@@ -1,0 +1,39 @@
+name: Modal CUF TE1 point-mass cross-grid MVI4 FDM
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ci/modal_te1_pointmass_grid_study.py'
+      - '.github/workflows/modal-te1-pointmass-grid-study.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  grid:
+    strategy:
+      fail-fast: false
+      matrix:
+        n: [9, 13, 17]
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    env:
+      PYTHONPATH: '.:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models'
+      OPENBLAS_NUM_THREADS: '1'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -r requirements.txt
+      - name: Grid test
+        run: python ci/modal_te1_pointmass_grid_study.py ${{ matrix.n }}
+      - name: Upload result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: modal-pointmass-grid-${{ matrix.n }}
+          path: modal_te1_pointmass_grid_${{ matrix.n }}x${{ matrix.n }}.json
+          if-no-files-found: warn
