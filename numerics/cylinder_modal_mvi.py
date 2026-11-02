@@ -861,7 +861,8 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
         report_candidate_state("MVI_CANDIDATE_INITIAL_STATE",
                                initial_q, initial_p)
         seed_n, seed_fraction = harmonic_state(initial_q)
-        if (seed["kind"] in ("harmonic_partner", "quadrature_previous")
+        if (operator.rank == 1
+                and seed["kind"] in ("harmonic_partner", "quadrature_previous")
                 and seed_n > 0 and seed_fraction >= 1. - 1.e-8):
             x, y = _normalize_partner(x, y, "X")
             old_value = operator.eigenvalue(initial_q, initial_p)
