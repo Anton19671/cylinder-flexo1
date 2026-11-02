@@ -315,10 +315,13 @@ class _SeparatedModalProblem:
             raise ValueError("MODAL MVI cannot separate mixed mechanical/electric constraints")
         self.cm = c[has_m, :self.nm]
         self.ce = c[has_e, self.nm:]
-        self.n_mechanical_free_dofs = (self.nm-int(self.fixed_mask.sum())
-                                      if self.large_harmonic and self.axial_trace_bases is None else
-                                      self.nm-sum(self.nx-b.shape[1] for b in self.axial_trace_bases)*self.ns
-                                      if self.large_harmonic else _free_dof_count(self.cm) else _free_dof_count(self.cm))
+        if self.large_harmonic and self.axial_trace_bases is not None:
+            self.n_mechanical_free_dofs = self.ns * sum(
+                basis.shape[1] for basis in self.axial_trace_bases)
+        elif self.large_harmonic:
+            self.n_mechanical_free_dofs = self.nm - int(self.fixed_mask.sum())
+        else:
+            self.n_mechanical_free_dofs = _free_dof_count(self.cm)
         self.n_electric_free_dofs = (0 if self.large_harmonic else _free_dof_count(self.ce))
         self.step = prepared.settings.tangent_step_scaled
         self.scales = state_scales(self.f, self.q0, self.p0, prepared.settings)
@@ -409,6 +412,25 @@ class _SeparatedModalProblem:
                 raise ValueError("MODAL MVI: inadmissible frozen-partner basis")
             return scales[:, None] * space.basis
 
+        if self.large_harmonic and self.axial_trace_bases is not None:
+            from cylinder_modal_axial_traces import (
+                axial_trace_xy_basis, axial_trace_harmonic_x_basis)
+            harmonic = getattr(self, "circumferential_harmonic", None)
+            if harmonic is not None:
+                if axis != "X":
+                    raise ValueError("MODAL_MVI_LARGE_INITIAL_HARMONIC_REQUIRES_X")
+                bm = axial_trace_harmonic_x_basis(
+                    y[:ncm], harmonic, self.axial_trace_bases,
+                    self.scales[:self.nm],
+                    max_directions=MAX_PROJECTED_DIRECTIONS)
+            else:
+                bm = axial_trace_xy_basis(
+                    x[:ncm], y[:ncm], axis, self.axial_trace_bases,
+                    self.scales[:self.nm],
+                    max_directions=MAX_PROJECTED_DIRECTIONS)
+            if not bm.shape[1]:
+                raise ValueError("MODAL MVI: no admissible axial-trace directions")
+            return bm, np.empty((0, 0))
         if self.large_harmonic:
             from cylinder_modal_separated_space import (
                 fixed_trace_xy_basis, fixed_trace_harmonic_x_basis)
@@ -506,7 +528,9 @@ class _SeparatedModalProblem:
             old_norm = float(np.linalg.norm(old_q))
             if old_norm <= 0.:
                 raise ValueError("MODAL MVI: zero previous mechanical field")
-            trace_error = (float(np.max(np.abs(old_q[self.fixed_mask]),initial=0.))
+            trace_error = (float(np.max(np.abs(self.cm @ old_q),initial=0.))
+                           if self.axial_trace_bases is not None else
+                           float(np.max(np.abs(old_q[self.fixed_mask]),initial=0.))
                            if self.large_harmonic else float(np.linalg.norm(self.cm @ old_q, ord=np.inf)))
             trace_scale = (max(1., old_norm) if self.large_harmonic else
                            max(1., float(np.linalg.norm(self.cm, ord=np.inf)) * old_norm))
@@ -875,7 +899,9 @@ class _SeparatedModalProblem:
             if abs(float(q @ self.previous_mass(existing))) > 1.e-7:
                 raise ValueError("MODAL_MVI_ROTATED_SEED_NOT_INDEPENDENT")
         if self.large_harmonic:
-            defect = float(np.max(np.abs(q[self.fixed_mask]), initial=0.))
+            defect = (float(np.max(np.abs(self.cm @ q), initial=0.))
+                      if self.axial_trace_bases is not None else
+                      float(np.max(np.abs(q[self.fixed_mask]), initial=0.)))
         else:
             defect = float(np.max(np.abs(self.cm @ q), initial=0.))
         if defect > 1.e-10 * max(1., float(np.linalg.norm(q))):
