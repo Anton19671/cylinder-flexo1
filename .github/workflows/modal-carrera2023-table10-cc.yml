@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - 'ci/modal_carrera2023_table10_cc_r1.py'
+      - 'ci/modal_carrera2023_normalization_reaudit.py'
       - '.github/workflows/modal-carrera2023-table10-cc.yml'
   workflow_dispatch:
 permissions:
@@ -38,4 +39,28 @@ jobs:
         with:
           name: liang2023-${{ matrix.theory }}-${{ matrix.method }}
           path: benchmark_carrera2023_cc_r1/${{ matrix.theory }}/${{ matrix.method }}/13x13/
+          if-no-files-found: warn
+
+  reassess:
+    name: Compare both published normalization readings without new solves
+    if: ${{ always() }}
+    needs: [compare]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      LIANG_ARTIFACTS: liang_artifacts
+      PYTHONPATH: '.:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: liang2023-*
+          path: liang_artifacts
+      - name: Compute both normalization interpretations strictly from saved results
+        run: python ci/modal_carrera2023_normalization_reaudit.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: liang2023-normalization-comparison
+          path: liang2023_normalization_comparison/
           if-no-files-found: warn
