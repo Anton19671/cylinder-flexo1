@@ -1,0 +1,36 @@
+name: Modal eight frequencies and ranks 1-8
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ci/modal_mvi_spectrum_audit.py"
+      - ".github/workflows/modal-mvi-spectrum-audit.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  spectrum:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      PYTHONDONTWRITEBYTECODE: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install solver requirements
+        run: python -m pip install -r requirements.txt
+      - name: Audit physical eight-frequency spectrum
+        run: python ci/modal_mvi_spectrum_audit.py
+      - name: Upload spectrum audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: modal-eight-spectrum-audit
+          path: modal_mvi_spectrum_audit_result.json
+          if-no-files-found: warn
