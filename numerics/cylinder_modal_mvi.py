@@ -86,6 +86,38 @@ def _significant_modal_constraints(constraints, mass_factor):
     return constraints[max_overlaps > 2.e-7]
 
 
+
+def _large_frozen_partner_membership_error(basis, scales, field):
+    """Linear-cost membership check for the certified fixed-trace Y/X basis.
+
+    fixed_trace_xy_basis and fixed_trace_harmonic_x_basis produce orthogonal,
+    unit-length columns in dimensionless coordinates: their local QR columns
+    are orthonormal, and distinct (component, node) groups have disjoint
+    support.  Avoid an O(N D**2) global Gram or pivoted QR in every halfstep.
+    The membership discrepancy is measured in ORIGINAL physical coordinates,
+    preserving the same tolerance when components have different scales.
+    """
+    basis = np.asarray(basis, dtype=float)
+    scales = np.asarray(scales, dtype=float)
+    field = np.asarray(field, dtype=float)
+    if (basis.ndim != 2 or field.ndim != 1 or scales.shape != field.shape
+            or basis.shape[0] != field.size or not basis.shape[1]
+            or not np.isfinite(basis).all() or not np.isfinite(scales).all()
+            or not np.isfinite(field).all() or np.any(scales <= 0.)):
+        raise ValueError("MODAL_MVI_INVALID_LARGE_BASIS_MEMBERSHIP_INPUT")
+    normalized = basis / scales[:, None]
+    column_norm2 = np.einsum("ij,ij->j", normalized, normalized)
+    if (not np.isfinite(column_norm2).all()
+            or np.max(np.abs(column_norm2 - 1.)) > 1.e-10):
+        raise ValueError("MODAL_MVI_LARGE_BASIS_NOT_ORTHONORMAL")
+    original_norm = float(np.linalg.norm(field))
+    if original_norm <= 0.:
+        raise ValueError("MODAL_MVI_ZERO_LARGE_MEMBERSHIP_FIELD")
+    scaled_field = field / scales
+    projected = normalized @ (normalized.T @ scaled_field)
+    difference = (scaled_field - projected) * scales
+    return float(np.linalg.norm(difference) / original_norm)
+
 def _modal_variational_step_precision(old_projected, new_projected,
                                       old_physical, new_physical):
     """Check thin-shell stationarity against independent physical field energy.
@@ -552,20 +584,8 @@ class _SeparatedModalProblem:
             if trace_error > 1.e-9 * trace_scale:
                 raise ValueError("MODAL MVI: previous field violates essential traces")
             if self.large_harmonic:
-                # fixed_trace_xy_basis returns an exactly constrained subset of
-                # the frozen-partner span. Its columns are disjoint across
-                # component/node groups and orthonormal BEFORE physical scales.
-                # Check both properties rather than repeat two global,
-                # pivoted QR factorizations on every modal halfstep.
-                normalized = bm / self.scales[:self.nm, None]
-                gram = normalized.T @ normalized
-                if not np.allclose(gram, np.eye(gram.shape[0]),
-                                   rtol=1.e-10, atol=1.e-10):
-                    raise ValueError("MODAL_MVI_LARGE_BASIS_NOT_ORTHONORMAL")
-                old_scaled = old_q / self.scales[:self.nm]
-                projected = normalized @ (normalized.T @ old_scaled)
-                missing_ratio = float(np.linalg.norm(old_scaled - projected) /
-                                      np.linalg.norm(old_scaled))
+                missing_ratio = _large_frozen_partner_membership_error(
+                    bm, self.scales[:self.nm], old_q)
                 if not np.isfinite(missing_ratio) or missing_ratio > 1.e-9:
                     raise ValueError(
                         "MODAL_MVI_FROZEN_PARTNER_BASIS_LOST_CURRENT_FIELD: "

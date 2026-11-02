@@ -125,6 +125,10 @@ def fixed_trace_xy_basis(x, y, axis, fixed_mask, scales,
             diagonal = np.abs(np.diag(triangular))
             keep = int(np.count_nonzero(
                 diagonal > 1.e-12 * np.max(diagonal, initial=0.)))
+            # QR produces orthonormal vectors inside this component/node
+            # block. Different blocks never share nodal support. Thus the
+            # FULL assembled basis is orthonormal before component scaling,
+            # with no global Gram or QR certificate needed per halfstep.
             for j in range(keep):
                 vector = frame[:, j].copy()
                 if np.max(np.abs(vector[blocked]), initial=0.) > 1.e-10:
@@ -199,6 +203,9 @@ def fixed_trace_harmonic_x_basis(y, harmonic, fixed_mask, scales,
             sizes > 1.e-12 * max(
                 float(np.linalg.norm(partner, ord=2)),
                 float(np.max(sizes, initial=0.)))))
+        # Each phase frame is QR-orthonormal and is placed on a separate
+        # (component, axial node) support block, certifying global
+        # orthonormality without a dense full-grid Gram calculation.
         for rindex in range(keep):
             vector = frame[:, rindex]
             outside = vector - phases.T @ (phases @ vector)
