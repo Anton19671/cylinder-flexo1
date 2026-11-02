@@ -812,6 +812,70 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
             x, y, initial_q, initial_p = operator.admissible_start(
                 seed["index"], qmodes, harmonic_seed=seed.get("n"),
                 harmonic_phase=seed.get("phase", "cos"))
+        def harmonic_state(q):
+            field = np.asarray(q, float).reshape(operator.shape)
+            spectrum = np.abs(np.fft.rfft(field, axis=-1)) ** 2
+            energy = np.sum(spectrum, axis=(0, 1))
+            total = float(np.sum(energy))
+            n = int(np.argmax(energy)) if total > 0. else 0
+            fraction = float(energy[n] / total) if total > 0. else 0.
+            return n, fraction
+
+        def report_candidate_state(stage, q, p, *, sweep=0, axis=None):
+            if detail_callback is None:
+                return
+            n, fraction = harmonic_state(q)
+            overlaps = [abs(float(q @ operator.previous_mass(old)))
+                        for old in qmodes]
+            detail_callback(
+                stage=stage, mode=mode+1, n_modes=requested, rank=rank,
+                attempt=attempt, seed=seed, sweep=sweep, axis=axis,
+                frequency_hz=float(np.sqrt(max(0., operator.eigenvalue(q, p))) /
+                                   (2. * np.pi)),
+                circumferential_harmonic=n,
+                circumferential_harmonic_energy_fraction=fraction,
+                max_previous_mass_overlap=(max(overlaps) if overlaps else 0.))
+
+        # A pure Fourier seed is admissible but its random axial factor is
+        # not yet characteristic of that harmonic.  Starting directly with
+        # an unrestricted Y minimization lets it change n before the
+        # corresponding X factor is found.  Perform one exact X-frozen
+        # variational halfstep first; it stays in the seed's Y harmonic
+        # space, uses the same K/M/traces and the same mass deflation, and is
+        # only initialization.  The classical modal iteration below remains
+        # Y -> X on every completed sweep.
+        report_candidate_state("MVI_CANDIDATE_INITIAL_STATE",
+                               initial_q, initial_p)
+        seed_n, seed_fraction = harmonic_state(initial_q)
+        if (seed["kind"] in ("harmonic_partner", "quadrature_previous")
+                and seed_n > 0 and seed_fraction >= 1. - 1.e-8):
+            x, y = _normalize_partner(x, y, "X")
+            old_value = operator.eigenvalue(initial_q, initial_p)
+
+            def initial_x_trace(stage, column, total):
+                if stage == "SUBSPACE_DIMENSIONS":
+                    last_xy_spaces["X_INITIAL"] = {
+                        "mechanical_directions": int(column),
+                        "electric_directions": int(total)}
+                if detail_callback is not None:
+                    detail_callback(
+                        stage="MVI_INITIAL_X_" + stage, mode=mode+1,
+                        n_modes=requested, rank=rank, attempt=attempt,
+                        seed=seed, sweep=0, axis="X",
+                        column=column, total_columns=total)
+
+            q, p, projected_value, old_projected = operator.halfstep(
+                x, y, "X", qmodes, current_q=initial_q,
+                on_stage=initial_x_trace)
+            if old_projected is None:
+                raise ValueError("MODAL MVI: missing initial X projected state")
+            _modal_variational_step_precision(
+                old_projected, projected_value, old_value,
+                operator.eigenvalue(q, p))
+            x, y = operator.fit(x, y, "X", q, p)
+            initial_q, initial_p = q, p
+            report_candidate_state("MVI_CANDIDATE_INITIAL_X_DONE", q, p,
+                                   axis="X")
         last_q = initial_q.copy()
         last_p = None if initial_p is None else initial_p.copy()
         last_lambda = operator.eigenvalue(initial_q, initial_p)
@@ -878,6 +942,8 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
                         tangent_difference_new=float(value_half-projected_value))
                 x, y = operator.fit(x, y, axis, q, p)
                 half_q, half_p = q, p
+                report_candidate_state("MVI_HALFSTEP_HARMONIC_AUDIT", q, p,
+                                       sweep=sweep, axis=axis)
                 if detail_callback is not None:
                     detail_callback(stage="MVI_HALFSTEP_DONE",mode=mode+1,
                         n_modes=requested,rank=rank,sweep=sweep,axis=axis,
