@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - ci/modal_mvi_cpu_profile.py
+      - numerics/cylinder_modal_mvi.py
       - .github/workflows/modal-mvi-cpu-profile.yml
   workflow_dispatch:
 permissions:

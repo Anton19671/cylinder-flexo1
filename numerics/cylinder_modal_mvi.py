@@ -1084,7 +1084,8 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
             fraction = float(energy[n] / total) if total > 0. else 0.
             return n, fraction
 
-        def report_candidate_state(stage, q, p, *, sweep=0, axis=None):
+        def report_candidate_state(stage, q, p, *, sweep=0, axis=None,
+                                   physical_lambda=None):
             if detail_callback is None:
                 return
             n, fraction = harmonic_state(q)
@@ -1093,7 +1094,11 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
             detail_callback(
                 stage=stage, mode=mode+1, n_modes=requested, rank=rank,
                 attempt=attempt, seed=seed, sweep=sweep, axis=axis,
-                frequency_hz=float(np.sqrt(max(0., operator.eigenvalue(q, p))) /
+                # Same unmodified physical Rayleigh quotient already used
+                # for the variational acceptance of THIS exact field.
+                frequency_hz=float(np.sqrt(max(
+                    0., operator.eigenvalue(q, p)
+                    if physical_lambda is None else physical_lambda)) /
                                    (2. * np.pi)),
                 circumferential_harmonic=n,
                 circumferential_harmonic_energy_fraction=fraction,
@@ -1107,13 +1112,18 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
         # space, uses the same K/M/traces and the same mass deflation, and is
         # only initialization.  The classical modal iteration below remains
         # Y -> X on every completed sweep.
+        # Compute the physical energy once per unchanged physical field.
+        # All following stationary checks still use independent physical
+        # Rayleigh evaluations of each NEW Y/X field.
+        physical_value = operator.eigenvalue(initial_q, initial_p)
         report_candidate_state("MVI_CANDIDATE_INITIAL_STATE",
-                               initial_q, initial_p)
+                               initial_q, initial_p,
+                               physical_lambda=physical_value)
         seed_n, seed_fraction = harmonic_state(initial_q)
         if (seed["kind"] in ("harmonic_partner", "quadrature_previous")
                 and seed_n > 0 and seed_fraction >= 1. - 1.e-8):
             x, y = normalize_modal_partner(x, y, "X", getattr(operator, "fixed_mask", None))
-            old_value = operator.eigenvalue(initial_q, initial_p)
+            old_value = physical_value
 
             def initial_x_trace(stage, column, total):
                 if stage == "SUBSPACE_DIMENSIONS":
@@ -1146,19 +1156,20 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
                     on_stage=initial_x_trace)
                 if old_projected is None:
                     raise ValueError("MODAL MVI: missing initial X projected state")
+                physical_value = operator.eigenvalue(q, p)
                 _modal_variational_step_precision(
                     old_projected, projected_value, old_value,
-                    operator.eigenvalue(q, p))
+                    physical_value)
                 x, y = operator.fit(x, y, "X", q, p)
             finally:
                 if initialize_in_sector:
                     del operator.circumferential_harmonic
             initial_q, initial_p = q, p
             report_candidate_state("MVI_CANDIDATE_INITIAL_X_DONE", q, p,
-                                   axis="X")
+                                   axis="X", physical_lambda=physical_value)
         last_q = initial_q.copy()
         last_p = None if initial_p is None else initial_p.copy()
-        last_lambda = operator.eigenvalue(initial_q, initial_p)
+        last_lambda = physical_value
         half_q, half_p = initial_q, initial_p
         converged = False
         for sweep in range(1, max_sweeps + 1):
@@ -1189,7 +1200,9 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
                         detail_callback(stage=stage,mode=mode+1,n_modes=requested,
                             rank=rank,sweep=sweep,max_sweeps=max_sweeps,
                             axis=axis,column=column,total_columns=total)
-                old_value = operator.eigenvalue(half_q, half_p)
+                # half_q/half_p is precisely the last evaluated field:
+                # no mutation occurs between the Y and X halfsteps.
+                old_value = physical_value
                 q, p, projected_value, old_projected = operator.halfstep(
                     x, y, axis, qmodes, current_q=half_q, on_stage=trace)
                 value_half = operator.eigenvalue(q, p)
@@ -1222,13 +1235,15 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
                         tangent_difference_new=float(value_half-projected_value))
                 x, y = operator.fit(x, y, axis, q, p)
                 half_q, half_p = q, p
+                physical_value = value_half
                 report_candidate_state("MVI_HALFSTEP_HARMONIC_AUDIT", q, p,
-                                       sweep=sweep, axis=axis)
+                                       sweep=sweep, axis=axis,
+                                       physical_lambda=value_half)
                 if detail_callback is not None:
                     detail_callback(stage="MVI_HALFSTEP_DONE",mode=mode+1,
                         n_modes=requested,rank=rank,sweep=sweep,axis=axis,
                         frequency_hz=float(np.sqrt(max(0.,value_half))/(2*np.pi)))
-            value = operator.eigenvalue(q, p)
+            value = physical_value
             if not np.isfinite(value) or value < 0.:
                 raise ValueError("MODAL MVI: invalid Rayleigh quotient")
             relative, change, electric_change = (
