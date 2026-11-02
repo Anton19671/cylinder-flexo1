@@ -638,7 +638,14 @@ class _SeparatedModalProblem:
         # Fetch just the lowest cluster, not the full projected spectrum.
         # Extend the window only when its last eigenvalue is still degenerate.
         dimension = kz.shape[0]
-        last = min(dimension - 1, 1)
+        # Doublets dominate uniform cylindrical-shell spectra. Request the
+        # first *three* eigenpairs once so the third provides the physical
+        # gap certificate for a two-dimensional eigenspace. Previously we
+        # requested only two and solved the SAME generalized problem twice
+        # whenever the lowest eigenvalue was double. Triples and higher
+        # multiplicities still extend the window using the unchanged rule.
+        # No K/M/rank, eigenpair selection, or acceptance rule is changed.
+        last = min(dimension - 1, 2)
         while True:
             eigenvalues, eigvec = eigh(
                 kz, mz, subset_by_index=(0, last),
