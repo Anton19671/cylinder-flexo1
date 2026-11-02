@@ -65,10 +65,16 @@ def _effective_modal_case(case):
         effective["method"] = "FDM"
     key = "mvi_grid" if str(effective.get("method", "")).upper() == "MVI" else "fdm_grid"
     grid = effective.get(key)
-    if isinstance(grid, dict) and str(grid.get("operator_scheme", "")).upper() == "SBP21_PERIODIC_ODD":
-        if isinstance(grid.get("nx"), int) and grid["nx"] < 9:
-            raise ValueError("MODAL SBP42_FOURIER_ODD requires nx >= 9")
-        grid["operator_scheme"] = "SBP42_FOURIER_ODD"
+    if isinstance(grid, dict):
+        scheme = str(grid.get("operator_scheme", "")).upper()
+        modal_schemes = {
+            "SBP21_PERIODIC_ODD": "SBP42_FOURIER_ODD",
+            "SBP21_PERIODIC_ODD_CSR": "SBP42_FOURIER_ODD_CSR",
+        }
+        if scheme in modal_schemes:
+            if isinstance(grid.get("nx"), int) and grid["nx"] < 9:
+                raise ValueError("MODAL SBP42_FOURIER_ODD requires nx >= 9")
+            grid["operator_scheme"] = modal_schemes[scheme]
     return effective
 
 

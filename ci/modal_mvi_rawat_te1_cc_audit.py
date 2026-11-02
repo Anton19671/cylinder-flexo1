@@ -16,7 +16,7 @@ import numpy as np
 
 from cylinder_paths import activate
 activate()
-from cylinder_modal_reference import solve_modal_case
+from cylinder_modal_reference import _effective_modal_case, solve_modal_case
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "config" / "verification" / "rawat2016" / "modal_linear"
@@ -29,6 +29,22 @@ TARGET_BRANCHES_HZ = (342.0, 352.0)
 
 def read_case(path):
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def check_comparable_cases(fdm, mvi):
+    """Refuse a comparison of different physical problems or discrete operators."""
+    fdm, mvi = _effective_modal_case(fdm), _effective_modal_case(mvi)
+    for key in ("theory", "cuf_model", "geometry_model", "geometry",
+                "material", "quadrature", "boundary_conditions"):
+        if fdm.get(key) != mvi.get(key):
+            raise ValueError(f"RAWAT_CASE_MISMATCH: {key}")
+    if fdm["modal"]["density_kg_m3"] != mvi["modal"]["density_kg_m3"]:
+        raise ValueError("RAWAT_CASE_MISMATCH: density")
+    fg, mg = fdm["fdm_grid"], mvi["mvi_grid"]
+    if (fg["nx"], fg["ns"], fg["operator_scheme"]) != (
+            mg["nx"], mg["ns"], mg["operator_scheme"] + "_CSR"):
+        raise ValueError("RAWAT_CASE_MISMATCH: effective grids or operators")
+    return {"fdm": fg["operator_scheme"], "mvi": mg["operator_scheme"]}
 
 
 def harmonic_numbers(fields):
@@ -66,6 +82,7 @@ def main():
         "scope": "RAWAT2016_CUF_TE1_CC_13x13",
         "published_branches_hz": list(TARGET_BRANCHES_HZ),
         "n_requested": N_MODES,
+        "effective_operators": check_comparable_cases(read_case(FDM_CONFIG), read_case(MVI_CONFIG)),
         "runs": {},
     }
     try:
