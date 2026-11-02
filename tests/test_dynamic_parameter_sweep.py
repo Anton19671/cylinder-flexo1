@@ -33,6 +33,7 @@ def make_run(root, *, theory="CUF_TE2", amplitude=.004, steps=400,
                       "time_law":{"kind":"HARMONIC","frequency_hz":frequency,
                                   "start_time_s":0.}}}
     summary={"theory":theory,"method":"MVI","rank":4,
+             "newmark":{"dt_s":dt},
              "calculation_kind":"DYNAMIC","accepted_steps":steps,
              "requested_steps":steps,"converged":True,"steps":[]}
     for index in range(1,steps+1):
