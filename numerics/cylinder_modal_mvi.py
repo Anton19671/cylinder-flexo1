@@ -19,7 +19,7 @@ from scipy.linalg import cholesky, eigh, qr, solve, solve_triangular
 
 from cylinder_boundary_spatial import affine_trace_space, separated_profile_directions
 from cylinder_variational_fdm import state_scales
-from cylinder_variational_mvi import _normalize_partner, reconstruct_profiles
+from cylinder_variational_mvi import _normalize_partner, _initial_profiles, reconstruct_profiles
 from cylinder_modal_harmonic_spectrum import (
     _harmonic_phase_basis, _harmonic_variation_directions,
     _phase_quadrature_partner, _pure_harmonic_fraction,
@@ -693,6 +693,54 @@ class _SeparatedModalProblem:
         x, y = self.fit(x, y, "X", q, p)
         return x, y, q, p
 
+    def admissible_quadrature_seed(self, previous, electric_previous, earlier):
+        """Admissible starting field for the missing rotationally repeated mode.
+
+        ONLY the initial field is rotated. Its factorization retains the
+        requested rank; normal unrestricted Y->X MVI then recomputes the
+        stationary mode. Never append a transformed field as an eigenmode.
+        An earlier member of the same pair or non-harmonic fields are rejected.
+        """
+        if self.ns % 2 != 1:
+            raise ValueError("MODAL_MVI_ROTATED_SEED_NEEDS_ODD_PERIODIC_GRID")
+        previous_field = np.asarray(previous, float).reshape(self.shape)
+        spectrum = np.abs(np.fft.rfft(previous_field, axis=-1))**2
+        energy_by_n = np.sum(spectrum, axis=(0, 1))
+        n = int(np.argmax(energy_by_n))
+        if n == 0 or _pure_harmonic_fraction(previous_field, n) < 1.-1.e-8:
+            raise ValueError("MODAL_MVI_ROTATED_SEED_NOT_SINGLE_HARMONIC")
+        q = _phase_quadrature_partner(previous_field, n).ravel()
+        norm = np.sqrt(float(q @ self.mass(q)))
+        if not np.isfinite(norm) or norm <= 0.:
+            raise ValueError("MODAL_MVI_ROTATED_SEED_BAD_MASS")
+        q /= norm
+        for existing in (*earlier, previous):
+            if abs(float(q @ self.previous_mass(existing))) > 1.e-7:
+                raise ValueError("MODAL_MVI_ROTATED_SEED_NOT_INDEPENDENT")
+        if self.large_harmonic:
+            defect = float(np.max(np.abs(q[self.fixed_mask]), initial=0.))
+        else:
+            defect = float(np.max(np.abs(self.cm @ q), initial=0.))
+        if defect > 1.e-10 * max(1., float(np.linalg.norm(q))):
+            raise ValueError("MODAL_MVI_ROTATED_SEED_VIOLATES_BC")
+        p = (None if electric_previous is None else
+             _phase_quadrature_partner(
+                 np.asarray(electric_previous).reshape(self.p0.shape), n
+             ).ravel() / norm)
+        if p is not None and np.max(np.abs(self.ce @ p),initial=0.) > (
+                1.e-10 * max(1.,float(np.linalg.norm(p)))):
+            raise ValueError("MODAL_MVI_ROTATED_SEED_VIOLATES_ELECTRODES")
+        combined = q if p is None else np.concatenate((q,p))
+        scaled = (combined / self.scales).reshape(
+            self.n_components,self.nx,self.ns)
+        x,y = _initial_profiles(
+            scaled,self.rank,np.linalg.norm(scaled,axis=(1,2)))
+        restored = reconstruct_profiles(x,y)
+        if np.linalg.norm(restored-scaled) > 1.e-10 * max(
+                1.,float(np.linalg.norm(scaled))):
+            raise ValueError("MODAL_MVI_ROTATED_SEED_RANK_RECONSTRUCTION")
+        return x,y,q,p
+
     def eigenvalue(self, q, p):
         field = q if p is None else np.concatenate((q, p))
         denominator = float(q @ self.mass(q))
@@ -756,9 +804,14 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
 
     def solve_candidate(mode, seed):
         last_xy_spaces = {"Y": None, "X": None}
-        x, y, initial_q, initial_p = operator.admissible_start(
-            seed["index"], qmodes, harmonic_seed=seed.get("n"),
-            harmonic_phase=seed.get("phase", "cos"))
+        if seed["kind"] == "quadrature_previous":
+            x, y, initial_q, initial_p = (
+                operator.admissible_quadrature_seed(
+                    qmodes[-1], pmodes[-1], qmodes[:-1]))
+        else:
+            x, y, initial_q, initial_p = operator.admissible_start(
+                seed["index"], qmodes, harmonic_seed=seed.get("n"),
+                harmonic_phase=seed.get("phase", "cos"))
         last_q = initial_q.copy()
         last_p = None if initial_p is None else initial_p.copy()
         last_lambda = operator.eigenvalue(initial_q, initial_p)
@@ -884,6 +937,12 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
 
     for mode in range(requested):
         plan = _modal_seed_plan(operator, mode, requested)
+        # Missing members of an angularly degenerate pair are difficult to
+        # reach with random factors. A quarter-phase rotation of the last
+        # converged mode is an independent TRIAL SEED, not a new solver or
+        # an assumed eigenpair. It must pass all ordinary Y/X validations.
+        if qmodes:
+            plan.insert(0, {"kind": "quadrature_previous", "index": int(mode)})
         accepted = []
         failures = []
         for attempt, seed in enumerate(plan, 1):
