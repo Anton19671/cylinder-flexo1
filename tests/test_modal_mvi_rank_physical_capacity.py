@@ -52,7 +52,7 @@ def test_nonseparable_exact_reference_requires_higher_rank(rank):
     # For K=4I-3qq^T and M=I, this is the exact global minimum of
     # the Rayleigh quotient over all rank<=rank normalized trial fields.
     lam = 4. - 3. * np.sum(singular[:rank] ** 2)
-    assert 1. <= lam <= 4.
+    assert 1. - 1.e-12 <= lam <= 4. + 1.e-12
     if rank == 8:
         np.testing.assert_allclose(lam, 1., atol=1.e-12)
     else:
