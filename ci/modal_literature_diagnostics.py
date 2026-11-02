@@ -55,20 +55,50 @@ def _solve(case):
     return result, frequencies, fields, list(map(int, numbers))
 
 
+def axial_harmonic_signature(radial_field, n):
+    """Rotation-invariant axial-shape *diagnostic* for a radial Fourier mode.
+
+    Circumferential phase is arbitrary inside a doublet. Extract the exact
+    complex n-Fourier coefficient then take the dominant real direction of
+    its 2x2 Gramian to estimate axial internal nodes. A lack of internal
+    nodes is consistent with a first axial branch, but DOES NOT establish
+    the physical shell-mode label m=1.
+    """
+    radial = np.asarray(radial_field, dtype=float)
+    if (radial.ndim != 2 or min(radial.shape) < 5 or
+            not np.isfinite(radial).all() or
+            type(n) is not int or not 0 < n < radial.shape[1] // 2 + 1):
+        raise ValueError("RAWAT_INVALID_AXIAL_FOURIER_FIELD")
+    coefficient = np.fft.rfft(radial, axis=1)[:, n]
+    phases = np.stack((coefficient.real, coefficient.imag), axis=1)
+    gram = phases.T @ phases
+    vals, frame = np.linalg.eigh((gram + gram.T) * 0.5)
+    total = float(np.sum(vals))
+    if not np.isfinite(total) or total <= 1.e-24:
+        raise ValueError("RAWAT_RADIAL_HARMONIC_COMPONENT_ABSENT")
+    axial = phases @ frame[:, -1]
+    peak = float(np.max(np.abs(axial)))
+    if peak <= 1.e-15:
+        raise ValueError("RAWAT_RADIAL_AXIAL_PROFILE_ABSENT")
+    interior = axial[1:-1]
+    clear = interior[np.abs(interior) >= 1.e-3 * peak]
+    signs = np.sign(clear)
+    nodes = int(np.sum(signs[1:] * signs[:-1] < 0))
+    coherence = float(np.clip(vals[-1] / total, 0.0, 1.0))
+    return {
+        "n": n,
+        "radial_internal_axial_nodes_estimate": nodes,
+        "axial_fourier_phase_coherence": coherence,
+        "axial_profile": (axial / peak).tolist(),
+        "axial_m1_verified": False,
+        "axial_m1_candidate": bool(nodes == 0 and coherence >= 0.99),
+    }
+
+
 def _axial_zero_crossing_estimate(field, n):
-    """Diagnostic only: radial displacement Fourier coefficient, NOT axial m."""
-    ns = field.shape[-1]
-    theta = 2. * np.pi * np.arange(ns) / ns
-    cos = np.cos(n * theta)
-    sin = np.sin(n * theta)
-    a = np.asarray(field) @ cos
-    b = np.asarray(field) @ sin
-    gram = np.array([[a @ a, a @ b], [a @ b, b @ b]])
-    eigvalues, eigvectors = np.linalg.eigh(gram)
-    envelope = a * eigvectors[0, -1] + b * eigvectors[1, -1]
-    scale = max(float(np.max(np.abs(envelope))), 1.e-30)
-    signs = np.sign(envelope[1:-1][np.abs(envelope[1:-1]) > 1.e-3 * scale])
-    return int(np.sum(signs[1:] * signs[:-1] < 0.))
+    """Backward-compatible scalar diagnostic, never an m=1 certificate."""
+    return axial_harmonic_signature(field, int(n))[
+        "radial_internal_axial_nodes_estimate"]
 
 
 def run_rawat():
