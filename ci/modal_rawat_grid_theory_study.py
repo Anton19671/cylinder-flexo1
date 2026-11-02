@@ -18,8 +18,16 @@ BASE = ROOT / "config/verification/rawat2016/modal_linear"
 
 def run(theory, grid):
     filename=f"RAWAT2016_{theory}_{grid}x{grid}_MODAL_FDM.json"
-    source=BASE / "fdm_13x13" / filename if grid==13 else BASE / filename
+    source=(BASE / "RAWAT2016_CUF_TE4_17x17_MODAL_FDM.json"
+            if grid==21 else
+            (BASE / "fdm_13x13" / filename if grid==13 else BASE / filename))
     case=json.loads(source.read_text(encoding="utf-8"))
+    if grid==21:
+        if theory!="CUF_TE4":
+            raise ValueError("Only CUF TE4 is scheduled on 21x21")
+        case["fdm_grid"].update(nx=21,ns=21,
+                                 operator_scheme="SBP42_FOURIER_ODD_CSR")
+        case["output_dir"]="OUTPUT_RAWAT_TE4_21x21"
     if case["method"] != "FDM": raise ValueError("Not FDM")
     case["modal"]["n_modes"]=10
     report={"source":"Rawat Matsagar Nagpal 2016 Table 2 C-C",
@@ -65,6 +73,6 @@ def run(theory, grid):
 if __name__=="__main__":
     ap=argparse.ArgumentParser()
     ap.add_argument("theory",choices=["CUF_TE1","CUF_TE4"])
-    ap.add_argument("grid",type=int,choices=[13,17])
+    ap.add_argument("grid",type=int,choices=[13,17,21])
     args=ap.parse_args()
     run(args.theory,args.grid)
