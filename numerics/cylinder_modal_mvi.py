@@ -631,7 +631,7 @@ class _SeparatedModalProblem:
         return x, y
 
     def admissible_start(self, mode, previous, *, harmonic_seed=None,
-                             harmonic_phase="cos"):
+                             harmonic_phase="cos", component_phase="uniform"):
         """Construct a nonzero, homogeneous-BC-admissible fixed-rank seed.
 
         Random X factors violate clamped-end traces. Starting with a Y
@@ -658,7 +658,12 @@ class _SeparatedModalProblem:
                       else np.cos(n * angle))
             for c in range(self.n_components):
                 choices = y[c].T.copy()
-                choices[:, 0] = first
+                # For rank one, allow the circumferential displacement to
+                # start in quadrature with axial and radial displacements.
+                # This is an initial factor only; Y variations remain free.
+                selected = (second if component_phase == "circumferential_quadrature"
+                            and c == 1 else first)
+                choices[:, 0] = selected / np.linalg.norm(selected)
                 if self.rank > 1 and n > 0 and np.linalg.norm(second) > 1.e-12:
                     choices[:, 1] = second / np.linalg.norm(second)
                 orth, _ = np.linalg.qr(choices, mode="reduced")
@@ -770,6 +775,14 @@ def _modal_seed_plan(operator, mode, requested):
                            "index": int(mode + 503 + 17*n +
                                         (7 if phase == "sin" else 0)),
                            "n": int(n), "phase": phase})
+    if operator.rank == 1 and str(operator.f.theory).upper() == "KL":
+        for n in range(1, limit + 1):
+            for phase in ("cos", "sin"):
+                starts.append({
+                    "kind": "harmonic_partner",
+                    "index": int(mode + 1103 + 17*n + (7 if phase == "sin" else 0)),
+                    "n": int(n), "phase": phase,
+                    "component_phase": "circumferential_quadrature"})
     return starts
 
 
@@ -811,7 +824,8 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
         else:
             x, y, initial_q, initial_p = operator.admissible_start(
                 seed["index"], qmodes, harmonic_seed=seed.get("n"),
-                harmonic_phase=seed.get("phase", "cos"))
+                harmonic_phase=seed.get("phase", "cos"),
+                component_phase=seed.get("component_phase", "uniform"))
         def harmonic_state(q):
             field = np.asarray(q, float).reshape(operator.shape)
             spectrum = np.abs(np.fft.rfft(field, axis=-1)) ** 2
