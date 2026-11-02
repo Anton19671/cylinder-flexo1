@@ -1,0 +1,35 @@
+name: Modal nonseparable rank oracle
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ci/modal_mvi_nonseparable_algorithm_check.py"
+      - ".github/workflows/modal-mvi-nonseparable-oracle.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      PYTHONDONTWRITEBYTECODE: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements.txt
+      - name: Exact nonseparable modal MVI rank oracle
+        run: python ci/modal_mvi_nonseparable_algorithm_check.py
+      - name: Upload rank oracle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: modal-nonseparable-rank-oracle
+          path: modal_mvi_nonseparable_oracle_result.json
+          if-no-files-found: warn
