@@ -6,6 +6,7 @@ on:
       - numerics/cylinder_modal_mvi.py
       - tests/test_modal_mvi_fast_membership.py
       - tests/test_modal_mvi_energy_reuse.py
+      - tests/test_modal_mvi_mass_factor_reuse.py
       - .github/workflows/modal-mvi-fast-membership.yml
   workflow_dispatch:
 permissions:
@@ -27,4 +28,4 @@ jobs:
           python-version: "3.11"
       - run: python -m pip install -r requirements.txt
       - name: Compare physical Y/X membership with original QR and ensure no global QR
-        run: python -m pytest -q tests/test_modal_mvi_energy_reuse.py tests/test_modal_mvi_fast_membership.py tests/test_modal_mvi_projection_cache.py tests/test_modal_mvi_frozen_partner_roundoff.py tests/test_modal_mvi_large_initial_harmonic.py tests/test_modal_mvi_separated_cuf_projection.py
+        run: python -m pytest -q tests/test_modal_mvi_energy_reuse.py tests/test_modal_mvi_mass_factor_reuse.py tests/test_modal_mvi_fast_membership.py tests/test_modal_mvi_projection_cache.py tests/test_modal_mvi_frozen_partner_roundoff.py tests/test_modal_mvi_large_initial_harmonic.py tests/test_modal_mvi_separated_cuf_projection.py

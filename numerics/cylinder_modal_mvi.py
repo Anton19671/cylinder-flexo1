@@ -15,7 +15,7 @@ This is a small-grid verification implementation, not a certified benchmark.
 from __future__ import annotations
 
 import numpy as np
-from scipy.linalg import cholesky, eigh, qr, solve, solve_triangular
+from scipy.linalg import cholesky, cho_solve, eigh, qr, solve, solve_triangular
 
 from cylinder_boundary_spatial import affine_trace_space, separated_profile_directions
 from cylinder_variational_fdm import state_scales
@@ -173,7 +173,7 @@ def _modal_ritz_value(kz, mz, candidate):
     return numerator / denominator
 
 
-def _mass_project_previous_mode(bm, z, mz, previous_field, mass_action):
+def _mass_project_previous_mode(bm, z, mz, previous_field, mass_action, *, mass_factor=None):
     """Mass-orthogonal old trial state in the CURRENT admissible Y/X space.
 
     The frozen partner space can acquire new, independent constraints when
@@ -198,7 +198,13 @@ def _mass_project_previous_mode(bm, z, mz, previous_field, mass_action):
     if not np.isfinite(original_mass) or original_mass <= 0.:
         raise ValueError("MODAL MVI: nonpositive previous modal mass")
     rhs = trial.T @ physical_mass
-    coords = solve(mz, rhs, assume_a="pos", check_finite=True)
+    # The calling halfstep has already verified/factorized the identical
+    # projected mass matrix. Reuse that Cholesky factor, never factorize the
+    # same matrix twice; retain the original independent path for callers
+    # that do not supply a factor.
+    coords = (solve(mz, rhs, assume_a="pos", check_finite=True)
+              if mass_factor is None else
+              cho_solve((mass_factor, True), rhs, check_finite=True))
     retained_mass = float(coords @ mz @ coords)
     if (not np.isfinite(retained_mass)
             or retained_mass <= 1.e-12 * original_mass):
@@ -632,10 +638,15 @@ class _SeparatedModalProblem:
         # physically identical eigenfrequencies to differ.
         if on_stage is not None:
             on_stage("SUBSPACE_DIMENSIONS", nm, ne)
-        b = np.zeros((self.nm + self.ne, nm + ne))
-        b[:self.nm, :nm] = bm
+        # When no electric DOFs exist, B is exactly the mechanical basis.
+        # Avoid allocating and copying another full physical nodal matrix
+        # at every Y/X halfstep. Electric cases retain original block form.
         if ne:
+            b = np.zeros((self.nm + self.ne, nm + ne))
+            b[:self.nm, :nm] = bm
             b[self.nm:, nm:] = be
+        else:
+            b = bm
         # Exact CUF tensor contractions compute the SAME projected K/M
         # directly from frozen X/Y factors, without repeated 2D weak actions.
         # Unsupported trial spaces retain the original columnwise assembly.
@@ -692,7 +703,7 @@ class _SeparatedModalProblem:
         if not z.shape[1]:
             raise ValueError("MODAL MVI rank insufficient for additional orthogonal modes")
         kz, mz = z.T @ keff @ z, z.T @ m @ z
-        cholesky(mz, lower=True, check_finite=True)
+        mz_factor = cholesky(mz, lower=True, check_finite=True)
         # Compare with the *mass-orthogonal* projection of the old shape
         # into the CURRENT constrained frozen-partner test space. This is a
         # physically admissible variational competitor. A small Y/X rotation
@@ -703,7 +714,8 @@ class _SeparatedModalProblem:
         if current_q is not None:
             previous_field = np.asarray(current_q, dtype=float).ravel()
             reduced = _mass_project_previous_mode(
-                bm, z, mz, previous_field, self.mass)
+                bm, z, mz, previous_field, self.mass,
+                mass_factor=mz_factor)
             old_mass = float(reduced @ mz @ reduced)
             old_projected_value = float(reduced @ kz @ reduced / old_mass)
         if on_stage is not None:on_stage("EIGEN_BEGIN",0,1)
