@@ -689,6 +689,39 @@ class _SeparatedModalProblem:
         rng = np.random.default_rng(54011 + 103*mode + 31*self.rank)
         coeff = z @ rng.standard_normal(z.shape[1])
         q = bm @ coeff
+        if (harmonic_seed is not None and self.rank > 2
+                and harmonic is None and not self.ne):
+            # All configured rank directions are still present in the MVI.
+            # For rank >= 3, however, orthonormalizing the two sine/cosine
+            # seed partners adds random off-harmonic Y columns. Taking random
+            # coefficients in ALL those columns makes a supposedly n-harmonic
+            # start non-harmonic; the first Y minimum can then miss a lower
+            # angular branch. Project ONLY this initial trial field onto its
+            # requested physical Fourier sector. The subsequent X/Y halfsteps
+            # still vary every rank factor WITHOUT an angular restriction.
+            phase = _harmonic_phase_basis(self.ns, int(harmonic_seed))
+            def sector(field):
+                values = np.asarray(field, float).reshape(self.shape)
+                return ((values @ phase.T) @ phase).ravel()
+            trial = sector(q)
+            # Previously accepted modes retain their independent physical
+            # mass constraints. Orthogonalize within the seed sector rather
+            # than fabricating a new or shifted eigenmode.
+            for old in previous:
+                old_sector = sector(old)
+                old_mass = self.mass(old_sector)
+                denominator = float(old_sector @ old_mass)
+                if denominator > 1.e-20:
+                    trial -= old_sector * (float(trial @ old_mass) / denominator)
+            sector_mass = float(trial @ self.mass(trial))
+            sector_bc = float(np.max(np.abs(self.cm @ trial), initial=0.))
+            if (np.isfinite(sector_mass) and sector_mass > 1.e-20
+                    and sector_bc <= 1.e-10 * max(1., float(np.linalg.norm(trial)))
+                    and all(abs(float(trial @ self.previous_mass(old))) <=
+                            1.e-7 * np.sqrt(sector_mass * float(
+                                old @ self.previous_mass(old)))
+                            for old in previous)):
+                q = trial
         norm = np.sqrt(float(q @ self.mass(q)))
         if not np.isfinite(norm) or norm <= 1.e-14:
             raise ValueError("MODAL MVI: degenerate admissible start")
@@ -890,8 +923,7 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
         report_candidate_state("MVI_CANDIDATE_INITIAL_STATE",
                                initial_q, initial_p)
         seed_n, seed_fraction = harmonic_state(initial_q)
-        if (operator.rank <= 2
-                and seed["kind"] in ("harmonic_partner", "quadrature_previous")
+        if (seed["kind"] in ("harmonic_partner", "quadrature_previous")
                 and seed_n > 0 and seed_fraction >= 1. - 1.e-8):
             x, y = _normalize_partner(x, y, "X")
             old_value = operator.eigenvalue(initial_q, initial_p)
