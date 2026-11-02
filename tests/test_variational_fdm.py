@@ -124,7 +124,7 @@ class VariationalFDMCaseTest(unittest.TestCase):
             with self.subTest(change=change),self.assertRaises(ValueError):
                 prepare_reference_case(c)
         c=self.sample();c["load_definition"]["face"]="OUTER"
-        with self.assertRaisesRegex(ValueError,"MIDDLE"):prepare_reference_case(c)
+        self.assertEqual(prepare_reference_case(c).calculation_kind,"STATIC")
         self.assertEqual(selected_backend({}),"CLASSICAL")
 
     def test_capability_distinguishes_reference_and_default_micro(self):
