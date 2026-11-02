@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - "ci/modal_article_benchmarks.py"
+      - "numerics/cylinder_modal_fourier_fdm.py"
       - ".github/workflows/modal-literature-benchmarks.yml"
   workflow_dispatch:
 permissions:
