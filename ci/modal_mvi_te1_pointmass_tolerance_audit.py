@@ -71,6 +71,7 @@ def full_space_fdm(case, point, mass_kg):
     It does NOT call the MVI projector or use MVI trial fields. The only
     shared element is the unchanged physics of the cylindrical shell.
     """
+    t_start = time.perf_counter()
     prepared, density, requested = _modal_spec(case)
     q0 = prepared.mechanical
     scales0 = __import__("cylinder_variational_fdm").state_scales(
@@ -88,6 +89,7 @@ def full_space_fdm(case, point, mass_kg):
         raise ValueError("Point mass placed on a fixed degree of freedom")
     k_action, m_action, scales, conversion, mass_scale = _projected_actions(
         prepared, density, projector)
+    t_operator_ready = time.perf_counter()
     if not np.allclose(scales, scales0, rtol=1e-12, atol=0.):
         raise ValueError("Unexpected FDM scale mismatch")
     n = len(free)
@@ -109,6 +111,7 @@ def full_space_fdm(case, point, mass_kg):
     local = int(np.flatnonzero(free == point)[0])
     point_term = float(mass_kg * scales[point] ** 2 / mass_scale)
     m[local, local] += point_term
+    t_matrices_ready = time.perf_counter()
 
     def solve(matrix):
         vals, vecs = eigh(k, matrix, subset_by_index=(0, requested - 1),
@@ -124,9 +127,21 @@ def full_space_fdm(case, point, mass_kg):
                          np.sqrt(mass_scale)).reshape(q0.shape)
         return freq, fields
 
-    base_freq, _ = solve(m0)
+    # Time the actual perturbed FDM target first, before the extra
+    # unperturbed reference diagonalization used only by the audit.
     pert_freq, modes = solve(m)
+    t_perturbed_ready = time.perf_counter()
+    base_freq, _ = solve(m0)
+    t_all_ready = time.perf_counter()
+    perturbed_time = float(t_perturbed_ready - t_start)
     return {
+        "fdm_physics_and_projector_wall_seconds": float(t_operator_ready - t_start),
+        "fdm_full_matrix_assembly_wall_seconds": float(t_matrices_ready - t_operator_ready),
+        "fdm_perturbed_eigensolve_wall_seconds": float(t_perturbed_ready - t_matrices_ready),
+        "fdm_perturbed_total_wall_seconds": perturbed_time,
+        "fdm_perturbed_wall_seconds_per_mode": perturbed_time / requested,
+        "fdm_additional_unperturbed_eigensolve_wall_seconds": float(t_all_ready - t_perturbed_ready),
+        "fdm_audit_total_wall_seconds": float(t_all_ready - t_start),
         "unperturbed_hz": base_freq.tolist(),
         "perturbed_hz": pert_freq.tolist(),
         "unperturbed_pair_gap_hz": float(base_freq[1] - base_freq[0]),
@@ -366,6 +381,12 @@ def main():
                         "wall_seconds": round(time.monotonic() - t, 3)
                     }
                 result["point_mass_kg"] = mass_kg
+                result["fdm_perturbed_total_wall_seconds"] = (
+                    fdm["fdm_perturbed_total_wall_seconds"])
+                if result["status"] == "SOLVED":
+                    result["mvi_to_fdm_total_time_ratio"] = (
+                        result["wall_seconds"] /
+                        fdm["fdm_perturbed_total_wall_seconds"])
                 report["runs"][name] = result
                 print("[POINTMASS] RESULT " + name + " " +
                       json.dumps({k: v for k, v in result.items()
