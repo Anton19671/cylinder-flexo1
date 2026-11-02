@@ -72,7 +72,7 @@ def test_modal_preflight_keeps_selected_kinematic_branch(monkeypatch):
     seen=[]
     class DummyPrepared:
         pass
-    def fake_prepare(surrogate, *, base_dir=None):
+    def fake_prepare(surrogate, *, base_dir=None, modal_harmonic_large=False):
         seen.append(copy.deepcopy(surrogate))
         assert surrogate["geometry_model"] in ("LINEAR","VON_KARMAN","GREEN_LAGRANGE")
         assert surrogate["mode"] == ("LINEAR_ELASTIC" if surrogate["geometry_model"]=="LINEAR"
