@@ -328,7 +328,7 @@ def solve_strict_halfstep(
         # correction first, accept only if the projected residual does not
         # increase; otherwise halve alpha and retry. Without this guard an
         # overshooting step (e.g. at large deflection, or a spatially rough
-        # frozen material field such as GB in a Birger outer iteration) has
+        # frozen material field such as a spatially modulated stiffness) has
         # no way to recover, and the halfstep can run away geometrically
         # until it exhausts max_halfstep_iterations or overflows.
         alpha = 1.0
