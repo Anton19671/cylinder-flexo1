@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from modal_mvi_case_comparison import compare_modal_results, principal_mass_mac
+from ci.modal_mvi_case_comparison import compare_modal_results, principal_mass_mac
 
 
 class IdentityMass:

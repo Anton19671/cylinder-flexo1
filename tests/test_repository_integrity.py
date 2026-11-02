@@ -42,6 +42,18 @@ class TestElasticRepositoryIntegrity(unittest.TestCase):
                 source=path.read_text(encoding="utf-8-sig")
                 self.assertIn("from cylinder_gui_removed_material import", source)
                 continue
+            # Capability registry intentionally recognizes obsolete material
+            # names only to REJECT them, never to enable their solvers.
+            # Verify that functional contract rather than flagging the
+            # explicit rejection messages as active constitutive code.
+            if path.relative_to(ROOT).as_posix()=="interface/restored_gui_capabilities.py":
+                from restored_gui_capabilities import (
+                    MATERIAL_MODELS, UNAVAILABLE, physics_capability)
+                self.assertEqual(MATERIAL_MODELS,("HOOKE",))
+                for old in retired:
+                    cap=physics_capability("KL","LINEAR",old,"FDM")
+                    self.assertEqual(cap.status,UNAVAILABLE)
+                continue
             # Runtime source and configuration must stay elastic-only. Audit
             # journals and documentation may accurately describe retired
             # models; those mentions are not active solver capabilities.
