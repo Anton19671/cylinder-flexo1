@@ -19,20 +19,22 @@ BASE = ROOT / "config/verification/rawat2016/modal_linear"
 
 def run(theory, grid):
     filename=f"RAWAT2016_{theory}_{grid}x{grid}_MODAL_FDM.json"
-    source=(BASE / "RAWAT2016_CUF_TE4_17x17_MODAL_FDM.json"
+    if grid==21 and theory!="CUF_TE4":
+        raise ValueError("Only CUF TE4 is scheduled on 21x21")
+    source=(BASE/"mvi_21x21/RAWAT2016_CUF_TE4_21x21_MODAL_FDM_SBP42.json"
             if grid==21 else
-            (BASE / "fdm_13x13" / filename if grid==13 else BASE / filename))
+            (BASE/"fdm_13x13"/filename if grid==13 else BASE/filename))
     case=json.loads(source.read_text(encoding="utf-8"))
-    if grid==21:
-        if theory!="CUF_TE4":
-            raise ValueError("Only CUF TE4 is scheduled on 21x21")
-        case["fdm_grid"].update(nx=21,ns=21,
-                                 operator_scheme="SBP42_FOURIER_ODD_CSR")
-        case["output_dir"]="OUTPUT_RAWAT_TE4_21x21"
     if case["method"] != "FDM": raise ValueError("Not FDM")
+    original_scheme=case["fdm_grid"]["operator_scheme"]
+    case["fdm_grid"]={"nx":grid,"ns":grid,
+                       "operator_scheme":"SBP42_FOURIER_ODD_CSR"}
+    case["output_dir"]=f"OUTPUT_RAWAT2016_{theory}_SBP42_{grid}x{grid}"
     case["modal"]["n_modes"]=10
     report={"source":"Rawat Matsagar Nagpal 2016 Table 2 C-C",
             "theory":theory,"grid":[grid,grid],"case":str(source.relative_to(ROOT)),
+            "operator_scheme":"SBP42_FOURIER_ODD_CSR",
+            "original_case_scheme":original_scheme,
             "axial_m1_verified":False,"status":"ERROR"}
     prefix=f"modal_rawat_{theory}_{grid}x{grid}"
     started=time.monotonic()
