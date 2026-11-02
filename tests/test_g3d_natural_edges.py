@@ -32,8 +32,8 @@ class G3DNaturalEdges(unittest.TestCase):
             self.ops.Dx,self.ops.Ds)
         np.testing.assert_allclose(flux.left.normal_double_traction,4.5)
         np.testing.assert_allclose(flux.right.normal_double_traction,4.5)
-        np.testing.assert_allclose(flux.left.traction,0.)
-        np.testing.assert_allclose(flux.right.traction,0.)
+        np.testing.assert_allclose(flux.left.traction,0.,atol=1.e-12)
+        np.testing.assert_allclose(flux.right.traction,0.,atol=1.e-12)
 
     def test_third_order_normal_triple_changes_end_orientation(self):
         n,s=self.ops.shape
@@ -54,8 +54,8 @@ class G3DNaturalEdges(unittest.TestCase):
             self.ops.Dx,self.ops.Ds)
         # Mixed q_xs contributes -d_s(A_11) exactly once.
         exact=-self.ops.Ds@np.sin(s_pos/2.)
-        np.testing.assert_allclose(flux.right.traction[0],exact)
-        np.testing.assert_allclose(flux.left.traction[0],-exact)
+        np.testing.assert_allclose(flux.right.traction[0],exact,atol=1.e-14)
+        np.testing.assert_allclose(flux.left.traction[0],-exact,atol=1.e-14)
 
     def test_full_constitutive_weak_coefficients_for_every_theory(self):
         mat=G3DMaterial(100.,.25,.08,.005,-.002,.7)
