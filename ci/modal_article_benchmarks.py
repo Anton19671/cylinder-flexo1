@@ -96,29 +96,7 @@ def run_cammalleri():
         case["fdm_grid"]={"nx":13,"ns":21,"operator_scheme":"SBP42_FOURIER_ODD_CSR"}
         case["output_dir"]="OUTPUT_CAMMALLERI2023_CC_KL_FDM_13x21"
         print("[LITERATURE] START Cammalleri2023 C-C KL FDM 13x21",flush=True)
-        # Diagnostic-only sweep of the local linear tangent construction.
-        # It does not alter the benchmark case or production acceptance.
-        from cylinder_modal_mvi import _LocalMechanicalTangent
-        original_init = _LocalMechanicalTangent.__init__
-        def inspect_init(self, problem, functional, step):
-            original_init(self, problem, functional, step)
-            matrices = {}
-            for trial_step in (step, 1.e-4, 1.e-2):
-                probe = object.__new__(_LocalMechanicalTangent)
-                original_init(probe, problem, functional, trial_step)
-                mat = probe.local
-                antisymmetric = mat - mat.T
-                index = np.unravel_index(np.argmax(np.abs(antisymmetric)), mat.shape)
-                matrices[str(trial_step)] = {
-                    "relative_antisymmetry": float(np.linalg.norm(antisymmetric)/max(np.linalg.norm(mat),1.e-30)),
-                    "max_asymmetry_index": list(map(int,index)),
-                    "pair": [float(mat[index]),float(mat[index[::-1]])]}
-            print("[TANGENT_DIAG] "+json.dumps(matrices),flush=True)
-        _LocalMechanicalTangent.__init__ = inspect_init
-        try:
-            result=solve_modal_case(case)
-        finally:
-            _LocalMechanicalTangent.__init__ = original_init
+        result=solve_modal_case(case)
         freqs=np.asarray(result["frequencies_hz"],float)
         modes=np.asarray(result["mechanical_modes"],float)
         if len(freqs)!=12 or len(modes)!=12:
