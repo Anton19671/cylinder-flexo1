@@ -630,7 +630,8 @@ class _SeparatedModalProblem:
             raise ValueError("MODAL MVI separated factor reconstruction failed")
         return x, y
 
-    def admissible_start(self, mode, previous):
+    def admissible_start(self, mode, previous, *, harmonic_seed=None,
+                             harmonic_phase="cos"):
         """Construct a nonzero, homogeneous-BC-admissible fixed-rank seed.
 
         Random X factors violate clamped-end traces. Starting with a Y
@@ -641,6 +642,27 @@ class _SeparatedModalProblem:
         """
         x, y = _initial_factors(self.n_components, self.rank,
                                 self.nx, self.ns, mode)
+        # Trigonometric INITIAL PARTNERS are seeds, never Fourier constraints:
+        # all subsequent frozen-partner X/Y variational directions stay full.
+        if harmonic_seed is not None:
+            n = int(harmonic_seed)
+            if n < 0 or n > self.ns // 2 or harmonic_phase not in ("cos", "sin"):
+                raise ValueError("MODAL_MVI_INVALID_PARTNER_SEED")
+            angle = 2. * np.pi * np.arange(self.ns) / self.ns
+            first = (np.cos(n * angle) if harmonic_phase == "cos"
+                     else np.sin(n * angle))
+            if float(np.linalg.norm(first)) < 1.e-12:
+                raise ValueError("MODAL_MVI_DEGENERATE_PARTNER_SEED")
+            first = first / np.linalg.norm(first)
+            second = (np.sin(n * angle) if harmonic_phase == "cos"
+                      else np.cos(n * angle))
+            for c in range(self.n_components):
+                choices = y[c].T.copy()
+                choices[:, 0] = first
+                if self.rank > 1 and n > 0 and np.linalg.norm(second) > 1.e-12:
+                    choices[:, 1] = second / np.linalg.norm(second)
+                orth, _ = np.linalg.qr(choices, mode="reduced")
+                y[c] = orth.T
         harmonic = getattr(self, "circumferential_harmonic", None)
         if harmonic is not None:
             phases = _harmonic_phase_basis(self.ns, harmonic)
@@ -679,6 +701,30 @@ class _SeparatedModalProblem:
         return float(field @ self.stiffness(field) / denominator)
 
 
+def _modal_seed_plan(operator, mode, requested):
+    """Bounded restarts; partners never restrict the variational halfsteps.
+
+    Random starts can miss lower eigenpairs under sequential deflation.
+    The trigonometric partners broaden basins but do not select an operator
+    harmonic sector; spectral completeness remains unverified.
+    """
+    count = operator.n_components * operator.nx * operator.ns
+    offsets = (0, 31, 101) if count <= 2500 else (0, 31)
+    starts = [{"kind": "random", "index": int(mode + offset)}
+              for offset in offsets]
+    limit = (min(operator.ns // 2, 4) if count <= 2500
+             else min(operator.ns // 2, 2) if count <= 8000
+             else min(operator.ns // 2, 1))
+    for n in range(limit + 1):
+        phases = ("cos", "sin") if n > 0 and count <= 2500 else ("cos",)
+        for phase in phases:
+            starts.append({"kind": "harmonic_partner",
+                           "index": int(mode + 503 + 17*n +
+                                        (7 if phase == "sin" else 0)),
+                           "n": int(n), "phase": phase})
+    return starts
+
+
 def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
                     sweep_callback=None, detail_callback=None, eigen_tolerance=1.e-7,
                     mode_tolerance=1.e-5, harmonic_scan=False,
@@ -706,9 +752,13 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
                 _SeparatedModalProblem(prepared, density, rank))
     qmodes, pmodes, eigs, cycles = [], [], [], []
     final_xy_spaces = []
-    for mode in range(requested):
+    multistart_audit = []
+
+    def solve_candidate(mode, seed):
         last_xy_spaces = {"Y": None, "X": None}
-        x, y, initial_q, initial_p = operator.admissible_start(mode, qmodes)
+        x, y, initial_q, initial_p = operator.admissible_start(
+            seed["index"], qmodes, harmonic_seed=seed.get("n"),
+            harmonic_phase=seed.get("phase", "cos"))
         last_q = initial_q.copy()
         last_p = None if initial_p is None else initial_p.copy()
         last_lambda = operator.eigenvalue(initial_q, initial_p)
@@ -829,6 +879,56 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
                 raise ValueError(
                     f"MODAL_MVI_MODE_NOT_ORTHOGONAL: mode={mode+1}, "
                     f"overlap={overlap:.5e}")
+        return (q.copy(), None if p is None else p.copy(),
+                float(value), int(sweep), last_xy_spaces)
+
+    for mode in range(requested):
+        plan = _modal_seed_plan(operator, mode, requested)
+        accepted = []
+        failures = []
+        for attempt, seed in enumerate(plan, 1):
+            if detail_callback is not None:
+                detail_callback(stage="MVI_CANDIDATE_START",
+                    mode=mode+1,n_modes=requested,rank=rank,
+                    attempt=attempt,attempts=len(plan),seed=seed)
+            try:
+                candidate = solve_candidate(mode, seed)
+            except (ValueError, np.linalg.LinAlgError) as exc:
+                failures.append({"attempt":attempt,"seed":seed,
+                                 "reason":str(exc)[:240]})
+                if detail_callback is not None:
+                    detail_callback(stage="MVI_CANDIDATE_REJECTED",
+                        mode=mode+1,n_modes=requested,rank=rank,
+                        attempt=attempt,reason=str(exc)[:240])
+                continue
+            accepted.append((*candidate, seed, attempt))
+            if detail_callback is not None:
+                detail_callback(stage="MVI_CANDIDATE_CONVERGED",
+                    mode=mode+1,n_modes=requested,rank=rank,
+                    attempt=attempt,seed=seed,
+                    frequency_hz=float(np.sqrt(candidate[2])/(2.*np.pi)))
+        if not accepted:
+            raise ValueError(
+                f"MODAL_MVI_NO_CONVERGED_CANDIDATE: rank={rank}, "
+                f"mode={mode+1}, seeds={len(plan)}, "
+                f"last_failure={failures[-1] if failures else 'none'}")
+        # Candidates passed the same physical BC, mass normalization and
+        # previous-mode orthogonality checks. Choose the lowest actual
+        # Rayleigh eigenvalue rather than the first local stationary point.
+        q,p,value,sweep,last_xy_spaces,winning_seed,winning_attempt = min(
+            accepted,key=lambda candidate:(candidate[2],candidate[6]))
+        multistart_audit.append({
+            "tried":len(plan),"converged":len(accepted),
+            "selected_seed":winning_seed,"selected_attempt":winning_attempt,
+            "frequencies_hz":sorted(float(np.sqrt(c[2])/(2.*np.pi))
+                                    for c in accepted),
+            "failed_attempts":failures})
+        if detail_callback is not None:
+            detail_callback(stage="MVI_CANDIDATE_SELECTED",
+                mode=mode+1,n_modes=requested,rank=rank,
+                attempt=winning_attempt,seed=winning_seed,
+                converged=len(accepted),attempts=len(plan),
+                frequency_hz=float(np.sqrt(value)/(2.*np.pi)))
         qmodes.append(q.copy())
         pmodes.append(None if p is None else p.copy())
         eigs.append(value)
@@ -875,6 +975,8 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
         "n_electric_free_dofs": operator.n_electric_free_dofs,
         "mvi_sweeps": [cycles[i] for i in order],
         "mvi_final_xy_trial_dimensions": [final_xy_spaces[i] for i in order],
+        "mvi_multistart_audit": [multistart_audit[i] for i in order],
+        "mvi_seed_strategy": "bounded_random_plus_unrestricted_partner_starts",
         "mode_discovery_indices": [int(i + 1) for i in order],
         # Sequential deflation certifies neither globally lowest ordering
         # nor completeness of the full discrete spectrum.
