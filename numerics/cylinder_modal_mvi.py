@@ -378,7 +378,7 @@ class _SeparatedModalProblem:
             space = affine_trace_space(
                 c, np.zeros(len(c)), np.zeros(len(scales)),
                 directions=directions,
-                constraint_rank_floor=1.e-12 * np.max(
+                constraint_rank_floor=1.e-10 * np.max(
                     np.linalg.norm(directions, axis=0), initial=0.))
             if np.max(np.abs(space.matrix @ space.basis), initial=0.) > 1.e-10:
                 raise ValueError("MODAL MVI: inadmissible frozen-partner basis")
