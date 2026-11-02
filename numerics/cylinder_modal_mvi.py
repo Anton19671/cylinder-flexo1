@@ -19,7 +19,8 @@ from scipy.linalg import cholesky, eigh, qr, solve, solve_triangular
 
 from cylinder_boundary_spatial import affine_trace_space, separated_profile_directions
 from cylinder_variational_fdm import state_scales
-from cylinder_variational_mvi import _normalize_partner, _initial_profiles, reconstruct_profiles
+from cylinder_variational_mvi import _initial_profiles, reconstruct_profiles
+from cylinder_modal_separated_space import normalize_modal_partner
 from cylinder_modal_harmonic_spectrum import (
     _harmonic_phase_basis, _harmonic_variation_directions,
     _phase_quadrature_partner, _pure_harmonic_fraction,
@@ -286,23 +287,34 @@ class _LocalMechanicalTangent:
                 self.local[:, j] = (plus - minus) / (2. * step)
         if not np.isfinite(self.local).all():
             raise ValueError("MODAL MVI local tangent is nonfinite")
+        # Validate the complete boundary passport once. Only end springs
+        # depend on displacement in this conservative boundary functional;
+        # prescribed tractions/reference offsets have zero tangent.
+        from cylinder_variational_boundary import (
+            compile_boundary_program, _object, _vector)
+        compile_boundary_program(
+            functional, np.zeros((nc, *functional.ops.shape)), None,
+            spec=problem.spec, calculation_kind=problem.kind,
+            check_charge_balance=False)
+        self.boundary_diagonal = np.zeros((nc, *functional.ops.shape))
+        mechanical_bc = _object({} if problem.spec is None else problem.spec,
+                                "mechanical")
+        for side, row in (("left", 0), ("right", -1)):
+            spring = _vector(_object(mechanical_bc, side).get("spring"),
+                             nc, side + " spring")
+            self.boundary_diagonal[:, row, :] += (
+                spring[:, None] * functional.ops.ws[None, :])
 
     def action(self, field):
         from cylinder_functional_assembly import _assemble_adjoint
-        from cylinder_variational_boundary import compile_boundary_program
-        f, step = self.f, self.step
+        f = self.f
         jets = f._field_derivatives(field, self.spec)
         values = np.stack(jets, axis=1).reshape(len(self.local), -1)
         weak = (self.local @ values).reshape(f.n_mechanical, len(self.spec), *f.ops.shape)
         result = np.zeros_like(field)
         for d, (_, dx, ds) in enumerate(self.spec):
             result += _assemble_adjoint(weak[:, d], f.W, f.dxp[dx], f.dsp[ds])
-        def boundary(sign):
-            edge = compile_boundary_program(f, sign * step * field, None,
-                spec=self.problem.spec, calculation_kind=self.problem.kind,
-                check_charge_balance=False)
-            return edge.mechanical_residual_correction
-        result += (boundary(1.) - boundary(-1.)) / (2. * step)
+        result += self.boundary_diagonal * field
         return result.ravel()
 
 
@@ -350,6 +362,12 @@ class _SeparatedModalProblem:
         self.scales = state_scales(self.f, self.q0, self.p0, prepared.settings)
         self.velocity0 = np.zeros_like(self.q0)
         self.density = density
+        self._cuf_mass = None
+        if self.f.theory.startswith("CUF_"):
+            from cuf_g3d_weak import mass_matrix_te
+            self._cuf_mass = mass_matrix_te(
+                radius_m=self.f.R, thickness_m=self.f.h,
+                rho_kg_m3=density, te_order=int(self.f.theory[-1]))
         # A completed mode never changes. Reuse its physical mass action
         # across all X/Y sweeps and orthogonality projections.
         self._previous_mass_cache = {}
@@ -367,6 +385,12 @@ class _SeparatedModalProblem:
 
     def mass(self, direction):
         q = np.asarray(direction, float).reshape(self.shape)
+        if getattr(self, "_cuf_mass", None) is not None:
+            n = self._cuf_mass.shape[0]
+            transformed = np.einsum(
+                "ij,cjkl->cikl", self._cuf_mass,
+                q.reshape(3, n, self.nx, self.ns))
+            return (transformed.reshape(self.shape) * self.f.W[None, ...]).ravel()
         return self.f.mass_action(q, density_kg_m3=self.density,
                                   mechanical=self.q0, velocity=self.velocity0).ravel()
 
@@ -731,7 +755,8 @@ class _SeparatedModalProblem:
             for c in range(self.n_components):
                 for r in range(self.rank):
                     y[c, r] = phases[r % len(phases)]
-        x, y = _normalize_partner(x, y, "X")
+        x, y = normalize_modal_partner(
+            x, y, "X", getattr(self, "fixed_mask", None))
         bm, be = self.projected_bases(x, y, "X")
         constraints = (np.stack([bm.T @ self.previous_mass(q) for q in previous])
                        if previous else np.zeros((0, bm.shape[1])))
@@ -992,7 +1017,8 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
         seed_n, seed_fraction = harmonic_state(initial_q)
         if (seed["kind"] in ("harmonic_partner", "quadrature_previous")
                 and seed_n > 0 and seed_fraction >= 1. - 1.e-8):
-            x, y = _normalize_partner(x, y, "X")
+            x, y = normalize_modal_partner(
+                x, y, "X", getattr(operator, "fixed_mask", None))
             old_value = operator.eigenvalue(initial_q, initial_p)
 
             def initial_x_trace(stage, column, total):
@@ -1052,7 +1078,8 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
                     detail_callback(stage="MVI_HALFSTEP_START",mode=mode+1,
                         n_modes=requested,rank=rank,sweep=sweep,
                         max_sweeps=max_sweeps,axis=axis)
-                x, y = _normalize_partner(x, y, axis)
+                x, y = normalize_modal_partner(
+                    x, y, axis, getattr(operator, "fixed_mask", None))
                 def trace(stage, column, total):
                     if stage == "SUBSPACE_DIMENSIONS":
                         actual = {
@@ -1282,4 +1309,5 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
 
 
 __all__ = ("MAX_PROJECTED_DIRECTIONS", "solve_modal_mvi")
+
 

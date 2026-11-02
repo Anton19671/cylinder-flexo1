@@ -1,5 +1,6 @@
 """Modal local-operator and mass-orthogonality regression checks."""
 import unittest
+from unittest.mock import patch
 import numpy as np
 from scipy.linalg import cholesky
 from cylinder_modal_mvi import (_SeparatedModalProblem,
@@ -46,8 +47,22 @@ class ModalCacheTests(unittest.TestCase):
         expected = (force(1.) - force(-1.)) / (2. * operator.step)
         actual = operator.stiffness(direction)
         self.assertLess(np.linalg.norm(actual - expected) / np.linalg.norm(expected), 5e-7)
+        # Subsequent actions must not reconstruct trace rows or re-integrate
+        # the constant CUF thickness mass. They use only per-case caches.
+        expected_mass = operator.f.mass_action(
+            direction.reshape(operator.shape), density_kg_m3=density,
+            mechanical=operator.q0, velocity=operator.velocity0).ravel()
+        with patch("cylinder_variational_boundary.compile_boundary_program",
+                   side_effect=AssertionError("boundary recompiled")), patch(
+                   "cylinder_functional_assembly.mass_matrix_te",
+                   side_effect=AssertionError("mass reintegrated")):
+            np.testing.assert_allclose(operator.stiffness(direction), actual,
+                                       rtol=1.e-14, atol=1.e-14)
+            np.testing.assert_allclose(operator.mass(direction), expected_mass,
+                                       rtol=1.e-14, atol=1.e-14)
 
 
 if __name__ == '__main__':
     unittest.main()
+
 
