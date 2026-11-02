@@ -1124,25 +1124,54 @@ class SolverGUI(tk.Tk):
             self._log(f"MVI SERIES START FAIL: {type(exc).__name__}: {exc}\n")
 
     def _read_process_output(self):
-        assert self.proc is not None
-        for line in self.proc.stdout:
-            self.log_queue.put(line)
-        rc=self.proc.wait()
-        self.log_queue.put(("__DONE__",rc))
+        # Snapshot the launched worker. self.proc may point at another run by
+        # the time a previous pipe reader finally sees EOF.
+        proc=self.proc
+        assert proc is not None
+        try:
+            for line in proc.stdout:
+                self.log_queue.put(("__RUN_LOG__",proc.pid,line))
+        except (OSError,ValueError) as exc:
+            if not bool(getattr(self,"_stop_requested",False)):
+                self.log_queue.put(("__READER_FAIL__",proc.pid,str(exc)))
+        finally:
+            rc=proc.wait()
+            self.log_queue.put(("__DONE__",rc,proc.pid))
 
     def _poll_log_queue(self):
-        # A dense modal run can emit thousands of K/M-column events. Tk must
-        # return to its event loop regularly to keep Stop, Pause and tabs alive.
+        # No modal columns, log lines or old buffered output may advance the
+        # visible/archive journal during PAUSE. The solver is frozen separately
+        # at OS process level; we also freeze its GUI output consumption.
+        if bool(getattr(self,"_paused",False)) and not bool(getattr(self,"_stop_requested",False)):
+            self.after(150,self._poll_log_queue)
+            return
         started=time.monotonic()
         processed=0
         try:
             while processed < 64 and time.monotonic()-started < 0.025:
                 item=self.log_queue.get_nowait()
                 processed+=1
-                if isinstance(item,tuple) and item and item[0]=="__DONE__":
-                    self._on_process_done(item[1])
+                if isinstance(item,tuple) and item and item[0]=="__RUN_LOG__":
+                    if (getattr(getattr(self,"proc",None),"pid",None)==item[1]
+                            and not bool(getattr(self,"_stop_requested",False))):
+                        self._log(str(item[2]))
+                elif isinstance(item,tuple) and item and item[0]=="__DONE__":
+                    pid=item[2] if len(item)>2 else getattr(getattr(self,"proc",None),"pid",None)
+                    if (pid==getattr(getattr(self,"proc",None),"pid",None)
+                            and pid!=getattr(self,"_done_process_pid",None)):
+                        self._done_process_pid=pid
+                        self._on_process_done(item[1])
                 elif isinstance(item,tuple) and item and item[0]=="__STOP_FAIL__":
                     self._log(f"STOP FAIL: {item[1]}\n")
+                    proc=getattr(self,"proc",None)
+                    if proc is not None and proc.poll() is None:
+                        try:self.top_stop_btn.configure(state="normal")
+                        except Exception:pass
+                        try:self.progress_status_label.configure(text="Ошибка остановки; повторите Стоп")
+                        except Exception:pass
+                elif isinstance(item,tuple) and item and item[0]=="__READER_FAIL__":
+                    if item[1]==getattr(getattr(self,"proc",None),"pid",None):
+                        self._log(f"RUN OUTPUT READER FAIL: {item[2]}\n")
                 elif isinstance(item,tuple) and item and item[0]=="__POST_DONE__":
                     self._on_postprocess_done(item[1])
                 elif isinstance(item,tuple) and item and item[0]=="__SUMMARY_DONE__":
@@ -1154,10 +1183,11 @@ class SolverGUI(tk.Tk):
                         try:self.refresh_results_view()
                         except Exception:pass
                 else:
-                    self._log(str(item))
+                    if not bool(getattr(self,"_stop_requested",False)):
+                        self._log(str(item))
         except queue.Empty:
             pass
-        # Catch up quickly after a burst but never monopolize Tk's main loop.
+        # Keep Stop, Pause and other Tk commands responsive even with large logs.
         delay=10 if not self.log_queue.empty() else 150
         self.after(delay,self._poll_log_queue)
 
@@ -4674,6 +4704,11 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self.online_canvas_conv.draw_idle()
 
     def _poll_progress_files(self):
+        # A frozen solver must not have a ticking heartbeat, a changing
+        # elapsed-time label or replayed disk events during pause/stop.
+        if bool(getattr(self,"_paused",False)) or bool(getattr(self,"_stop_requested",False)):
+            self.after(350,self._poll_progress_files)
+            return
         try:
             if self.run_output_dir:
                 if self.proc is not None and self.proc.poll() is None and getattr(self,"_online_wall_start",None) is not None:
@@ -5797,26 +5832,43 @@ class FinalSolverGUI(EnhancedSolverGUI):
         if proc is None or proc.poll() is not None:
             self._set_top_running_state(False)
             return
+        if bool(getattr(self,"_stop_requested",False)) or bool(getattr(self,"_paused",False)):
+            return
         pids=self._process_tree_pids(proc.pid)
         suspended=[]
         try:
-            # Freeze children first, launcher last, so no child keeps calculating.
+            # Freeze children first, launcher last. Then rescan: a worker
+            # spawned during the initial snapshot must not keep calculating.
             for pid in reversed(pids):
-                try:self._set_pid_suspended(pid,True);suspended.append(pid)
-                except ProcessLookupError:pass
-            self._paused=True;self._paused_pids=list(pids);self._pause_started_at=time.monotonic()
+                try:
+                    self._set_pid_suspended(pid,True)
+                    suspended.append(pid)
+                except ProcessLookupError:
+                    if pid==proc.pid:raise
+            if proc.pid not in suspended:
+                raise RuntimeError("Не удалось приостановить основной процесс расчёта")
+            for _ in range(3):
+                late=[pid for pid in self._process_tree_pids(proc.pid)
+                      if pid not in suspended]
+                if not late:break
+                for pid in reversed(late):
+                    try:
+                        self._set_pid_suspended(pid,True)
+                        suspended.append(pid)
+                    except ProcessLookupError:
+                        pass
+            else:
+                raise RuntimeError("Во время паузы появляются новые дочерние процессы")
+            self._paused=True
+            self._paused_pids=list(suspended)
+            self._pause_started_at=time.monotonic()
             self.top_pause_btn.configure(text="Продолжить")
             try:self.progress.stop()
             except Exception:pass
             (self.progress_status_label.configure(text="Пауза") if hasattr(self,"progress_status_label") else self.progress_label.configure(text="Пауза"))
-            # Refresh from disk after all solver threads are frozen.  Only
-            # already accepted STEP files are shown; an in-progress step is
-            # never injected into the load-deflection history.
-            try:self._online_refresh_steps()
-            except Exception:pass
             try:self._online_set("stage","PAUSED BY USER")
             except Exception:pass
-            self._log("\n=== PAUSED BY USER; accepted-step results remain stable ===\n")
+            self._log("\n=== PAUSED BY USER; solver processes frozen ===\n")
         except Exception:
             for pid in reversed(suspended):
                 try:self._set_pid_suspended(pid,False)
@@ -5838,6 +5890,10 @@ class FinalSolverGUI(EnhancedSolverGUI):
         if getattr(self,"_pause_started_at",None) is not None:
             self._paused_total=float(getattr(self,"_paused_total",0.0))+max(0.0,time.monotonic()-self._pause_started_at)
         self._pause_started_at=None;self._paused=False;self._paused_pids=[]
+        # Do not emit a spurious 'calculation continues' heartbeat immediately
+        # after resume merely because a previous event predates the pause.
+        self._online_last_event_wall=time.monotonic()
+        self._online_last_heartbeat_wall=self._online_last_event_wall
         try:self.top_pause_btn.configure(text="Пауза",state="normal" if proc is not None and proc.poll() is None else "disabled")
         except Exception:pass
         if proc is not None and proc.poll() is None:
@@ -5862,30 +5918,43 @@ class FinalSolverGUI(EnhancedSolverGUI):
             self._log(f"PAUSE/RESUME FAIL: {type(exc).__name__}: {exc}\n")
 
     def _terminate_process_tree_background(self, proc, pids):
-        """Terminate the solver tree without blocking Tk's main event loop."""
+        """Force-stop solver and descendants off the Tk thread, verify exit.
+
+        The pipe reader may never see EOF if a grandchild inherited stdout.
+        Post the tagged DONE event as soon as the root is reaped; the log
+        reader's eventual duplicate is ignored by _poll_log_queue.
+        """
         try:
             if os.name=="nt":
-                # taskkill may wait while Windows tears down a large MVI tree;
-                # keep that wait outside the Tkinter thread.
-                subprocess.run(
+                result=subprocess.run(
                     ["taskkill","/PID",str(proc.pid),"/T","/F"],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
-                    check=False,
+                    check=False,timeout=12,
                 )
+                # /T may fail when a launcher exits during enumeration.
+                # Kill the original known descendants individually as fallback.
+                if result.returncode!=0:
+                    for pid in reversed(list(pids)):
+                        try:
+                            subprocess.run(
+                                ["taskkill","/PID",str(int(pid)),"/F"],
+                                stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,
+                                check=False,timeout=4)
+                        except (OSError,subprocess.TimeoutExpired):pass
             else:
                 import signal
+                # SIGTERM cannot finish a SIGSTOP'ed Python process. SIGKILL
+                # stops a paused or running worker without resuming numerics.
                 for pid in reversed(list(pids)):
-                    try:
-                        os.kill(int(pid),signal.SIGTERM)
-                    except ProcessLookupError:
-                        pass
-                    except Exception:
-                        if int(pid)==int(proc.pid):
-                            try: proc.terminate()
-                            except Exception: pass
+                    try:os.kill(int(pid),signal.SIGKILL)
+                    except ProcessLookupError:pass
+            if proc.poll() is None:
+                try:proc.kill()
+                except ProcessLookupError:pass
+            rc=proc.wait(timeout=8)
+            self.log_queue.put(("__DONE__",rc,proc.pid))
         except Exception as exc:
-            # Tk widgets are touched only by the main thread.
             self.log_queue.put(("__STOP_FAIL__",f"{type(exc).__name__}: {exc}"))
 
     def stop_calculation(self):
@@ -5894,26 +5963,32 @@ class FinalSolverGUI(EnhancedSolverGUI):
             self._set_top_running_state(False)
             messagebox.showinfo("Стоп","Активного расчёта нет.")
             return
+        if bool(getattr(self,"_stop_requested",False)):
+            return
         try:
-            self._log("\n=== STOP REQUESTED BY USER ===\n")
+            # Never resume a paused calculation just to stop it: old code
+            # restarted its numerical threads before taskkill could run.
+            pids=list(dict.fromkeys(
+                self._process_tree_pids(proc.pid)+
+                list(getattr(self,"_paused_pids",[]) or [])))
             self._stop_requested=True
-            if bool(getattr(self,"_paused",False)):
-                self._resume_calculation(silent=True)
-            # Stop the whole launcher/solver tree, not only the top process.
-            # This prevents a child MVI/FDM worker from continuing to write into
-            # the RUN folder while FULL postprocessing is reading accepted states.
-            pids=self._process_tree_pids(proc.pid)
+            self._paused=False
+            self._paused_pids=[]
+            self._pause_started_at=None
+            self._log("\n=== STOP REQUESTED BY USER ===\n")
             (self.progress_status_label.configure(text="Остановка…") if hasattr(self,"progress_status_label") else self.progress_label.configure(text="Остановка…"))
+            try:self.progress.stop()
+            except Exception:pass
             self.top_stop_btn.configure(state="disabled")
-            # Windows taskkill and descendant termination run outside Tk's
-            # event loop. The existing reader thread will receive process
-            # completion and call _on_process_done.
             threading.Thread(
                 target=self._terminate_process_tree_background,
                 args=(proc,pids),
                 daemon=True,
             ).start()
         except Exception as exc:
+            self._stop_requested=False
+            try:self.top_stop_btn.configure(state="normal")
+            except Exception:pass
             messagebox.showerror("Стоп",str(exc))
             self._log(f"STOP FAIL: {type(exc).__name__}: {exc}\n")
 
@@ -7269,12 +7344,14 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self.run_kind="REFERENCE_SERIES" if series else "REFERENCE_CASE"
         self._live_run_calculation_kind=plan.calculation_kind
         self._stop_requested=False;self._paused=False;self._paused_pids=[]
+        self._done_process_pid=None;self._pause_started_at=None;self._paused_total=0.0
         cmd=[sys.executable,str(APP_DIR/"interface"/"restored_gui_runner.py"),str(path),"NEWMARK" if plan.integrator=="STATIC" else plan.integrator]+(["--series"] if series else [])
         self._start_live_run_journal("REFERENCE START")
         self._log(" ".join(cmd)+"\n")
         self._progress_reset(self.expected_steps)
         self.proc=subprocess.Popen(cmd,cwd=str(APP_DIR),stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,text=True,bufsize=1,encoding="utf-8",errors="replace")
+            stderr=subprocess.STDOUT,text=True,bufsize=1,encoding="utf-8",errors="replace",
+            start_new_session=(os.name!="nt"))
         self._set_top_running_state(True)
         threading.Thread(target=self._read_process_output,daemon=True).start()
 
