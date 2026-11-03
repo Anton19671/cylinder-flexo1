@@ -118,6 +118,55 @@ def main():
         writer.writeheader()
         writer.writerows(rows)
 
+    # A second, algebraically independent check: integrate the *same*
+    # 171-dimensional linear system with average-acceleration Newmark in its
+    # diagonal M-normalized modal coordinates. This uses no MVI iteration,
+    # FDM Newton solver or numerical tangent during time integration.
+    # It must reproduce the actual accepted MVI1/FDM discretized histories
+    # even when dt is far too large for phase accuracy.
+    replay=[]
+    frozen_accepted_midspan={
+        .002: 0.058247490e-6,
+        .001: -0.136024749e-6,
+        .0005: 0.123355274e-6,
+    }
+    for dt, steps in ((.002, 10), (.001, 20), (.0005, 40)):
+        beta,gamma=.25,.5
+        qm=np.zeros_like(w)
+        vm=np.zeros_like(w)
+        am=np.zeros_like(w)
+        for i in range(1, steps+1):
+            t=i*dt
+            qp=qm+dt*vm+dt*dt*(.5-beta)*am
+            qnext=(modal_force*np.sin(forcing_omega*t)+
+                   qp/(beta*dt*dt))/(w+1./(beta*dt*dt))
+            anext=(qnext-qp)/(beta*dt*dt)
+            vnext=vm+dt*((1.-gamma)*am+gamma*anext)
+            qm,vm,am=qnext,vnext,anext
+            exact_index=int(round(t/.0005))
+            if abs(exact_index*.0005-t)>1e-11:
+                raise ValueError("REPLAY_TIME_NOT_ON_COMMON_GRID")
+            replay.append(dict(
+                dt_s=dt,step=i,time_s=float(t),
+                mean_w_midspan_newmark_m=float(mid@qm),
+                mean_w_midspan_exact_time_m=rows[exact_index]["mean_w_midspan_m"],
+                newmark_minus_exact_midspan_m=float(
+                    mid@qm-rows[exact_index]["mean_w_midspan_m"])))
+        calculated=float(mid@qm)
+        expected=frozen_accepted_midspan[dt]
+        print("SPECTRAL_NEWMARK_REPLAY",dt,steps,"W_mid_m",calculated,
+              "accepted_real_MVI1_W_mid_m",expected,
+              "difference_m",calculated-expected,flush=True)
+        # Grounded reference values were independently extracted from
+        # accepted physical GitHub Action NPZ state artifacts.
+        if abs(calculated-expected)>2.e-10:
+            raise ValueError("SPECTRAL_NEWMARK_DIFFERS_FROM_REAL_MVI1")
+    path_replay=OUT/"KL_CC_NEWMARK_SPECTRAL_REPLAY_3_DT.csv"
+    with path_replay.open("w",newline="",encoding="utf-8") as f:
+        writer=csv.DictWriter(f,fieldnames=list(replay[0]))
+        writer.writeheader()
+        writer.writerows(replay)
+
     manifest={
        "scope":"exact_in_time_for_same_linear_discrete_KL_9x9_model",
        "reference_type":"generalized_K_M_spectrum_and_sinusoidal_convolution",
