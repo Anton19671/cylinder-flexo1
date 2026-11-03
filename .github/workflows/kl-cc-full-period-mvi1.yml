@@ -1,0 +1,84 @@
+name: KL C-C MVI1 real full 25Hz forced period Newmark
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "config/verification/kl_cc_full_period/KL_CC_MVI1_FULL_PERIOD_40.json"
+      - ".github/workflows/kl-cc-full-period-mvi1.yml"
+permissions:
+  contents: read
+jobs:
+  full-period:
+    name: Real MVI-1 Newmark 40 steps to 0.040 s
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+      MPLBACKEND: "Agg"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Solve 40 real dynamic steps for full forcing period
+        shell: bash
+        run: |
+          mkdir -p full_period_logs
+          set +e
+          python RUN_FINAL_CASE.py config/verification/kl_cc_full_period/KL_CC_MVI1_FULL_PERIOD_40.json > full_period_logs/MVI1_FULL_PERIOD.log 2>&1
+          code=$?
+          set -e
+          tail -n 45 full_period_logs/MVI1_FULL_PERIOD.log
+          echo "REAL_PHYSICAL_SOLVER_EXIT_CODE=$code"
+          exit "$code"
+      - name: Verify 40 accepted steps and the actual sinusoidal loading
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, math
+          from pathlib import Path
+          import numpy as np
+          base=Path("config/verification/kl_cc_full_period/output/KL_CC_MVI1_FULL_PERIOD_40")
+          summary=json.loads((base/"FINAL_RUN_SUMMARY.json").read_text(encoding="utf-8"))
+          assert summary.get("converged") is True and summary.get("status")=="CONVERGED", summary.get("status")
+          assert summary.get("accepted_steps")==40 and len(summary["steps"])==40
+          assert summary.get("method")=="MVI" and summary.get("rank")==1
+          T=.04
+          rows=[]
+          for i,step in enumerate(summary["steps"],1):
+              assert step["converged"],(i,step["status"])
+              assert step["status"] in ("CONVERGED_FULL","CONVERGED_PROJECTED")
+              with np.load(base/step["state_file"],allow_pickle=False) as z:
+                  t=float(z["time_s"]); factor=float(z["load_factor"])
+                  q=np.array(z["mechanical"]); v=np.array(z["velocity"]); a=np.array(z["acceleration"])
+                  assert q.shape==v.shape==a.shape==(3,9,9)
+                  assert all(np.isfinite(field).all() for field in (q,v,a))
+                  assert abs(t-.001*i)<1e-11,(i,t)
+                  assert abs(factor-math.sin(50*math.pi*t))<1e-12,(i,t,factor)
+                  assert np.max(np.abs(q[:,[0,-1],:]))<1e-9
+                  assert np.max(np.abs(v[:,[0,-1],:]))<1e-8
+                  rows.append((i,t,factor,float(q[2,4,:].mean()),float(abs(q[2]).max()),float(abs(v).max()),float(abs(a).max())))
+          import csv
+          with (base/"FULL_PERIOD_MVI1_TIME_HISTORY.csv").open("w",newline="",encoding="utf-8") as f:
+              writer=csv.writer(f)
+              writer.writerow(["step","time_s","sin_load_factor","mean_w_midspan_m","max_abs_w_m","max_abs_velocity_m_s","max_abs_acceleration_m_s2"])
+              writer.writerows(rows)
+          print("FULL_PERIOD_40_ACCEPTED t_final",rows[-1][1],"mean_w_final_m",rows[-1][3],"peak_sampled_w_m",max(row[4] for row in rows))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kl-cc-mvi1-full-25hz-period-40-steps
+          path: |
+            full_period_logs/
+            config/verification/kl_cc_full_period/output/KL_CC_MVI1_FULL_PERIOD_40/
+          retention-days: 14
+          if-no-files-found: warn
