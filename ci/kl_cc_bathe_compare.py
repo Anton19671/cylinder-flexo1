@@ -93,6 +93,7 @@ def main():
         if {k:case[k] for k in PHYSICS_FIELDS}!=first:
             raise ValueError("BATHE_PHYSICAL_CASE_MISMATCH_"+str(rank))
     rows=[]
+    failures=[]
     reference=got[0][2]
     for rank,(case,summary,records) in got.items():
         errors={}
@@ -117,7 +118,7 @@ def main():
                                               for r in records)))
         if rank and (errors["mechanical"]>1.e-3 or errors["velocity"]>1.e-2
                      or errors["acceleration"]>1.e-2):
-            raise ValueError("BATHE_RANK"+str(rank)+"_PHYSICAL_FIELD_DIFFERS_FROM_FDM")
+            failures.append((rank,errors))
     output=BASE/"BATHE_MVI1_8_VS_FDM_REAL_PHYSICAL_COMPARISON.csv"
     with output.open("w",newline="",encoding="utf-8") as f:
         writer=csv.DictWriter(f,fieldnames=list(rows[0]))
@@ -130,8 +131,21 @@ def main():
         nonseparable_rank_convergence_verified=False,results=rows)
     (BASE/"BATHE_MVI1_8_VS_FDM_REAL_PHYSICAL_COMPARISON.json").write_text(
         json.dumps(manifest,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
+    for row in rows:print("BATHE_PHYSICAL_RANK_COMPARISON",row,flush=True)
+    if failures:
+        for rank,err in failures:
+            for field in FIELD_NAMES:
+                for state,ref in zip(got[rank][2],reference):
+                    denominator=float(np.linalg.norm(ref[field]))
+                    absolute=float(np.linalg.norm(state[field]-ref[field]))
+                    percent=(100.*absolute/denominator if denominator
+                             else (0. if absolute==0 else math.inf))
+                    print("BATHE_FIELD_DIAGNOSTIC",rank,field,state["step"],
+                          state["stage"],"relative_percent",percent,
+                          "absolute_norm",absolute,flush=True)
+        raise ValueError("BATHE_PHYSICAL_MVI_VS_FDM_MISMATCH: "+
+                         ",".join(str(rank) for rank,_ in failures))
     print("BATHE_9_METHODS_36_REAL_VARIATIONAL_SUBSTEPS_VERIFIED")
-    for row in rows:print(row)
 
 
 if __name__=="__main__":
