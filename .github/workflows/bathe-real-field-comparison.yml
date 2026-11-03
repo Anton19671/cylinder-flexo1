@@ -1,0 +1,67 @@
+name: Bathe KL C-C MVI1-8 versus FDM physical field audit
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "ci/kl_cc_bathe_compare.py"
+      - ".github/workflows/bathe-real-field-comparison.yml"
+permissions:
+  contents: read
+  actions: read
+jobs:
+  audit-real-bathe-states:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      OPENBLAS_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install numpy
+        run: python -m pip install numpy
+      - name: Fetch original nine independently computed physical results
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p bathe_archives
+          gh run download 41637040470 --repo "${{ github.repository }}" --pattern "bathe-real-*" --dir bathe_archives
+          python - <<'PY'
+          from pathlib import Path
+          import shutil
+          root=Path("bathe_archives")
+          out=Path("config/verification/kl_cc_bathe/output")
+          out.mkdir(parents=True,exist_ok=True)
+          for rank in range(9):
+              name="BATHE_FDM" if rank==0 else f"BATHE_MVI{rank}"
+              src=root/f"bathe-real-{name}"
+              if not src.is_dir():
+                  raise ValueError(f"Physical artifact absent: {name}")
+              matches=list(src.rglob("FINAL_RUN_SUMMARY.json"))
+              if len(matches)!=1 or matches[0].parent.name!=name:
+                  raise ValueError(f"Physical outputs missing or ambiguous: {name}")
+              data=matches[0].parent
+              target=out/name
+              if target.exists():
+                  raise ValueError(f"Not replacing existing results: {name}")
+              shutil.copytree(data,target)
+              assert (target/"REFERENCE_DYNAMIC_STEP_0002.npz").is_file()
+              assert (target/"BATHE_SUBSTEP_0002_GAMMA.npz").is_file()
+              print("PHYSICAL_BATHE_SAVED_STATES",name,flush=True)
+          PY
+      - name: Audit case equality and all accepted physical displacement velocity acceleration fields
+        run: python ci/kl_cc_bathe_compare.py
+      - name: Archive reproducible field comparison
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bathe-mvi1-8-versus-fdm-fields
+          path: |
+            config/verification/kl_cc_bathe/BATHE_MVI1_8_VS_FDM_REAL_PHYSICAL_COMPARISON.csv
+            config/verification/kl_cc_bathe/BATHE_MVI1_8_VS_FDM_REAL_PHYSICAL_COMPARISON.json
+          retention-days: 30
+          if-no-files-found: warn
