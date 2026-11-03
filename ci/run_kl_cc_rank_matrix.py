@@ -47,7 +47,6 @@ def main():
     path,name=make_case(args.rank,args.integrator)
     print("PHYSICAL_CASE",path,"METHOD",name,flush=True)
     if args.integrator=="newmark":
-        from cylinder_reference_case import run_reference_case
         # Public dispatcher normally supplied by RUN_FINAL_CASE; use subprocess
         # to keep execution exactly identical to established CASE semantics.
         import subprocess,sys
