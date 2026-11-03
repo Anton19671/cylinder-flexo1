@@ -39,7 +39,11 @@ jobs:
       - name: Generate one CASE with unchanged linear elastic physical parameters
         shell: bash
         run: |
-          python ci/generate_linear_bathe_case.py --theory "${{ matrix.theory }}" --method "${{ matrix.method }}" --rank 1 --steps 1 --dt 0.002 --output config/verification/linear_bathe_all_theories
+          if [ "${{ matrix.method }}" = "MVI" ]; then
+            python ci/generate_linear_bathe_case.py --theory "${{ matrix.theory }}" --method MVI --rank 1 --steps 1 --dt 0.002 --output config/verification/linear_bathe_all_theories
+          else
+            python ci/generate_linear_bathe_case.py --theory "${{ matrix.theory }}" --method FDM --steps 1 --dt 0.002 --output config/verification/linear_bathe_all_theories
+          fi
       - name: Solve physical Bathe two implicit variational substeps
         shell: bash
         run: |
