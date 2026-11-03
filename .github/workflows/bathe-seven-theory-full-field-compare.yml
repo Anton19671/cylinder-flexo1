@@ -1,0 +1,81 @@
+name: Bathe seven theories strict archived full-field MVI1 versus FDM
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "ci/compare_bathe_seven_theories_full_fields.py"
+      - "ci/compare_bathe_linear_all_theories.py"
+      - ".github/workflows/bathe-seven-theory-full-field-compare.yml"
+permissions:
+  contents: read
+  actions: read
+jobs:
+  audit-original-bathe-results:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      SOURCE_RUN_ID: "41645787449"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install only numpy (NO physical solvers)
+        run: python -m pip install numpy
+      - name: Download all fourteen original independent MVI/FDM job archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p bathe_original_artifacts
+          gh run download "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" --pattern "bathe-linear-*" --dir bathe_original_artifacts
+      - name: Stage exactly fourteen saved physical datasets without mixing outputs
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import shutil
+          src=Path("bathe_original_artifacts")
+          base=Path("config/verification/linear_bathe_all_theories")
+          theories=("KL","FSDT","REDDY","CUF_TE1","CUF_TE2","CUF_TE3","CUF_TE4")
+          expected={f"bathe-linear-{t}-{m}" for t in theories for m in ("MVI","FDM")}
+          found={p.name for p in src.iterdir() if p.is_dir()}
+          if found!=expected:
+              raise ValueError(f"ORIGINAL_ARTIFACT_SET_INCOMPLETE_OR_EXTRA: missing={sorted(expected-found)} extra={sorted(found-expected)}")
+          base.mkdir(parents=True,exist_ok=True)
+          for theory in theories:
+              for method in ("MVI","FDM"):
+                  case=f"{theory}_{method}{'1' if method=='MVI' else ''}"
+                  path=src/f"bathe-linear-{theory}-{method}"/"config/verification/linear_bathe_all_theories"
+                  case_src=path/f"{case}.json"
+                  states_src=path/"output"/case
+                  if not case_src.is_file() or not states_src.is_dir():
+                      raise ValueError(f"ORIGINAL_PHYSICAL_CASE_OR_STATES_MISSING:{case}")
+                  for filename in ("FINAL_RUN_SUMMARY.json","REFERENCE_DYNAMIC_INITIAL.npz",
+                          "BATHE_SUBSTEP_0001_GAMMA.npz","REFERENCE_DYNAMIC_STEP_0001.npz"):
+                      if not (states_src/filename).is_file():
+                          raise ValueError(f"ORIGINAL_PHYSICAL_FIELD_ABSENT:{case}:{filename}")
+                  destination=base/"output"/case
+                  if destination.exists() or (base/f"{case}.json").exists():
+                      raise ValueError(f"ARCHIVE_MIXING_REFUSED:{case}")
+                  shutil.copy2(case_src,base/f"{case}.json")
+                  shutil.copytree(states_src,destination)
+                  print("STAGED_INDEPENDENT_PHYSICAL_ARCHIVE",case,flush=True)
+          PY
+      - name: Strict MVI1 versus independent FDM nodewise comparison, both Bathe substeps
+        run: python ci/compare_bathe_seven_theories_full_fields.py
+      - name: Preserve original field reports even when genuine mismatches fail the audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bathe-seven-theories-original-run-41645787449-full-field-audit
+          path: |
+            config/verification/linear_bathe_all_theories/BATHE_SEVEN_THEORIES_STRICT_COMPONENT_FIELDS.csv
+            config/verification/linear_bathe_all_theories/BATHE_SEVEN_THEORIES_STRICT_COMPONENT_FIELDS.json
+            config/verification/linear_bathe_all_theories/BATHE_SEVEN_THEORIES_STRICT_COMPONENT_FIELDS.md
+            config/verification/linear_bathe_all_theories/BATHE_LINEAR_SEVEN_THEORIES_MVI1_VS_FDM.csv
+            config/verification/linear_bathe_all_theories/BATHE_LINEAR_SEVEN_THEORIES_MVI1_VS_FDM.json
+          retention-days: 30
+          if-no-files-found: warn
