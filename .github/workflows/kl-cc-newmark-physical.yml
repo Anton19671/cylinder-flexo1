@@ -6,6 +6,9 @@ on:
     paths:
       - "config/verification/kl_cc_dynamic/**"
       - "ci/kl_cc_newmark_compare.py"
+      - "numerics/cylinder_dynamic_case_passport.py"
+      - "numerics/cylinder_variational_dynamic.py"
+      - "tests/test_dynamic_case_passport.py"
       - ".github/workflows/kl-cc-newmark-physical.yml"
 permissions:
   contents: read
