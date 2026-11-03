@@ -208,7 +208,7 @@ def main():
                     absolute_error_m=abs(numerical-exact_val)))
         print("GAUSS_IRK4_SPECTRAL_REPLAY",dt,steps,
               "mean_w_at_last_s_m",float(mid@qm),flush=True)
-    with (OUT/"KL_CC_GAUSS_IRK4_SPECTRAL_REPLAY_4_DT.csv").open(
+    with (OUT/"KL_CC_GAUSS_IRK4_SPECTRAL_REPLAY_7_DT.csv").open(
             "w",newline="",encoding="utf-8") as f:
         wr=csv.DictWriter(f,fieldnames=list(gauss_rows[0]))
         wr.writeheader()
