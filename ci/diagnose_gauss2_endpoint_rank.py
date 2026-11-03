@@ -20,17 +20,23 @@ def _audited_rank_factors(field,rank,tolerance,label):
                   "requested_rank",rank,"relative_threshold",tolerance,
                   flush=True)
             for index,component in enumerate(np.asarray(field,float)):
-                u,s,vh=np.linalg.svd(component,full_matrices=False)
-                reconstructed=(u[:,:rank]*s[:rank])@vh[:rank,:]
+                # Read-only pivoted QR diagnostic: same factorization
+                # as the strict fixed-rank code, no SVD or Gram matrix.
+                from scipy.linalg import qr
+                basis, triangular, _ = qr(component.T,mode="economic",
+                                          pivoting=True,check_finite=False)
+                subset=basis[:,:rank]
+                reconstructed=(component@subset)@subset.T
                 amplitude=float(np.max(abs(component),initial=0))
                 defect=float(np.max(abs(reconstructed-component),initial=0))
                 relative=(defect/amplitude if amplitude>0 else 0.)
-                ratio=(float(s[rank]/s[0])
-                       if rank<len(s) and s[0]>0 else 0.)
+                diagonal=np.abs(np.diag(triangular))
+                ratio=(float(diagonal[rank]/diagonal[0])
+                       if rank<len(diagonal) and diagonal[0]>0 else 0.)
                 print("COMPONENT_RANK_DIAGNOSTIC",
                       "component",index,"amplitude",amplitude,
-                      "max_relative_best_rank_defect",relative,
-                      "next_singular_value_ratio",ratio,
+                      "max_relative_qr_rank_defect",relative,
+                      "next_pivoted_qr_diagonal_ratio",ratio,
                       "requested_rank",rank,
                       flush=True)
         raise
