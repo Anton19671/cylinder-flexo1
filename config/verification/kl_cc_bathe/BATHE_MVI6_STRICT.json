@@ -1,0 +1,92 @@
+{
+  "solver_backend": "VARIATIONAL_REFERENCE",
+  "theory": "KL",
+  "method": "MVI",
+  "calculation_kind": "DYNAMIC",
+  "scale_model": "MACRO",
+  "mode": "LINEAR_ELASTIC",
+  "geometry_model": "LINEAR",
+  "material_model": "HOOKE",
+  "units": {
+    "system": "SI_N_M_PA"
+  },
+  "geometry": {
+    "L": 2,
+    "R": 1,
+    "h": 0.05
+  },
+  "material": {
+    "E0": 210000000000,
+    "nu0": 0.3
+  },
+  "quadrature": {
+    "type": "GAUSS",
+    "n_gauss": 3
+  },
+  "boundary_conditions": {
+    "variational": {
+      "mechanical": {
+        "left": {
+          "support": "CLAMPED",
+          "higher": "NATURAL"
+        },
+        "right": {
+          "support": "CLAMPED",
+          "higher": "NATURAL"
+        }
+      },
+      "electrical": {}
+    }
+  },
+  "load_definition": {
+    "type": "UNIFORM_RADIAL_FACE",
+    "face": "MIDDLE",
+    "direction": "RADIAL_INWARD",
+    "q": 100000,
+    "kinematics": "DEAD_REFERENCE"
+  },
+  "reference_newton": {
+    "relative_tolerance": 1e-9,
+    "absolute_tolerance_scaled": 1e-14,
+    "tangent_step_scaled": 0.000002,
+    "max_iterations": 20,
+    "max_free_dofs": 256
+  },
+  "postprocess": {
+    "thickness_stations": 5,
+    "dynamic_analytics": {
+      "enabled": false
+    }
+  },
+  "output_dir": "output/BATHE_MVI6_STRICT",
+  "dynamics": {
+    "time_step_s": 0.002,
+    "n_steps": 2,
+    "density_kg_m3": 7800,
+    "newmark_beta": 0.25,
+    "newmark_gamma": 0.5,
+    "start_time_s": 0,
+    "residual_tolerance_relative": 1e-9,
+    "damping": "NONE",
+    "initial_conditions": {
+      "type": "ZERO"
+    },
+    "time_law": {
+      "kind": "HARMONIC",
+      "amplitude": 1,
+      "frequency_hz": 25,
+      "phase_rad": 0,
+      "start_time_s": 0
+    },
+    "integrator": "BATHE"
+  },
+  "rank": 6,
+  "mvi_grid": {
+    "nx": 9,
+    "ns": 9,
+    "operator_scheme": "SBP42_FOURIER_ODD"
+  },
+  "reference_mvi": {
+    "max_sweeps": 30
+  }
+}
