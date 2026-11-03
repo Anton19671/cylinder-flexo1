@@ -45,7 +45,7 @@ def make_case(theory,method,rank,steps,dt_s,output_folder):
         case.pop("rank",None)
         case.pop("reference_mvi",None)
         case.pop("mvi_grid",None)
-        case["fdm_grid"]={"nx":9,"ns":9,"operator_scheme":"SBP42_FOURIER_ODD"}
+        case["fdm_grid"]={"nx":9,"ns":9,"operator_scheme":"SBP42_FOURIER_ODD_CSR"}
         # In TE4: 15*81=1215 physical unknowns, so the original dense
         # FDM cap (512) cannot be used. Matrix-free is a REAL full-nodal FDM
         # with its own Newton-Krylov solve, not an MVI fallback.
