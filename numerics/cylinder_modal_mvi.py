@@ -50,19 +50,49 @@ def _free_dof_count(constraints):
     return c.shape[1] - rank
 
 
-def _mass_orthogonal_null(matrix):
-    """QR null basis of preceding modal mass constraints, without SVD."""
+def _mass_orthogonal_null(matrix, *, mass_factor=None):
+    """Null directions in the physical projected-mass metric (no SVD).
+
+    Two globally distinct modes of a rotational doublet may have nearly
+    dependent traces on one frozen rank-one X/Y test space. A relative
+    machine-precision QR test then creates an artificial second constraint
+    from roundoff. Work instead in mass-whitened coordinates so that every
+    discarded row is certified unable to violate the UNCHANGED physical
+    mass-orthogonality acceptance of the final independently solved mode.
+    """
     c = np.asarray(matrix, float)
     if c.ndim != 2 or not np.isfinite(c).all():
         raise ValueError("invalid modal orthogonality matrix")
     if not c.shape[0]:
         return np.eye(c.shape[1])
-    # Each row is a homogeneous orthogonality equation. Its units or
-    # magnitude must not decide whether an independent mode is excluded.
-    # First scale by the largest entry to avoid overflow/underflow, then
-    # give every nonzero row unit norm before the relative QR rank test.
-    # Negligible physical overlaps are filtered in the mass norm by the
-    # caller, never by comparing the sizes of different constraint rows.
+    if mass_factor is not None:
+        l = np.asarray(mass_factor, float)
+        if l.shape != (c.shape[1], c.shape[1]) or not np.isfinite(l).all():
+            raise ValueError("MODAL_MVI_INVALID_MASS_FACTOR")
+        # M=L@L.T, q=L^-T u, Cq=(C@L^-T)u.
+        whitened = solve_triangular(
+            l, c.T, lower=True, check_finite=False).T
+        orth, triangular, _ = qr(
+            whitened.T, mode="full", pivoting=True, check_finite=False)
+        diagonal = np.abs(np.diag(triangular))
+        physical_overlap_limit = 2.e-7
+        rank = int(np.count_nonzero(diagonal > physical_overlap_limit))
+        # QR diagonal is only a rank indicator, not a bound on all rows.
+        # Certify the maximum overlap attainable on the proposed nullspace.
+        while rank < min(whitened.shape):
+            candidate = orth[:, rank:]
+            bound = float(np.max(np.linalg.norm(
+                whitened @ candidate, axis=1), initial=0.))
+            if bound <= physical_overlap_limit:
+                break
+            rank += 1
+        null = solve_triangular(
+            l.T, orth[:, rank:], lower=False, check_finite=False)
+        if (float(np.max(np.linalg.norm(c @ null, axis=1), initial=0.))
+                > physical_overlap_limit * (1. + 1.e-8)):
+            raise ValueError("MODAL_MVI_INADMISSIBLE_MASS_NULLSPACE")
+        return null
+    # Preserve the original QR for the initial unweighted seed nullspace.
     row_scale = np.max(np.abs(c), axis=1, initial=0.)
     c = c[row_scale > 0.] / row_scale[row_scale > 0., None]
     if not c.shape[0]:
@@ -652,7 +682,7 @@ class _SeparatedModalProblem:
             # the largest possible mass overlap for a unit-mass vector in
             # this space before deciding whether the row can constrain it.
             constraints = _significant_modal_constraints(constraints, mass_factor)
-        z = _mass_orthogonal_null(constraints)
+        z = _mass_orthogonal_null(constraints, mass_factor=mass_factor)
         if not z.shape[1]:
             raise ValueError("MODAL MVI rank insufficient for additional orthogonal modes")
         kz, mz = z.T @ keff @ z, z.T @ m @ z
@@ -856,7 +886,8 @@ class _SeparatedModalProblem:
                                    check_finite=True)
             constraints = _significant_modal_constraints(
                 constraints, mass_factor)
-        z = _mass_orthogonal_null(constraints)
+        z = _mass_orthogonal_null(
+            constraints, mass_factor=mass_factor if len(constraints) else None)
         if not z.shape[1]:
             raise ValueError("MODAL MVI: no admissible independent start for mode")
         rng = np.random.default_rng(54011 + 103*mode + 31*self.rank)
@@ -864,7 +895,7 @@ class _SeparatedModalProblem:
         # onto the admissible nullspace. A QR null basis may rotate with the
         # phase of a previous doublet; drawing in its coordinates changes
         # the physical seed even for identical CASEs.
-        coeff = z @ (z.T @ rng.standard_normal(bm.shape[1]))
+        coeff = z @ rng.standard_normal(z.shape[1])
         q = bm @ coeff
         if (harmonic_seed is not None and self.rank > 2
                 and harmonic is None and not self.ne):
