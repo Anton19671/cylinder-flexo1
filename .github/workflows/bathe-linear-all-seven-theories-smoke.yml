@@ -1,0 +1,97 @@
+name: Bathe linear all 7 theories MVI1 vs independent FDM
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "ci/generate_linear_bathe_case.py"
+      - "interface/cylinder_bathe_case.py"
+      - "numerics/cylinder_bathe_mvi.py"
+      - ".github/workflows/bathe-linear-all-seven-theories-smoke.yml"
+permissions:
+  contents: read
+jobs:
+  physical-linear:
+    name: "Bathe LINEAR ${{ matrix.theory }} ${{ matrix.method }} first step"
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        theory: [KL, FSDT, REDDY, CUF_TE1, CUF_TE2, CUF_TE3, CUF_TE4]
+        method: [MVI, FDM]
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+      MPLBACKEND: "Agg"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install real physical solver
+        run: python -m pip install -r requirements.txt
+      - name: Generate one CASE with unchanged linear elastic physical parameters
+        shell: bash
+        run: |
+          python ci/generate_linear_bathe_case.py --theory "${{ matrix.theory }}" --method "${{ matrix.method }}" --rank 1 --steps 1 --dt 0.002 --output config/verification/linear_bathe_all_theories
+      - name: Solve physical Bathe two implicit variational substeps
+        shell: bash
+        run: |
+          mkdir -p bathe_linear_logs
+          set +e
+          python RUN_FINAL_CASE.py "config/verification/linear_bathe_all_theories/${{ matrix.theory }}_${{ matrix.method }}${{ matrix.method == 'MVI' && '1' || '' }}.json" > "bathe_linear_logs/${{ matrix.theory }}_${{ matrix.method }}.log" 2>&1
+          code=$?
+          set -e
+          tail -n 35 "bathe_linear_logs/${{ matrix.theory }}_${{ matrix.method }}.log"
+          echo "PHYSICAL_BATHE_LINEAR_EXIT=$code"
+          exit "$code"
+      - name: Strict check of two real physical substeps and named shell fields
+        shell: bash
+        env:
+          THEORY: ${{ matrix.theory }}
+          METHOD: ${{ matrix.method }}
+        run: |
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          import numpy as np
+          theory=os.environ["THEORY"];method=os.environ["METHOD"]
+          name=theory+"_"+method+("1" if method=="MVI" else "")
+          folder=Path("config/verification/linear_bathe_all_theories/output")/name
+          summary=json.loads((folder/"FINAL_RUN_SUMMARY.json").read_text(encoding="utf-8"))
+          expected=3 if theory=="KL" else 5 if theory in ("FSDT","REDDY") else 3*(int(theory[-1])+1)
+          assert summary["integrator"]=="BATHE" and summary["method"]==method
+          assert summary["theory"]==theory
+          assert summary["converged"] and summary["accepted_steps"]==1
+          assert len(summary["steps"])==1
+          for filename,t in (("BATHE_SUBSTEP_0001_GAMMA.npz",(2-2**.5)*.002),
+                             ("REFERENCE_DYNAMIC_STEP_0001.npz",.002)):
+              with np.load(folder/filename,allow_pickle=False) as state:
+                  q=state["mechanical"];v=state["velocity"];a=state["acceleration"]
+                  assert q.shape==v.shape==a.shape==(expected,9,9)
+                  assert all(np.isfinite(f).all() for f in (q,v,a))
+                  assert abs(float(state["time_s"])-t)<1.e-12
+                  if method=="MVI":
+                      assert state["x_profiles"].shape==(expected,1,9)
+                      assert state["y_profiles"].shape==(expected,1,9)
+                      reconstructed=np.einsum("crx,crs->cxs",
+                          state["x_profiles"],state["y_profiles"])*state["state_scales"]
+                      assert np.max(abs(reconstructed-q))<1.e-11
+          print("BATHE_PHYSICAL_LINEAR_TWO_STAGES_ACCEPTED",theory,method)
+          PY
+      - name: Keep separate real physical fields for independent MVI FDM comparison
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "bathe-linear-${{ matrix.theory }}-${{ matrix.method }}"
+          path: |
+            bathe_linear_logs/
+            config/verification/linear_bathe_all_theories/
+          retention-days: 14
+          if-no-files-found: warn
