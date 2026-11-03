@@ -92,8 +92,15 @@ def solve_dynamic_subspace(problem, mechanical, electrical, *, q_predictor,
     first=problem.assemble(q,p,dead_load=dead_load,free_charge=free_charge,time_s=time_s,
         acceleration=zero_acceleration,density_kg_m3=density_kg_m3)
     energy_scale=float(f.material.young_pa*f.h*np.sum(f.W))
+    # A frozen MVI direction can satisfy the clamped trace exactly.
+    # Its computed C*T then contains only roundoff. Do not mistake those
+    # roundoff entries for additional independent prescribed constraints.
+    # Retain the strict physical trace-defect check inside affine_trace_space.
+    trace_rank_floor = (0.0 if directions is None else
+        1.e-10 * float(np.max(np.linalg.norm(directions, axis=0), initial=0.0)))
     space=affine_trace_space(first.space.matrix*scales[None,:],first.space.target,
-                             first.state/scales,directions=directions)
+                             first.state/scales,directions=directions,
+                             constraint_rank_floor=trace_rank_floor)
     b=space.basis
     if b.shape[1]>settings.max_free_dofs:
         raise ValueError(f"reference dense solve has {b.shape[1]} free DOFs; limit={settings.max_free_dofs}")
@@ -231,7 +238,13 @@ def solve_dynamic_mvi(problem, mechanical, electrical=None, *, q_predictor,
         for axis in ("Y","X"):
             xx,yy=_normalize_partner(x,y,axis)
             directions=separated_profile_directions(xx,yy,axis)
-            space=affine_trace_space(c,target,v,directions=directions)
+            # Use the very same admissible half-step trace interpretation
+            # as solve_dynamic_subspace: otherwise the MVI convergence
+            # certificate would refer to a different projected space.
+            trace_rank_floor = 1.e-10 * float(np.max(
+                np.linalg.norm(directions, axis=0), initial=0.0))
+            space=affine_trace_space(c,target,v,directions=directions,
+                                     constraint_rank_floor=trace_rank_floor)
             reduced=space.basis.T@(scales*r)/energy_scale
             values[axis]=admissible_nodal_inf_norm(space.basis,reduced)
         return values
