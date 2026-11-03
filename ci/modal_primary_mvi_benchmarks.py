@@ -185,9 +185,10 @@ def run_group(study, group):
             err = str(exc)
             record.update(status=("UNSUPPORTED_LIMIT" if
                           err.startswith("MODAL_MVI_UNRESTRICTED_") else "ERROR"),
-                          error=repr(exc))
+                          error=repr(exc), traceback=traceback.format_exc())
             print(f"[MVI-PRIMARY] {record['status']} {study} {method}: {exc}",
                   flush=True)
+            print(record["traceback"], flush=True)
         finally:
             record["wall_seconds"] = round(time.monotonic() - start, 3)
             summary["runs"][method] = record
