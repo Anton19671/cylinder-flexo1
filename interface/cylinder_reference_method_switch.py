@@ -40,9 +40,17 @@ def selected_case(original, method, rank=None):
         raise ValueError("The source CASE has no valid spatial grid")
     result = copy.deepcopy(original)
     old_backend = str(original.get("fdm_backend", "DENSE_REFERENCE")).upper()
-    scheme = str(grid.get("operator_scheme", "LEGACY_REFERENCE")).upper()
     kind = str(original.get("calculation_kind", "")).upper()
     scale = str(original.get("scale_model", "")).upper()
+    if kind == "MODAL":
+        # The modal dispatcher upgrades legacy SBP21 to SBP42. Use precisely
+        # that same effective operator when switching MVI <-> MKR/FDM;
+        # otherwise switching a valid old CSR CASE fails while executing it
+        # directly silently uses SBP42. The input CASE remains unchanged.
+        from cylinder_modal_reference import _effective_modal_case
+        normalized = _effective_modal_case(original)
+        grid = normalized.get(old_key, normalized.get("grid"))
+    scheme = str(grid.get("operator_scheme", "LEGACY_REFERENCE")).upper()
     nx, ns = int(grid.get("nx", 0)), int(grid.get("ns", 0))
     # Dense and CSR SBP42/Fourier operators represent the SAME spatial
     # differentiation. For a homogeneous MACRO MODAL problem we can switch
@@ -187,6 +195,10 @@ def create_launch_case(source_path, selected, *, run_label=""):
         if target_case.exists() or target_result.exists():
             continue
         candidate = copy.deepcopy(selected)
+        if kind == "MODAL":
+            # A saved launch CASE must show the operator actually used.
+            from cylinder_modal_reference import _effective_modal_case
+            candidate = _effective_modal_case(candidate)
         candidate["output_dir"] = str(target_result)
         # Exclusive file allocation; never modify the saved original CASE.
         with target_case.open("x", encoding="utf-8"):

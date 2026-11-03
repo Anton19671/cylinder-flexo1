@@ -6963,6 +6963,11 @@ class FinalSolverGUI(EnhancedSolverGUI):
             ("micro_rho","rho_kg_m3"),("micro_eta","eta_s"),("micro_potential_order","potential_order")):
             put(key,micro.get(source))
         grid=cfg.get("mvi_grid" if cfg.get("method")=="MVI" else "fdm_grid") or cfg.get("grid") or {}
+        if str(cfg.get("calculation_kind", "")).upper() == "MODAL":
+            from cylinder_modal_reference import _effective_modal_case
+            effective = _effective_modal_case(cfg)
+            grid = (effective.get("mvi_grid" if effective.get("method")=="MVI"
+                                  else "fdm_grid") or effective.get("grid") or grid)
         put("reference_operator_scheme",grid.get("operator_scheme","LEGACY_REFERENCE"))
         put("reference_fdm_backend",cfg.get("fdm_backend","DENSE_REFERENCE"))
         for prefix in ("","mvi_"):

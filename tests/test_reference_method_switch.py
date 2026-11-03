@@ -147,12 +147,21 @@ def test_modal_sbp42_fdm21_switches_and_remains_compatible():
     assert selected_case(mvi,"FDM")["fdm_grid"]==src["fdm_grid"]
 
 
-def test_unrelated_matrixfree_and_nonmodal_switches_fail_closed():
+def test_legacy_modal_csr_switch_uses_the_same_effective_sbp42_operator():
     src=fixture()
     src.update(scale_model="MACRO",fdm_backend="MATRIX_FREE_GMRES")
     src["fdm_grid"]["operator_scheme"]="SBP21_PERIODIC_ODD_CSR"
-    with pytest.raises(ValueError,match="incompatible matrix-free/CSR"):
-        selected_case(src,"MVI",1)
+    saved=copy.deepcopy(src)
+    selected=selected_case(src,"MVI",1)
+    assert src==saved
+    assert selected["mvi_grid"]["operator_scheme"]=="SBP42_FOURIER_ODD"
+    assert selected["fdm_backend"]=="DENSE_REFERENCE"
+    assert selected_case(selected,"FDM")["fdm_grid"]["operator_scheme"]=="SBP42_FOURIER_ODD_CSR"
+
+
+def test_nonmodal_csr_switch_still_fails_closed():
+    src=fixture()
+    src.update(scale_model="MACRO",fdm_backend="MATRIX_FREE_GMRES")
     src["fdm_grid"]["operator_scheme"]="SBP42_FOURIER_ODD_CSR"
     src["calculation_kind"]="STATIC"
     with pytest.raises(ValueError,match="incompatible matrix-free/CSR"):

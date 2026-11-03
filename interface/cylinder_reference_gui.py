@@ -156,7 +156,8 @@ def edit_reference_case(original, fields, boundary, load, newton, dynamics=None,
                 supplied={k:v for k,v in supplied.items() if k not in
                           ('max_free_dofs','min_reciprocal_condition')}
             case['reference_newton']={**defaults,**supplied}
-        from cylinder_modal_reference import prepare_modal_case
+        from cylinder_modal_reference import prepare_modal_case, _effective_modal_case
+        case = _effective_modal_case(case)
         prepare_modal_case(case,base_dir=base_dir)
         return case
     case['mode']='LINEAR_ELASTIC' if geometry_model=='LINEAR' else 'NONLINEAR_ELASTIC'
