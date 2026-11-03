@@ -1,0 +1,55 @@
+name: KL C-C physical IRK4 fixed-rank MVI1-8
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "ci/run_kl_cc_rank_matrix.py"
+      - ".github/workflows/kl-cc-mvi1-8-gauss-physical.yml"
+permissions:
+  contents: read
+jobs:
+  physical:
+    name: "Two-stage Gauss IRK4 physical MVI rank ${{ matrix.rank }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        rank: [1, 2, 3, 4, 5, 6, 7, 8]
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+      MPLBACKEND: "Agg"
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements.txt
+      - name: Run one genuine Gauss-Legendre IRK4 step at fixed MVI rank
+        shell: bash
+        run: |
+          mkdir -p rank_logs
+          set +e
+          python ci/run_kl_cc_rank_matrix.py --integrator gauss --rank ${{ matrix.rank }} > "rank_logs/rank${{ matrix.rank }}.log" 2>&1
+          code=$?
+          set -e
+          echo "PHYSICAL_IRK4_EXIT_CODE=$code"
+          tail -n 32 "rank_logs/rank${{ matrix.rank }}.log"
+          exit "$code"
+      - name: Preserve strict failure and successful states
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "gauss-irk4-kl-rank-${{ matrix.rank }}"
+          path: |
+            rank_logs/
+            config/verification/kl_cc_mvi_rank_matrix/
+          retention-days: 14
+          if-no-files-found: warn
