@@ -39,7 +39,7 @@ def canonical_dynamic_physics(case):
     scheme=str(raw_grid.get("operator_scheme", "LEGACY_REFERENCE")).upper()
     if scheme not in (
             "LEGACY_REFERENCE", "SBP21_PERIODIC_ODD", "SBP21_PERIODIC_ODD_CSR",
-            "SBP21_FOURIER_ODD"):
+            "SBP21_FOURIER_ODD", "SBP42_FOURIER_ODD"):
         raise ValueError("DYNAMIC_PASSPORT_INVALID_SPATIAL_OPERATOR")
     dynamics=case.get("dynamics")
     if not isinstance(dynamics, dict):
