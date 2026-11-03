@@ -106,3 +106,54 @@ All frequencies quoted above are the exact **9x9 discrete** KL
 frequencies, not a comparison against 3D elasticity or an independent
 literature benchmark. This memo does not claim G3D or flexoelectric
 dynamic validation.
+
+## Independently verified Gauss IRK4 time convergence (completed)
+
+The seven-grid Gauss–Legendre two-stage Runge–Kutta scheme was integrated
+on the *actual* 171-free-DOF KL 9x9 K/M spectrum (all modes), with the same
+unloaded initial state and the same 25 Hz pressure modal forcing.
+This test did not invoke any MVI fixed-rank spatial method.
+
+GitHub Actions result: **SUCCESS**
+https://github.com/Anton19671/cylinder-flexo1/actions/runs/41630345427
+
+Exact-in-time reference at t=0.020s:
+W(mean midspan)=+0.106970306779 micrometers.
+
+| Gauss dt, s | IRK4 mean W at .020s, micrometers | absolute error, micrometers |
+|---:|---:|---:|
+| .002 | +0.166890768252 | 0.059920461473 |
+| .001 | +0.003102550761 | 0.103867756019 |
+| .0005 | +0.024851154251 | 0.082119152528 |
+| .00025 | -0.074466809943 | 0.181437116723 |
+| .000125 | +0.094636423124 | 0.012333883655 |
+| .0000625 | +0.106243434125 | 0.000726872654 |
+| .00003125 | +0.106922425630 | 0.000047881150 |
+
+The finest successive errors have reduction factors approximately
+16.97 and 15.18. The measured local orders are approximately 4.08
+and 3.92, confirming fourth-order asymptotic time convergence on
+this discrete linear KL system.
+
+Coarse-grid errors are *not* monotonically improving: high-frequency
+transient phases (physical modes near 906.88, 920.87, and 949.84 Hz)
+are aliased and can interfere destructively at a specific snapshot.
+An earlier diagnostic run incorrectly required monotonically
+decreasing errors already at dt=.0005/.00025s. That condition was
+invalid outside the asymptotic range; it was replaced by a seven-grid
+test and **not** by weakening the physical equations or the fixed
+MVI-rank acceptance.
+
+**Conclusion:** the conventional Gauss IRK4 time discretization is
+correctly implemented when applied to the independent K/M modal
+system and sufficiently temporally resolved. This DOES NOT validate
+the separate spatial rank-constrained Gauss MVI implementation:
+its stage rank spaces are not generally closed under the endpoint
+linear combination. Ranks 1..5 still fail strict endpoint rank
+acceptance, and ranks 6..8 still hit the explicit 256-coordinate
+safety limit on the physical shell case. A genuinely endpoint-closed
+variational low-rank integrator must be derived and validated before
+claiming Gauss IRK4+MVI production support.
+
+The full seven-grid physical modal IRK4 and Newmark replay CSVs
+are archived as artifacts of the successful run above.
