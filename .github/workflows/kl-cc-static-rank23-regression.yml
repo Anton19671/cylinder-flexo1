@@ -1,0 +1,29 @@
+name: KL CC static MVI2 and MVI3 physical regression
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "tests/test_kl_static_rank23_stationarity.py"
+      - ".github/workflows/kl-cc-static-rank23-regression.yml"
+      - "numerics/cylinder_variational_fdm.py"
+      - "numerics/cylinder_variational_mvi.py"
+permissions:
+  contents: read
+jobs:
+  physical:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements.txt
+      - name: Execute independent physical MVI2/MVI3 and FDM controls
+        run: python -m pytest -q -s tests/test_kl_static_rank23_stationarity.py
