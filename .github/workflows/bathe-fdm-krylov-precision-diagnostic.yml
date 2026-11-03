@@ -46,7 +46,7 @@ jobs:
         run: |
           tag=$(echo "$KRYLOV_RTOL" | tr . p)
           mkdir -p bathe_precision_logs
-          python RUN_FINAL_CASE.py "config/verification/bathe_fdm_precision/$THEORY\_FDM_TIGHT_$tag.json" > "bathe_precision_logs/$THEORY-$tag.log" 2>&1 || {
+          python RUN_FINAL_CASE.py "config/verification/bathe_fdm_precision/${THEORY}_FDM_TIGHT_${tag}.json" > "bathe_precision_logs/$THEORY-$tag.log" 2>&1 || {
             tail -n 70 "bathe_precision_logs/$THEORY-$tag.log"
             exit 1
           }
