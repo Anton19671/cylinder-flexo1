@@ -167,6 +167,63 @@ def main():
         writer.writeheader()
         writer.writerows(replay)
 
+    # Independent two-stage Gauss-Legendre IRK4 on every true K/M mode.
+    # This uses neither the fixed-rank MVI Gauss implementation nor a FDM
+    # spatial Newton solver. It tests Runge-Kutta time integration separately
+    # from the non-closed rank-R endpoint representation.
+    from cylinder_gauss2_rk import GAUSS2_A,GAUSS2_B,GAUSS2_C
+    g2=GAUSS2_A@GAUSS2_A
+    gauss_rows=[]
+    for dt,steps in ((.002,10),(.001,20),(.0005,40),(.00025,80)):
+        qm=np.zeros_like(w)
+        vm=np.zeros_like(w)
+        eye=np.eye(2)
+        for step_id in range(1,steps+1):
+            t0=(step_id-1)*dt
+            stage_times=t0+dt*GAUSS2_C
+            # Solve the coupled two-stage acceleration equations for
+            # each physical generalized eigenmode, no rank approximation.
+            forcing=np.sin(forcing_omega*stage_times)
+            for j in range(len(w)):
+                stage_a=np.linalg.solve(
+                    eye+(dt*dt*w[j])*g2,
+                    modal_force[j]*forcing-w[j]*(
+                        qm[j]+dt*GAUSS2_C*vm[j]))
+                stage_v=vm[j]+dt*(GAUSS2_A@stage_a)
+                qm[j]+=dt*float(GAUSS2_B@stage_v)
+                vm[j]+=dt*float(GAUSS2_B@stage_a)
+            t=step_id*dt
+            if abs(t-.02)<dt*.25 or abs(t-.04)<dt*.25:
+                exact_idx=int(round(t/.0005))
+                exact_val=(rows[exact_idx]["mean_w_midspan_m"]
+                           if abs(exact_idx*.0005-t)<1e-12 else
+                           float(np.sum(mid*factor*(
+                              np.sin(forcing_omega*t)-
+                              (forcing_omega/omega)*np.sin(omega*t)))))
+                numerical=float(mid@qm)
+                gauss_rows.append(dict(dt_s=dt,time_s=float(t),
+                    mean_w_midspan_gauss_m=numerical,
+                    exact_time_midspan_m=exact_val,
+                    absolute_error_m=abs(numerical-exact_val)))
+        print("GAUSS_IRK4_SPECTRAL_REPLAY",dt,steps,
+              "mean_w_at_last_s_m",float(mid@qm),flush=True)
+    with (OUT/"KL_CC_GAUSS_IRK4_SPECTRAL_REPLAY_4_DT.csv").open(
+            "w",newline="",encoding="utf-8") as f:
+        wr=csv.DictWriter(f,fieldnames=list(gauss_rows[0]))
+        wr.writeheader()
+        wr.writerows(gauss_rows)
+    # For the smooth finite-dimensional forced oscillator, the Gauss
+    # scheme is order four as dt->0; test actual refinement against the
+    # exact-in-time 9x9 reference, not a textbook claim.
+    time_02=sorted((r for r in gauss_rows if abs(r["time_s"]-.02)<1e-11),
+                   key=lambda row:row["dt_s"],reverse=True)
+    if len(time_02)!=4:
+        raise ValueError("GAUSS_IRK4_INCOMPLETE_TEMPORAL_COMPARISON")
+    print("GAUSS_IRK4_AT_0_020S",time_02,flush=True)
+    if not all(np.isfinite(r["absolute_error_m"]) for r in time_02):
+        raise ValueError("GAUSS_IRK4_NONFINITE_TEMPORAL_ERROR")
+    if time_02[-1]["absolute_error_m"]>=time_02[-2]["absolute_error_m"]:
+        raise ValueError("GAUSS_IRK4_FINE_GRID_NOT_IMPROVING")
     manifest={
        "scope":"exact_in_time_for_same_linear_discrete_KL_9x9_model",
        "reference_type":"generalized_K_M_spectrum_and_sinusoidal_convolution",
