@@ -90,7 +90,8 @@ def test_standard_modal_run_writes_coverage_and_does_not_invent_frequencies(tmp_
               "omega_squared_rad2_s2": (2*np.pi*np.array([520., 520.]))**2,
               "mechanical_modes": q, "electrical_modes": None,
               "n_mechanical_free_dofs": 100,
-              "n_electric_free_dofs": 0}
+              "n_electric_free_dofs": 0,
+              "modal_solver_branch": "MKR_FULL_SPACE"}
     monkeypatch.setattr(ref, "_effective_modal_case", lambda case: case)
     monkeypatch.setattr(ref, "prepare_modal_case", lambda *args, **kwargs: None)
     monkeypatch.setattr(ref, "solve_modal_case", lambda *args, **kwargs: result)

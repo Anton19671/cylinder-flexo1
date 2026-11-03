@@ -412,7 +412,7 @@ class _SeparatedModalProblem:
                 raise ValueError("MODAL MVI: inadmissible frozen-partner basis")
             return scales[:, None] * space.basis
 
-        if self.large_harmonic and self.axial_trace_bases is not None:
+        if self.large_harmonic and getattr(self, "axial_trace_bases", None) is not None:
             from cylinder_modal_axial_traces import (
                 axial_trace_xy_basis, axial_trace_harmonic_x_basis)
             harmonic = getattr(self, "circumferential_harmonic", None)
@@ -485,6 +485,12 @@ class _SeparatedModalProblem:
         """
         from hashlib import blake2b
         from cylinder_modal_separated_projector import exact_separated_cuf_projection
+        # Externally assembled variational pencils can provide exact weak
+        # stiffness and mass actions without the full CylinderFunctional.
+        # Use the original columnwise assembly, not a CUF shortcut in
+        # that situation; physical K/M and acceptance remain unchanged.
+        if not hasattr(self, "prepared") or not hasattr(self, "_local_tangent"):
+            return None
         if self.ne or bm.shape[1] > 512:
             return exact_separated_cuf_projection(
                 self.prepared.problem, self.density, self._local_tangent, bm)

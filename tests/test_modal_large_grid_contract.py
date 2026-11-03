@@ -24,7 +24,11 @@ def test_modal_fdm_matrixfree_uses_sparse_constraint_projector():
     source = path.read_text(encoding="utf-8")
     assert 'prepared.fdm_backend == "MATRIX_FREE_GMRES"' in source
     assert "SparseTraceProjector.from_problem(" in source
-    assert "solve_modal_matrixfree(" in source
+    # The exclusive MKR module owns the full-grid eigensolver call.
+    mkr_source = (Path(__file__).resolve().parents[1] /
+                  "numerics/cylinder_modal_mkr.py").read_text(encoding="utf-8")
+    assert "solve_modal_mkr(" in source
+    assert "solve_modal_matrixfree(" in mkr_source
     assert 'grid.get("operator_scheme") not in ("SBP21_PERIODIC_ODD_CSR", "SBP42_FOURIER_ODD_CSR")' in source
 
 

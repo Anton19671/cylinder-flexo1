@@ -1,4 +1,5 @@
 name: Bathe linear all 7 theories MVI1 vs independent FDM
+run-name: "Main numerical revalidation ${{ github.sha }}"
 on:
   workflow_dispatch:
   push:

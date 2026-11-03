@@ -1,4 +1,5 @@
 name: G3D Gz electric and dynamic focused audit
+run-name: "Main numerical revalidation ${{ github.sha }}"
 on:
   workflow_dispatch:
   push:

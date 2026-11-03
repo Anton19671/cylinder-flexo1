@@ -32,7 +32,10 @@ def test_real_kl_clamp_keeps_exact_end_slopes():
     assert problem.axial_trace_bases is not None
     assert problem.n_mechanical_free_dofs==sum(b.shape[1] for b in bases)*21
     rng=np.random.default_rng(441)
-    x=rng.normal(size=(3,1,13))
+    # Frozen X must satisfy exact end displacement AND slope constraints
+    # before a nonzero admissible Y direction can exist.
+    x=np.stack([(bases[c] @ rng.normal(size=bases[c].shape[1]))[None,:]
+                for c in range(3)])
     y=rng.normal(size=(3,1,21))
     for axis in ("X","Y"):
         directions=axial_trace_xy_basis(x,y,axis,bases,problem.scales)
@@ -65,7 +68,9 @@ def test_mvi_kl_dispatch_can_build_coupled_x_y_bases():
     prepared,density,_=_modal_spec(case)
     op=_SeparatedModalProblem(prepared,density,1)
     rng=np.random.default_rng(123)
-    x=rng.normal(size=(3,1,13))
+    x=np.stack([(op.axial_trace_bases[c] @
+                 rng.normal(size=op.axial_trace_bases[c].shape[1]))[None,:]
+                for c in range(3)])
     y=rng.normal(size=(3,1,21))
     for axis in ("X","Y"):
         bm,_=op.projected_bases(x,y,axis)

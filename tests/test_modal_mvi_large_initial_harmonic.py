@@ -52,7 +52,7 @@ def test_initial_harmonic_x_basis_is_exact_frozen_partner_intersection(rank):
                 np.testing.assert_allclose(line,proj,rtol=1.e-10,atol=1.e-10)
     stub=SimpleNamespace(
         shape=(ncomp,nx,ns),nx=nx,ns=ns,nm=scales.size,ne=0,
-        large_harmonic=True,scales=scales,
+        large_harmonic=True,scales=scales,axial_trace_bases=None,
         fixed_mask=mask.ravel(),circumferential_harmonic=n)
     dispatched,_=_SeparatedModalProblem.projected_bases(stub,x,y,"X")
     np.testing.assert_allclose(dispatched,basis,rtol=1.e-10,atol=1.e-11)

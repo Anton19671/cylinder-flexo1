@@ -1,4 +1,5 @@
 name: KL CC static pressure physical MVI 1-8 vs FDM
+run-name: "Main numerical revalidation ${{ github.sha }}"
 on:
   workflow_dispatch:
   push:

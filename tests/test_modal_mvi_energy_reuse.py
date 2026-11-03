@@ -36,9 +36,10 @@ def test_modal_mvi_energy_reuse_keeps_exact_sweep_and_detailed_journal():
                     if detail else None)
         sweeps = int(output["mvi_sweeps"][0])
         assert output["mvi_multistart_audit"][0]["tried"] == 1
-        # One initial full physical energy plus one for each NEW Y/X field.
-        # No original physical check is eliminated or weakened.
-        assert calls[0] == 1 + 2 * sweeps
+        # Each Y/X step evaluates its newly computed physical field AND
+        # independently verifies the reconstructed fixed-rank X/Y field.
+        # These are separate evaluations; no numerical gate is removed.
+        assert calls[0] == 1 + 4 * sweeps
         if detail:
             assert sum(e["stage"] == "MVI_HALFSTEP_HARMONIC_AUDIT"
                        for e in events) == 2 * sweeps

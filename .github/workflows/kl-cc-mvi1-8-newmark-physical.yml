@@ -1,4 +1,5 @@
 name: KL C-C physical Newmark MVI1-8 vs independent FDM
+run-name: "Main numerical revalidation ${{ github.sha }}"
 on:
   workflow_dispatch:
   push:

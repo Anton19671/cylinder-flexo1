@@ -1,4 +1,5 @@
 name: Bathe KL physical 2 steps MVI1-8 and FDM parallel
+run-name: "Main numerical revalidation ${{ github.sha }}"
 on:
   workflow_dispatch:
   push:

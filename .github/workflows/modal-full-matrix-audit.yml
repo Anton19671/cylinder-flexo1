@@ -1,4 +1,5 @@
 name: Independent modal full K M audit
+run-name: "Main numerical revalidation ${{ github.sha }}"
 on:
   push:
     branches: [main]

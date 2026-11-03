@@ -1,4 +1,5 @@
 name: Gauss IRK4 rank-fixed MVI trace regression
+run-name: "Main numerical revalidation ${{ github.sha }}"
 on:
   workflow_dispatch:
   push:
