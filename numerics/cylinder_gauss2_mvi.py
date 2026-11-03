@@ -169,7 +169,18 @@ def _constrained_directions(base, t, c, d):
     rhs = d - c @ base
     q, r, piv = qr(a.T, mode='full', pivoting=True, check_finite=False)
     diag = abs(np.diag(r))
-    rank = int(np.count_nonzero(diag > 1e-12 * np.max(diag))) if diag.size else 0
+    # A frozen X/Y partner can already satisfy the CLAMPED trace exactly;
+    # the computed normalized C*T then contains only floating-point noise.
+    # A solely relative QR rank cutoff would turn that noise into false
+    # independent boundary constraints and move an accepted stage state on
+    # the next sweep. Match the protected static/Newmark trace treatment.
+    # The actual prescribed trace equations remain mandatory: the strict
+    # physical defect check below still rejects unreachable displacements.
+    direction_scaled_floor = 1.e-10 * float(np.max(
+        np.linalg.norm(t, axis=0), initial=0.0))
+    cutoff = max(1.e-12 * float(np.max(diag, initial=0.0)),
+                 direction_scaled_floor)
+    rank = int(np.count_nonzero(diag > cutoff))
     if rank:
         z = q[:, :rank] @ solve_triangular(r[:rank, :rank].T,
                                           rhs[np.asarray(piv[:rank], int)],
