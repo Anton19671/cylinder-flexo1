@@ -174,7 +174,8 @@ def main():
     from cylinder_gauss2_rk import GAUSS2_A,GAUSS2_B,GAUSS2_C
     g2=GAUSS2_A@GAUSS2_A
     gauss_rows=[]
-    for dt,steps in ((.002,10),(.001,20),(.0005,40),(.00025,80)):
+    for dt,steps in ((.002,10),(.001,20),(.0005,40),(.00025,80),
+                     (.000125,160),(.0000625,320),(.00003125,640)):
         qm=np.zeros_like(w)
         vm=np.zeros_like(w)
         eye=np.eye(2)
@@ -217,13 +218,21 @@ def main():
     # exact-in-time 9x9 reference, not a textbook claim.
     time_02=sorted((r for r in gauss_rows if abs(r["time_s"]-.02)<1e-11),
                    key=lambda row:row["dt_s"],reverse=True)
-    if len(time_02)!=4:
+    if len(time_02)!=7:
         raise ValueError("GAUSS_IRK4_INCOMPLETE_TEMPORAL_COMPARISON")
     print("GAUSS_IRK4_AT_0_020S",time_02,flush=True)
     if not all(np.isfinite(r["absolute_error_m"]) for r in time_02):
         raise ValueError("GAUSS_IRK4_NONFINITE_TEMPORAL_ERROR")
-    if time_02[-1]["absolute_error_m"]>=time_02[-2]["absolute_error_m"]:
+    # Coarse time steps do NOT have to show monotone error for
+    # oscillatory near-950 Hz response: phase cancellation causes
+    # legitimate reversals. Check the finest resolved region only,
+    # and do not overstate formal fourth order from a single sample.
+    fine_errors=[r["absolute_error_m"] for r in time_02[-3:]]
+    print("GAUSS_IRK4_FINE_TIME_ERRORS_M",fine_errors,flush=True)
+    if not (fine_errors[-1]<fine_errors[-2]<fine_errors[-3]):
         raise ValueError("GAUSS_IRK4_FINE_GRID_NOT_IMPROVING")
+    if fine_errors[-1] > 1.e-9:
+        raise ValueError("GAUSS_IRK4_FINE_GRID_NOT_CLOSE_TO_EXACT")
     manifest={
        "scope":"exact_in_time_for_same_linear_discrete_KL_9x9_model",
        "reference_type":"generalized_K_M_spectrum_and_sinusoidal_convolution",
