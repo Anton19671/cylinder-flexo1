@@ -4,6 +4,8 @@ on:
     branches: [main]
     paths:
       - "ci/modal_primary_mvi_benchmarks.py"
+      - "interface/cylinder_reference_case.py"
+      - "numerics/cylinder_modal_axial_traces.py"
       - ".github/workflows/modal-primary-mvi-benchmarks.yml"
   workflow_dispatch:
 permissions:
