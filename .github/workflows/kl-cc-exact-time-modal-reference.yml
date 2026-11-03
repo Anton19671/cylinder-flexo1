@@ -1,0 +1,51 @@
+name: KL CC exact-in-time linear modal forced response 25Hz
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "ci/kl_cc_modal_time_oracle.py"
+      - ".github/workflows/kl-cc-exact-time-modal-reference.yml"
+permissions:
+  contents: read
+jobs:
+  exact-modal-time:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+      MPLBACKEND: "Agg"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install physical solver requirements
+        run: python -m pip install -r requirements.txt
+      - name: Independent physical linear stiffness mass modes and exact sine forcing
+        shell: bash
+        run: |
+          mkdir -p modal_reference_logs
+          set +e
+          python -u ci/kl_cc_modal_time_oracle.py > modal_reference_logs/KL_CC_MODAL_ORACLE.log 2>&1
+          code=$?
+          set -e
+          tail -n 65 modal_reference_logs/KL_CC_MODAL_ORACLE.log
+          echo "INDEPENDENT_EXACT_TIME_ORACLE_EXIT=$code"
+          exit "$code"
+      - name: Preserve accepted fields and failure evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kl-cc-exact-time-25hz-modal-reference
+          path: |
+            modal_reference_logs/
+            config/verification/kl_cc_full_period/KL_CC_25HZ_9X9_MODAL_TIME_ORACLE.json
+            config/verification/kl_cc_full_period/KL_CC_25HZ_9X9_EXACT_SEMIDISCRETE_TIME_HISTORY.csv
+          retention-days: 14
+          if-no-files-found: warn
