@@ -100,3 +100,69 @@ jobs:
             config/verification/linear_bathe_all_theories/
           retention-days: 14
           if-no-files-found: warn
+
+  compare:
+    name: Compare all fourteen real Bathe fields at both substeps
+    if: always()
+    needs: [physical-linear]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      OPENBLAS_NUM_THREADS: "1"
+      SOURCE_RUN_ID: "${{ github.run_id }}"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install numpy
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bathe-linear-*
+          path: bathe_current_artifacts
+      - name: Stage exactly fourteen independent physical datasets
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import shutil
+          src=Path("bathe_current_artifacts")
+          base=Path("config/verification/linear_bathe_all_theories")
+          theories=("KL","FSDT","REDDY","CUF_TE1","CUF_TE2","CUF_TE3","CUF_TE4")
+          expected={f"bathe-linear-{t}-{m}" for t in theories for m in ("MVI","FDM")}
+          found={p.name for p in src.iterdir() if p.is_dir()} if src.is_dir() else set()
+          if found!=expected:
+              raise ValueError(f"INCOMPLETE_CURRENT_RUN: missing={sorted(expected-found)} extra={sorted(found-expected)}")
+          for theory in theories:
+              for method in ("MVI","FDM"):
+                  case=f"{theory}_{method}{'1' if method=='MVI' else ''}"
+                  path=src/f"bathe-linear-{theory}-{method}"/"config/verification/linear_bathe_all_theories"
+                  case_src=path/f"{case}.json"
+                  states_src=path/"output"/case
+                  if not case_src.is_file() or not states_src.is_dir():
+                      raise ValueError(f"PHYSICAL_CASE_OR_STATES_MISSING:{case}")
+                  for filename in ("FINAL_RUN_SUMMARY.json","REFERENCE_DYNAMIC_INITIAL.npz",
+                          "BATHE_SUBSTEP_0001_GAMMA.npz","REFERENCE_DYNAMIC_STEP_0001.npz"):
+                      if not (states_src/filename).is_file():
+                          raise ValueError(f"PHYSICAL_FIELD_ABSENT:{case}:{filename}")
+                  destination=base/"output"/case
+                  if destination.exists() or (base/f"{case}.json").exists():
+                      raise ValueError(f"ARCHIVE_MIXING_REFUSED:{case}")
+                  base.mkdir(parents=True,exist_ok=True)
+                  shutil.copy2(case_src,base/f"{case}.json")
+                  shutil.copytree(states_src,destination)
+          PY
+      - name: Check every nodal component of displacement velocity and acceleration
+        run: python ci/compare_bathe_seven_theories_full_fields.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bathe-seven-theories-current-run-full-field-audit
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            config/verification/linear_bathe_all_theories/BATHE_SEVEN_THEORIES_STRICT_COMPONENT_FIELDS.csv
+            config/verification/linear_bathe_all_theories/BATHE_SEVEN_THEORIES_STRICT_COMPONENT_FIELDS.json
+            config/verification/linear_bathe_all_theories/BATHE_SEVEN_THEORIES_STRICT_COMPONENT_FIELDS.md
+            config/verification/linear_bathe_all_theories/BATHE_LINEAR_SEVEN_THEORIES_MVI1_VS_FDM.csv
+            config/verification/linear_bathe_all_theories/BATHE_LINEAR_SEVEN_THEORIES_MVI1_VS_FDM.json

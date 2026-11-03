@@ -58,7 +58,11 @@ def make_case(theory,method,rank,steps,dt_s,output_folder):
            "max_total_dofs":10000,
            "max_surface_nodes":256,
            "max_constraint_rows":3000,
-           "krylov_rtol":.015,
+           # The original 0.015 Krylov stop changed the saved physical
+           # fields at the precision used by the cross-method audit.
+           # Dedicated FSDT/Reddy/CUF_TE2 runs established that 1e-4
+           # resolves the dominant field differences on this fixed grid.
+           "krylov_rtol":1.e-4,
            "krylov_restart":50,
            "krylov_max_matvecs":300,
            "krylov_preconditioner":"NONE"

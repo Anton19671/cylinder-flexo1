@@ -22,7 +22,7 @@ TOLERANCES = {
     "acceleration": (1e-6, 1e-4),
 }
 REPORT_STEM = "BATHE_SEVEN_THEORIES_STRICT_COMPONENT_FIELDS"
-SOURCE_RUN = 41645787449
+SOURCE_RUN = base.SOURCE_RUN
 
 
 def component_names(theory):

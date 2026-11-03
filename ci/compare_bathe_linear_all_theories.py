@@ -4,12 +4,14 @@
 No physical shell solve, no nodal fallback to FDM, no rank truncation.
 Each theory has one full Bathe step, with two stage checkpoints.
 The artifacts must originate from the separate method jobs of
-GitHub Actions run 41645787449; absent/failed results are NOT filled.
+GitHub Actions run SOURCE_RUN_ID (default: archived run 41645787449);
+absent/failed results are NOT filled.
 """
 from __future__ import annotations
 import csv
 import json
 import math
+import os
 import sys
 from pathlib import Path
 
@@ -21,6 +23,7 @@ PHYSICAL_KEYS=("theory","scale_model","mode","geometry_model","material_model",
  "load_definition","dynamics","calculation_kind","units")
 BASE=Path(__file__).resolve().parents[1]/"config/verification/linear_bathe_all_theories"
 GAMMA=2-math.sqrt(2)
+SOURCE_RUN=int(os.environ.get("SOURCE_RUN_ID","41645787449"))
 
 
 def nmechanical(theory):
@@ -123,7 +126,7 @@ def main():
         writer=csv.DictWriter(f,fieldnames=list(rows[0]))
         writer.writeheader();writer.writerows(rows)
     (BASE/"BATHE_LINEAR_SEVEN_THEORIES_MVI1_VS_FDM.json").write_text(
-        json.dumps({"source_physical_run":41645787449,"n_theories":7,
+        json.dumps({"source_physical_run":SOURCE_RUN,"n_theories":7,
             "physical_substep_comparisons":len(rows),
             "status":"EVALUATED_WITHOUT_FALLBACK",
             "time_convergence_for_all_theories_verified":False,
