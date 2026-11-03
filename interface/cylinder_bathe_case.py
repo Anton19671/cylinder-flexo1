@@ -11,7 +11,8 @@ import os
 from pathlib import Path
 import numpy as np
 from cylinder_bathe_mvi import BATHE_GAMMA,solve_bathe_variational_step
-from cylinder_dynamic_trace import mechanical_trace_matrix,effective_step_acceptance
+from cylinder_dynamic_trace import (mechanical_trace_matrix,
+    sparse_mechanical_trace_matrix,effective_step_acceptance)
 
 
 def _json(path, data):
@@ -29,12 +30,19 @@ def _npz(path,**data):
     os.replace(p,path)
 
 
-def _check_trace(problem,q,p,result,time_s,initial_target):
-    f=problem.functional
-    a=problem.assemble(result.mechanical,result.electrical,
-                       acceleration=np.zeros_like(result.mechanical),
-                       density_kg_m3=1.,time_s=time_s)
-    c,d=mechanical_trace_matrix(a.edge.constraints,result.mechanical.size)
+def _check_trace(problem,q,p,result,time_s,initial_target,*,matrix_free=False):
+    if matrix_free:
+        from cylinder_variational_boundary import compile_boundary_program
+        edge=compile_boundary_program(problem.functional,result.mechanical,
+            result.electrical,spec=problem.spec,calculation_kind="DYNAMIC",
+            time_s=time_s)
+    else:
+        edge=problem.assemble(result.mechanical,result.electrical,
+            acceleration=np.zeros_like(result.mechanical),
+            density_kg_m3=1.,time_s=time_s).edge
+    trace=(sparse_mechanical_trace_matrix if matrix_free
+           else mechanical_trace_matrix)
+    c,d=trace(edge.constraints,result.mechanical.size)
     if c.shape!=initial_target[0].shape:
         raise ValueError("BATHE_MECHANICAL_TRACE_MATRIX_CHANGED")
     c0,d0=initial_target
@@ -71,8 +79,9 @@ def run_bathe_case(case,case_path,*,prepared=None):
               if prepared is None else prepared)
     if prepared.calculation_kind!="DYNAMIC" or prepared.method not in ("MVI","FDM"):
         raise ValueError("BATHE_REQUIRES_VARIATIONAL_MVI_OR_FDM")
-    if prepared.fdm_backend!="DENSE_REFERENCE":
-        raise ValueError("BATHE_MATRIX_FREE_NOT_YET_SUPPORTED")
+    matrix_free=(prepared.fdm_backend=="MATRIX_FREE_GMRES")
+    if matrix_free and prepared.method!="FDM":
+        raise ValueError("BATHE_MATRIX_FREE_IS_FDM_ONLY")
     dyn=prepared.dynamics
     settings=dyn.settings
     if abs(settings.beta-.25)>1e-13 or abs(settings.gamma-.5)>1e-13:
@@ -95,9 +104,16 @@ def run_bathe_case(case,case_path,*,prepared=None):
     if prepared.initial_acceleration is None:
         raise ValueError("BATHE_CONSISTENT_INITIAL_ACCELERATION_REQUIRED")
     a=np.asarray(prepared.initial_acceleration,float).copy()
-    edge=prepared.problem.assemble(q,p,time_s=settings.t_start_s,
-        acceleration=np.zeros_like(q),density_kg_m3=dyn.density_kg_m3).edge
-    initial_trace=mechanical_trace_matrix(edge.constraints,q.size)
+    if matrix_free:
+        from cylinder_variational_boundary import compile_boundary_program
+        edge=compile_boundary_program(f,q,p,spec=prepared.problem.spec,
+            calculation_kind="DYNAMIC",time_s=settings.t_start_s)
+    else:
+        edge=prepared.problem.assemble(q,p,time_s=settings.t_start_s,
+            acceleration=np.zeros_like(q),density_kg_m3=dyn.density_kg_m3).edge
+    trace=(sparse_mechanical_trace_matrix if matrix_free
+           else mechanical_trace_matrix)
+    initial_trace=trace(edge.constraints,q.size)
     if np.max(abs(initial_trace[0]@q.ravel()-initial_trace[1]),initial=0.)>1e-9:
         raise ValueError("BATHE_INITIAL_SUPPORT_INCONSISTENT")
     for value in (v,a):
@@ -112,7 +128,7 @@ def run_bathe_case(case,case_path,*,prepared=None):
     summary={"solver_backend":"VARIATIONAL_REFERENCE","calculation_kind":"DYNAMIC",
         "integrator":"BATHE","integrator_order":2,"experimental":True,
         "method":prepared.method,"theory":f.theory,"geometry_model":case["geometry_model"],
-        "density_kg_m3":dyn.density_kg_m3,"rank":(prepared.mvi_settings.rank if prepared.method=="MVI" else None),
+        "density_kg_m3":dyn.density_kg_m3,"fdm_backend":prepared.fdm_backend,"rank":(prepared.mvi_settings.rank if prepared.method=="MVI" else None),
         "status":"NOT_STARTED","converged":False,"accepted_steps":0,
         "requested_steps":settings.n_steps,"steps":[],
         "time_step_s":settings.dt_s,"start_time_s":settings.t_start_s,
@@ -132,6 +148,7 @@ def run_bathe_case(case,case_path,*,prepared=None):
                 prepared.problem,q,p,v,a,time_s=t0,h=settings.dt_s,
                 density_kg_m3=dyn.density_kg_m3,loads_at=loads,
                 method=prepared.method,settings=prepared.settings,
+                fdm_backend=prepared.fdm_backend,
                 mvi_settings=prepared.mvi_settings,
                 previous_mvi_result=(None if debug_restart else prev))
             t1=t0+BATHE_GAMMA*settings.dt_s
@@ -141,8 +158,8 @@ def run_bathe_case(case,case_path,*,prepared=None):
             first,final=result.first,result.final
             _accept(first,prepared,settings.residual_tolerance_relative)
             _accept(final,prepared,settings.residual_tolerance_relative)
-            first_trace=_check_trace(prepared.problem,q,p,first,t1,initial_trace)
-            final_trace=_check_trace(prepared.problem,q,p,final,t2,initial_trace)
+            first_trace=_check_trace(prepared.problem,q,p,first,t1,initial_trace,matrix_free=matrix_free)
+            final_trace=_check_trace(prepared.problem,q,p,final,t2,initial_trace,matrix_free=matrix_free)
             for stage,state,t in (("FIRST",first,t1),("FINAL",final,t2)):
                 fields={"time_s":np.array(t),"mechanical":state.mechanical,
                      "velocity":state.velocity,"acceleration":state.acceleration,
@@ -156,6 +173,8 @@ def run_bathe_case(case,case_path,*,prepared=None):
                 name=(f"BATHE_SUBSTEP_{i:04d}_GAMMA.npz" if stage=="FIRST"
                       else f"REFERENCE_DYNAMIC_STEP_{i:04d}.npz")
                 _npz(out/name,**fields)
+            # CUF coefficients are grouped [U_0..U_p, V_0..V_p, W_0..W_p].
+            # The physical midsurface radial displacement is W_0, not W_p.
             radial=2*(int(f.theory[-1])+1) if f.theory.startswith("CUF_") else 2
             entry={"index":i,"time_s":t2,
                 "time_gamma_s":t1,
