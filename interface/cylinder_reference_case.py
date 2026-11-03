@@ -522,6 +522,12 @@ def _postprocess_options(case):
 def run_reference_case(case,case_path):
     prepared=prepare_reference_case(case,base_dir=Path(case_path).parent)
     if prepared.calculation_kind=="DYNAMIC":
+        integrator=str((case.get("dynamics") or {}).get("integrator","NEWMARK")).upper()
+        if integrator=="BATHE":
+            from cylinder_bathe_case import run_bathe_case
+            return run_bathe_case(case,case_path,prepared=prepared)
+        if integrator!="NEWMARK":
+            raise ValueError("DYNAMIC_INTEGRATOR_NOT_SUPPORTED: NEWMARK or BATHE")
         return run_reference_dynamic_case(case,case_path,prepared=prepared)
     out=Path(case["output_dir"])
     if not out.is_absolute():out=Path(case_path).parent/out
