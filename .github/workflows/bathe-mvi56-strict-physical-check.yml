@@ -1,0 +1,54 @@
+name: Bathe MVI5-6 strict identical linear physics verification
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "config/verification/kl_cc_bathe/BATHE_MVI5_STRICT.json"
+      - "config/verification/kl_cc_bathe/BATHE_MVI6_STRICT.json"
+      - ".github/workflows/bathe-mvi56-strict-physical-check.yml"
+permissions:
+  contents: read
+jobs:
+  physical-mvi-strict:
+    name: "Bathe rank ${{ matrix.rank }} strict physical two-step"
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        rank: [5,6]
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+      MPLBACKEND: "Agg"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements.txt
+      - name: Two exact physical Bathe substeps, unchanged PDE, tighter MVI solve
+        shell: bash
+        run: |
+          mkdir -p strict_logs
+          set +e
+          python RUN_FINAL_CASE.py "config/verification/kl_cc_bathe/BATHE_MVI${{ matrix.rank }}_STRICT.json" > "strict_logs/BATHE_MVI${{ matrix.rank }}_STRICT.log" 2>&1
+          code=$?
+          set -e
+          tail -n 35 "strict_logs/BATHE_MVI${{ matrix.rank }}_STRICT.log"
+          echo "BATHE_MVI_STRICT_EXIT=$code"
+          exit "$code"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "bathe-physical-mvi${{ matrix.rank }}-strict"
+          path: |
+            strict_logs/
+            config/verification/kl_cc_bathe/output/BATHE_MVI${{ matrix.rank }}_STRICT/
+          retention-days: 21
+          if-no-files-found: warn
