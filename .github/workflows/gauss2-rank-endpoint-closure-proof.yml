@@ -1,0 +1,25 @@
+name: Gauss IRK4 fixed rank endpoint closure proof
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "tests/test_gauss2_fixed_rank_endpoint_closure.py"
+      - ".github/workflows/gauss2-rank-endpoint-closure-proof.yml"
+permissions:
+  contents: read
+jobs:
+  rank-closure-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      OPENBLAS_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements.txt
+      - name: Prove nonclosure of fixed rank under two-stage Runge Kutta
+        run: python -m pytest -q tests/test_gauss2_fixed_rank_endpoint_closure.py tests/test_gauss2_trace_rank_floor.py
