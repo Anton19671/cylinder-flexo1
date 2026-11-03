@@ -1,0 +1,132 @@
+name: KL CC static pressure physical MVI 1-8 vs FDM
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/kl-cc-static-pressure-solve.yml"
+      - "ci/kl_cc_uniform_static.py"
+      - "config/verification/kl_cc_uniform_static/*.json"
+permissions:
+  contents: read
+
+jobs:
+  physical-solve:
+    name: "Static solve: ${{ matrix.case }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        case:
+          - KL_CC_9x9_100KPA_MKR_FDM
+          - KL_CC_9x9_100KPA_MVI1
+          - KL_CC_9x9_100KPA_MVI2
+          - KL_CC_9x9_100KPA_MVI3
+          - KL_CC_9x9_100KPA_MVI4
+          - KL_CC_9x9_100KPA_MVI5
+          - KL_CC_9x9_100KPA_MVI6
+          - KL_CC_9x9_100KPA_MVI7
+          - KL_CC_9x9_100KPA_MVI8
+          - KL_CC_9x9_50KPA_MKR_FDM
+          - KL_CC_9x9_50KPA_MVI1
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+      MPLBACKEND: "Agg"
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install solver dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run physical static solver (never substitute MVI with FDM)
+        shell: bash
+        run: |
+          mkdir -p klcc_runlogs
+          set +e
+          python RUN_FINAL_CASE.py "config/verification/kl_cc_uniform_static/${{ matrix.case }}.json" > "klcc_runlogs/${{ matrix.case }}.log" 2>&1
+          result=$?
+          set -e
+          printf '{"case":"%s","exit_code":%s}\n' "${{ matrix.case }}" "$result" > "klcc_runlogs/${{ matrix.case }}.json"
+          echo "PHYSICAL_SOLVE_EXIT_CODE=$result; ${{ matrix.case }}"
+          tail -n 30 "klcc_runlogs/${{ matrix.case }}.log"
+          # Keep the log, accepted state and explicit exit code even if a
+          # method does not converge. The aggregation job verifies acceptance.
+      - name: Upload complete physical run, including unsuccessful runs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: "klcc-static-${{ matrix.case }}"
+          path: |
+            klcc_runlogs/${{ matrix.case }}.*
+            config/verification/kl_cc_uniform_static/output/${{ matrix.case }}/
+          if-no-files-found: warn
+          retention-days: 14
+
+  aggregate:
+    name: "Verify results: 8 MVI + FDM, half-pressure linearity"
+    needs: physical-solve
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      OPENBLAS_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Dependencies for report only
+        run: python -m pip install numpy
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: "klcc-static-*"
+          path: downloaded
+          merge-multiple: true
+      - name: Restore physical results and produce comparative report
+        shell: bash
+        run: |
+          mkdir -p config/verification/kl_cc_uniform_static/output
+          if [ -d downloaded/config/verification/kl_cc_uniform_static/output ]; then
+            cp -r downloaded/config/verification/kl_cc_uniform_static/output/. config/verification/kl_cc_uniform_static/output/
+          fi
+          python ci/kl_cc_uniform_static.py --report
+          echo "All numerical columns are generated only from accepted saved states."
+      - name: Upload report and per-case outcome logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: "klcc-static-comparative-report"
+          path: |
+            config/verification/kl_cc_uniform_static/KL_CC_STATIC_VERIFICATION.csv
+            config/verification/kl_cc_uniform_static/KL_CC_STATIC_VERIFICATION.json
+            downloaded/klcc_runlogs/*.log
+            downloaded/klcc_runlogs/*.json
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Fail closed on missing or unsuccessful physical cases
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path("config/verification/kl_cc_uniform_static/KL_CC_STATIC_VERIFICATION.json")
+          report=json.loads(p.read_text(encoding="utf-8"))
+          print("accepted:",report["accepted"],"/",report["requested"])
+          if report["accepted"] != 11 or report["requested"] != 11:
+              raise SystemExit("INCOMPLETE_VERIFICATION: at least one physical solve failed or was missing")
+          for method in ("FDM","MVI"):
+              ratio=report["measured_w_ratio"].get(method)
+              print("linear pressure scaling",method,ratio)
+              if ratio is None or abs(ratio-2)>0.01:
+                  raise SystemExit("LINEARITY_CHECK_FAILED:"+method)
+          print("ALL_11_PHYSICAL_SOLVES_ACCEPTED_AND_LINEARITY_CHECKED")
+          PY
