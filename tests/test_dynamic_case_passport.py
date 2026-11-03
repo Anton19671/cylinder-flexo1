@@ -42,6 +42,21 @@ class PassportTests(unittest.TestCase):
             modified=copy.deepcopy(original);change(modified)
             self.assertNotEqual(dynamic_physics_sha256(original),dynamic_physics_sha256(modified))
 
+    def test_sbp42_fourier_dynamic_passport_retains_real_operator(self):
+        original = case()
+        original["mvi_grid"]["operator_scheme"] = "SBP42_FOURIER_ODD"
+        expected = canonical_dynamic_physics(original)
+        self.assertEqual(expected["_comparison_grid"],
+                         {"nx": 9, "ns": 9,
+                          "operator_scheme": "SBP42_FOURIER_ODD"})
+        altered = copy.deepcopy(original)
+        altered["mvi_grid"]["operator_scheme"] = "SBP21_FOURIER_ODD"
+        self.assertNotEqual(dynamic_physics_sha256(original),
+                            dynamic_physics_sha256(altered))
+        altered["mvi_grid"]["operator_scheme"] = "INVALID_OPERATOR"
+        with self.assertRaisesRegex(ValueError, "INVALID_SPATIAL_OPERATOR"):
+            canonical_dynamic_physics(altered)
+
     def test_invalid_input_fails_closed(self):
         for value in (float("nan"),float("inf"),0.,-1.,True):
             modified=case();modified["dynamics"]["density_kg_m3"]=value
