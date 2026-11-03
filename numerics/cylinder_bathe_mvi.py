@@ -140,7 +140,8 @@ def audit_bathe_kinematics(q0,v0,a0,first,final,coefficients):
 def solve_bathe_variational_step(problem,q0,p0,v0,a0, *,
         time_s,h,density_kg_m3,loads_at,method="MVI",
         settings=None,mvi_settings=None,previous_mvi_result=None,
-        mass_damping_rate_per_s=0.,eta_s=0.,on_iteration=None):
+        mass_damping_rate_per_s=0.,eta_s=0.,on_iteration=None,
+        fdm_backend="DENSE_REFERENCE"):
     """Two independently accepted physical variational solves per time step.
 
     The same C-C/other prescribed boundary traces must be imposed by the
@@ -157,7 +158,17 @@ def solve_bathe_variational_step(problem,q0,p0,v0,a0, *,
     if not np.isfinite(float(time_s)) or not np.isfinite(float(density_kg_m3)) or density_kg_m3<=0:
         raise ValueError("BATHE_INVALID_PHYSICAL_TIME_OR_DENSITY")
     c=bathe_coefficients(h)
-    solve=solve_dynamic_mvi if method=="MVI" else solve_dynamic_fdm
+    if fdm_backend not in ("DENSE_REFERENCE","MATRIX_FREE_GMRES"):
+        raise ValueError("BATHE_UNKNOWN_FDM_BACKEND")
+    if method=="MVI" and fdm_backend!="DENSE_REFERENCE":
+        raise ValueError("BATHE_MVI_REQUIRES_FROZEN_PARTNER_DENSE_BACKEND")
+    if method=="MVI":
+        solve=solve_dynamic_mvi
+    elif fdm_backend=="MATRIX_FREE_GMRES":
+        from cylinder_matrixfree_fdm import solve_matrixfree_dynamic_fdm
+        solve=solve_matrixfree_dynamic_fdm
+    else:
+        solve=solve_dynamic_fdm
     def evaluate_load(t):
         out=loads_at(t)
         if not isinstance(out,tuple) or len(out)!=2:
