@@ -383,8 +383,18 @@ def prepare_reference_case(case, *, base_dir=None, modal_harmonic_large=False):
                 density_kg_m3=dynamic.density_kg_m3)
             initial_assembly=None
     elif large_harmonic:
+        # KL clamping has an exact coupled axial-slope trace, not just a
+        # fixed nodal value.  Accept precisely the same certified axial
+        # nullspace used in the unrestricted MVI Y/X constructor below.
+        # Other unsupported traces remain rejected without approximation.
         from cylinder_modal_large_harmonic import mechanical_fixed_trace_mask
-        mechanical_fixed_trace_mask(problem,q)
+        try:
+            mechanical_fixed_trace_mask(problem,q)
+        except ValueError as exc:
+            if str(exc) != "MODAL_LARGE_HARMONIC_UNSUPPORTED_COUPLED_TRACE":
+                raise
+            from cylinder_modal_axial_traces import uniform_axial_mechanical_traces
+            uniform_axial_mechanical_traces(problem,q)
         problem.evaluate_effective_residual(q,p,dead_load=dead,free_charge=charge)
     else:
         # Original dense reference route remains bit-for-bit unchanged.
