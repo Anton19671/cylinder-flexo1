@@ -151,8 +151,20 @@ def solve_static_subspace(problem, mechanical, electrical=None, *, dead_load=Non
         raise ValueError("invalid mechanical energy scale")
     # directions are dimensionless nodal variations. None selects the full
     # space; an MVI caller supplies only its frozen-partner profile directions.
+    # Frozen-partner MVI directions can satisfy a clamped trace exactly.
+    # Then C*T contains only floating-point noise even though C has genuine
+    # nonzero rows. A purely relative rank cutoff interprets that noise as
+    # independent constraints and builds an enormous artificial trace lift,
+    # destroying an already stationary MVI field on the NEXT Y/X sweep.
+    # Use the absolute direction-scaled rank floor already used by modal MVI.
+    # This does not relax prescribed traces: affine_trace_space still checks
+    # their actual physical defect against its strict machine-scale bound.
+    trace_rank_floor = (0.0 if directions is None else
+        1.e-10 * float(np.max(np.linalg.norm(directions, axis=0), initial=0.0)))
     space=affine_trace_space(first.space.matrix*scales[None,:],
-                             first.space.target,first.state/scales,directions=directions)
+                             first.space.target,first.state/scales,
+                             directions=directions,
+                             constraint_rank_floor=trace_rank_floor)
     b=space.basis
     if b.shape[1]>settings.max_free_dofs:
         raise ValueError(f"reference dense solve has {b.shape[1]} free DOFs; limit={settings.max_free_dofs}")
