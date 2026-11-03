@@ -1,0 +1,70 @@
+name: Bathe MVI5-6 cold continuation diagnostic physical
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "interface/cylinder_bathe_case.py"
+      - "config/verification/kl_cc_bathe/*DEBUG_COLD.json"
+      - ".github/workflows/bathe-cold-continuation-diagnostic.yml"
+permissions:
+  contents: read
+jobs:
+  physical-cold-continuation:
+    name: "Physical MVI rank ${{ matrix.rank }} cold start, 2 steps"
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        rank: [5,6]
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+      MPLBACKEND: "Agg"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements.txt
+      - name: Physically test MVI full-step 2 with cold initial factors, unmodified Bathe equations
+        shell: bash
+        run: |
+          mkdir -p bathe_cold_logs
+          set +e
+          python RUN_FINAL_CASE.py "config/verification/kl_cc_bathe/BATHE_MVI${{ matrix.rank }}_DEBUG_COLD.json" > "bathe_cold_logs/BATHE_MVI${{ matrix.rank }}_DEBUG_COLD.log" 2>&1
+          code=$?
+          set -e
+          tail -n 36 "bathe_cold_logs/BATHE_MVI${{ matrix.rank }}_DEBUG_COLD.log"
+          echo "PHYSICAL_BATHE_COLD_EXIT=$code"
+          exit "$code"
+      - name: Verify physical CASE declared the diagnostic option
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          rank=os.environ["RANK"]
+          folder=Path("config/verification/kl_cc_bathe/output")/f"BATHE_MVI{rank}_DEBUG_COLD"
+          summary=json.loads((folder/"FINAL_RUN_SUMMARY.json").read_text(encoding="utf-8"))
+          assert summary["debug_cold_start_each_full_step"] is True
+          assert summary["method"]=="MVI" and summary["rank"]==int(rank)
+          assert summary["converged"] is True and summary["accepted_steps"]==2
+          assert len(summary["steps"])==2
+          print("COLD_DIAGNOSTIC_PHYSICAL_TWO_STEPS",rank,flush=True)
+          PY
+        env:
+          RANK: ${{ matrix.rank }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "bathe-physical-cold-mvi${{ matrix.rank }}"
+          path: |
+            bathe_cold_logs/
+            config/verification/kl_cc_bathe/output/BATHE_MVI${{ matrix.rank }}_DEBUG_COLD/
+          retention-days: 14
+          if-no-files-found: warn
