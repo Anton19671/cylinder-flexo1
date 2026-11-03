@@ -20,7 +20,7 @@ from FDM. Differences use the complete [U,V,W] nodal field on 9x9.
 | Method | Status | W at midspan, circumferential mean [um] | max abs(W) [um] | Full-field L2 difference vs FDM [%] | Sweeps |
 | --- | --- | ---: | ---: | ---: | ---: |
 | MKR / FDM | CONVERGED | -7.598499770229 | 8.071950353839 | 0 (self) | N/A |
-| MVI-1 | RUNNING / NOT VERIFIED | | | | |
+| MVI-1 | FAILED: MAX_SWEEPS_PROJECTED_NOT_CONVERGED; accepted_steps=0 | | | | 30 |
 | MVI-2 | RUNNING / NOT VERIFIED | | | | |
 | MVI-3 | RUNNING / NOT VERIFIED | | | | |
 | MVI-4 | CONVERGED_FULL | -7.598499770135 | 8.071950350117 | 4.468104e-8 | 2 |
@@ -29,8 +29,7 @@ from FDM. Differences use the complete [U,V,W] nodal field on 9x9.
 | MVI-7 | CONVERGED_FULL | -7.598499770012 | 8.071950349861 | 4.347294e-8 | 2 |
 | MVI-8 | CONVERGED_FULL | -7.598499784461 | 8.071950346447 | 1.592763e-7 | 2 |
 
-The 50 kPa FDM and MVI-1 independent linearity controls are still
-RUNNING / NOT VERIFIED at this writing; no values are invented.
+The 50 kPa FDM control is now independently CONVERGED; its midspan W is -3.799249885115 um and maximum |W| is 4.035975176920 um. The FDM midspan deflection ratio W(100 kPa)/W(50 kPa) is 1.999999999999936. The 50 kPa MVI-1 control is not yet independently verified.
 
 ## Additional physical-consistency checks
 - FDM exactly satisfies both clamped displacement edges in the stored
@@ -50,8 +49,7 @@ RUNNING / NOT VERIFIED at this writing; no values are invented.
   non-separable problems.
 
 ## Restrictions: what has NOT been verified
-- MVI-1..3 and the 50 kPa controls have no accepted physical states
-  available at the snapshot. The ACTION run may update later.
+- MVI-1 at 100 kPa **actually finished without convergence** after 30 sweeps and 60 inner iterations. The saved state is named REFERENCE_FAILED_ITERATE.npz and must NOT be used for any numerical comparison. Its GitHub Actions job displayed technical SUCCESS solely because the CI workflow intentionally captures nonzero solver exit codes to preserve results and continues; the physical solve status is authoritative. MVI-2/3 and the 50 kPa MVI-1 were not yet verified at this snapshot.
 - This is one coarse grid: mesh convergence is NOT VERIFIED.
 - Comparison to FDM is on the **same variational discretization**.
   It does **not** independently certify the model or the true
@@ -75,3 +73,6 @@ RUNNING / NOT VERIFIED at this writing; no values are invented.
   https://github.com/Anton19671/cylinder-flexo1/actions/runs/41589938022/artifacts/13210455208
 - MVI-8:
   https://github.com/Anton19671/cylinder-flexo1/actions/runs/41589938022/artifacts/13209224842
+
+- MVI-1 failed-state artifact (for diagnosis only): https://github.com/Anton19671/cylinder-flexo1/actions/runs/41589938022/artifacts/13209529507
+- FDM 50 kPa successful artifact: https://github.com/Anton19671/cylinder-flexo1/actions/runs/41589938022/artifacts/13210560774
