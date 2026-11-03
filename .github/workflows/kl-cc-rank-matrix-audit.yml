@@ -1,0 +1,59 @@
+name: Audit independently computed KL MVI1-8 5-step fields
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "ci/kl_cc_rank_matrix_compare.py"
+      - ".github/workflows/kl-cc-rank-matrix-audit.yml"
+permissions:
+  contents: read
+jobs:
+  compare-real-fields:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install numpy
+        run: python -m pip install numpy
+      - name: Download nine independently accepted physical solver archives
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p rank_archives
+          gh run download 41624708013 --repo "${{ github.repository }}" --pattern 'newmark-kl-rank-*' --dir rank_archives
+          python - <<'PY'
+          from pathlib import Path
+          import shutil
+          src=Path("rank_archives")
+          dest=Path("config/verification/kl_cc_mvi_rank_matrix")
+          dest.mkdir(parents=True,exist_ok=True)
+          for rank in range(9):
+              sub=src/f"newmark-kl-rank-{rank}"/"config"/"verification"/"kl_cc_mvi_rank_matrix"
+              assert sub.is_dir(),f"missing independent rank {rank} physical artifact"
+              case=sub/("NEWMARK_FDM.json" if rank==0 else f"NEWMARK_MVI{rank}.json")
+              assert case.is_file(),f"rank {rank} CASE missing"
+              shutil.copy2(case,dest/case.name)
+              name="NEWMARK_FDM" if rank==0 else f"NEWMARK_MVI{rank}"
+              source=sub/"output"/name
+              assert source.is_dir(),f"rank {rank} physical saved states missing"
+              target=dest/"output"/name
+              shutil.copytree(source,target,dirs_exist_ok=False)
+          print("RESTORED_NINE_INDEPENDENT_SAVED_PHYSICAL_RUNS")
+          PY
+      - name: Compare 45 real accepted physical states, strict loads, rank and boundary traces
+        run: python ci/kl_cc_rank_matrix_compare.py
+      - name: Archive comparative CSV and JSON, including failure diagnostics
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kl-cc-mvi1-8-real-five-step-comparison
+          path: |
+            config/verification/kl_cc_mvi_rank_matrix/NEWMARK_MVI1_8_FIVE_STEP_COMPARISON.csv
+            config/verification/kl_cc_mvi_rank_matrix/NEWMARK_MVI1_8_FIVE_STEP_COMPARISON.json
+          if-no-files-found: warn
+          retention-days: 14
