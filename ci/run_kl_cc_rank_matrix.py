@@ -30,7 +30,9 @@ def make_case(rank,integrator):
     case["dynamics"]["time_step_s"]=0.002
     case["dynamics"]["n_steps"]=1 if integrator=="gauss" else 5
     name=("GAUSS2_MVI"+str(rank)) if integrator=="gauss" else ("NEWMARK_FDM" if rank==0 else "NEWMARK_MVI"+str(rank))
-    # The physical Gauss runner requires a distinct directory from the\n    # declared Newmark CASE output, even if Newmark is not executed here.\n    case["output_dir"]="output/"+("NEWMARK_DECLARED_"+name if integrator=="gauss" else name)
+    # The physical Gauss runner requires a distinct directory from the
+    # declared Newmark CASE output, even if Newmark is not executed here.
+    case["output_dir"]="output/"+("NEWMARK_DECLARED_"+name if integrator=="gauss" else name)
     OUT.mkdir(parents=True,exist_ok=True)
     path=OUT/(name+".json")
     if path.exists():
