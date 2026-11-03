@@ -48,6 +48,6 @@ jobs:
             config/verification/kl_cc_full_period/KL_CC_25HZ_9X9_MODAL_TIME_ORACLE.json
             config/verification/kl_cc_full_period/KL_CC_25HZ_9X9_EXACT_SEMIDISCRETE_TIME_HISTORY.csv
             config/verification/kl_cc_full_period/KL_CC_NEWMARK_SPECTRAL_REPLAY_3_DT.csv
-            config/verification/kl_cc_full_period/KL_CC_GAUSS_IRK4_SPECTRAL_REPLAY_4_DT.csv
+            config/verification/kl_cc_full_period/KL_CC_GAUSS_IRK4_SPECTRAL_REPLAY_7_DT.csv
           retention-days: 14
           if-no-files-found: warn
