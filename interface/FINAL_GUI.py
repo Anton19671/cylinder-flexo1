@@ -7349,8 +7349,10 @@ class FinalSolverGUI(EnhancedSolverGUI):
         self._start_live_run_journal("REFERENCE START")
         self._log(" ".join(cmd)+"\n")
         self._progress_reset(self.expected_steps)
+        from cylinder_gui_run_feedback import utf8_solver_process_env
         self.proc=subprocess.Popen(cmd,cwd=str(APP_DIR),stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,text=True,bufsize=1,encoding="utf-8",errors="replace",
+            stderr=subprocess.STDOUT,text=True,bufsize=1,encoding="utf-8",errors="strict",
+            env=utf8_solver_process_env(),
             start_new_session=(os.name!="nt"))
         self._set_top_running_state(True)
         threading.Thread(target=self._read_process_output,daemon=True).start()
@@ -7467,6 +7469,28 @@ class FinalSolverGUI(EnhancedSolverGUI):
         if reference:
             self._cleanup_reference_auto_case(
                 "SUCCESS" if completion is not None and completion["success"] else "FAILED")
+            if not stopped:
+                from cylinder_gui_run_feedback import reference_completion_notice
+                verified, title, body = reference_completion_notice(
+                    completion, kind=getattr(self, "_reference_launched_kind", None),
+                    method=getattr(self, "_reference_launched_method", None),
+                    rank=getattr(self, "_reference_launched_rank", None))
+                if rc != 0 and verified:
+                    verified = False
+                    title = "Расчёт не завершён"
+                    body = f"Процесс завершился с ошибкой rc={rc}.\\nСм. журнал расчёта."
+                if hasattr(self, "progress_status_label"):
+                    self.progress_status_label.configure(
+                        text=("Расчёт завершён, сошлось"
+                              if verified else "Расчёт не завершён"))
+                self._online_set("stage", "РАСЧЁТ ЗАВЕРШЁН. СОШЛОСЬ"
+                                 if verified else "РАСЧЁТ НЕ ЗАВЕРШЁН")
+                self._log(("РАСЧЁТ ЗАВЕРШЁН. СОШЛОСЬ." if verified
+                           else "РАСЧЁТ НЕ ЗАВЕРШЁН.") + "\\n")
+                if verified:
+                    messagebox.showinfo(title, body, parent=self)
+                # The base handler has already displayed a failure dialog.
+                # Do not obscure its detailed error with a second window.
 
     def load_case(self):
         """Restore a saved FINAL_CASE without changing its physical meaning."""
