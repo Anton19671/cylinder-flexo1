@@ -1,0 +1,49 @@
+name: Gauss IRK4 physical endpoint rank diagnostic
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "ci/diagnose_gauss2_endpoint_rank.py"
+      - ".github/workflows/gauss2-endpoint-rank-diagnostic.yml"
+permissions:
+  contents: read
+jobs:
+  physical-endpoint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    strategy:
+      fail-fast: false
+      matrix:
+        rank: [2, 4]
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements.txt
+      - name: Run exact physical Gauss step; report endpoint SVD on failure
+        shell: bash
+        run: |
+          mkdir -p endpoint_diag
+          set +e
+          python ci/diagnose_gauss2_endpoint_rank.py --rank ${{ matrix.rank }} > endpoint_diag/rank${{ matrix.rank }}.log 2>&1
+          exit_code=$?
+          set -e
+          grep -E 'STRICT_ENDPOINT_RANK_REJECTION|COMPONENT_RANK_DIAGNOSTIC|GAUSS2_PHYSICAL_STEP_ACCEPTED|RuntimeError|ValueError' endpoint_diag/rank${{ matrix.rank }}.log || true
+          echo "PHYSICAL_GAUSS_EXIT=$exit_code"
+          exit "$exit_code"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "gauss-endpoint-rank-${{ matrix.rank }}"
+          path: |
+            endpoint_diag/
+            config/verification/kl_cc_rk4_followup/output/DIAGNOSTIC_GAUSS2_MVI${{ matrix.rank }}_RK_STEP1/
+          retention-days: 14
+          if-no-files-found: warn
