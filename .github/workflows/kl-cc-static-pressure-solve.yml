@@ -7,6 +7,7 @@ on:
       - ".github/workflows/kl-cc-static-pressure-solve.yml"
       - "ci/kl_cc_uniform_static.py"
       - "config/verification/kl_cc_uniform_static/*.json"
+      - "numerics/cylinder_variational_fdm.py"
 permissions:
   contents: read
 
@@ -58,7 +59,8 @@ jobs:
           echo "PHYSICAL_SOLVE_EXIT_CODE=$result; ${{ matrix.case }}"
           tail -n 30 "klcc_runlogs/${{ matrix.case }}.log"
           # Keep the log, accepted state and explicit exit code even if a
-          # method does not converge. The aggregation job verifies acceptance.
+          # Preserve artifacts, then propagate the real physical solver status.
+          exit "$result"
       - name: Upload complete physical run, including unsuccessful runs
         if: always()
         uses: actions/upload-artifact@v4
