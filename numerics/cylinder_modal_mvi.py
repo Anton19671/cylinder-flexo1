@@ -768,6 +768,22 @@ class _SeparatedModalProblem:
             raise ValueError("MODAL MVI separated factor reconstruction failed")
         return x, y
 
+    def represented_state(self, x, y):
+        """Return the exact physical field represented by these rank-r factors.
+
+        Fit recovers factors using finite-precision orthogonal projection.
+        Carrying the pre-fit nodal field into the next frozen-partner Y/X
+        step can falsely reject a perfectly admissible factorized state.
+        This does not add nodal directions, change rank or relax tolerances.
+        """
+        represented = reconstruct_profiles(x, y).ravel() * self.scales
+        if (represented.shape != (self.nm + self.ne,)
+                or not np.isfinite(represented).all()):
+            raise ValueError("MODAL_MVI_INVALID_REPRESENTED_MODAL_STATE")
+        q = represented[:self.nm].copy()
+        p = None if not self.ne else represented[self.nm:].copy()
+        return q, p
+
     def admissible_start(self, mode, previous, *, harmonic_seed=None,
                              harmonic_phase="cos", component_phase="uniform"):
         """Construct a nonzero, homogeneous-BC-admissible fixed-rank seed.
@@ -872,6 +888,7 @@ class _SeparatedModalProblem:
         else:
             p = None
         x, y = self.fit(x, y, "X", q, p)
+        q, p = self.represented_state(x, y)
         return x, y, q, p
 
     def admissible_quadrature_seed(self, previous, electric_previous, earlier):
@@ -922,6 +939,7 @@ class _SeparatedModalProblem:
         if np.linalg.norm(restored-scaled) > 1.e-10 * max(
                 1.,float(np.linalg.norm(scaled))):
             raise ValueError("MODAL_MVI_ROTATED_SEED_RANK_RECONSTRUCTION")
+        q, p = self.represented_state(x, y)
         return x,y,q,p
 
     def eigenvalue(self, q, p):
@@ -1129,6 +1147,8 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
                     old_projected, projected_value, old_value,
                     physical_value)
                 x, y = operator.fit(x, y, "X", q, p)
+                q, p = operator.represented_state(x, y)
+                physical_value = operator.eigenvalue(q, p)
             finally:
                 if initialize_in_sector:
                     del operator.circumferential_harmonic
@@ -1202,11 +1222,12 @@ def solve_modal_mvi(prepared, density, requested, *, progress_callback=None,
                         tangent_difference_old=float(old_value-old_projected),
                         tangent_difference_new=float(value_half-projected_value))
                 x, y = operator.fit(x, y, axis, q, p)
+                q, p = operator.represented_state(x, y)
                 half_q, half_p = q, p
-                physical_value = value_half
+                physical_value = operator.eigenvalue(q, p)
                 report_candidate_state("MVI_HALFSTEP_HARMONIC_AUDIT", q, p,
                                        sweep=sweep, axis=axis,
-                                       physical_lambda=value_half)
+                                       physical_lambda=physical_value)
                 if detail_callback is not None:
                     detail_callback(stage="MVI_HALFSTEP_DONE",mode=mode+1,
                         n_modes=requested,rank=rank,sweep=sweep,axis=axis,
