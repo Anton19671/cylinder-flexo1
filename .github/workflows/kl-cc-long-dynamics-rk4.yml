@@ -1,0 +1,108 @@
+name: KL C-C physical 20ms Newmark MVI FDM and Gauss Runge Kutta IRK4
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "config/verification/kl_cc_dynamic_long/**"
+      - "ci/kl_cc_long_dynamics.py"
+      - "numerics/cylinder_gauss2_mvi.py"
+      - "numerics/cylinder_variational_dynamic.py"
+      - ".github/workflows/kl-cc-long-dynamics-rk4.yml"
+permissions:
+  contents: read
+jobs:
+  physical:
+    name: "Physical KL 20ms: ${{ matrix.case }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        case:
+          - FDM_COARSE
+          - MVI1_COARSE
+          - MVI4_COARSE
+          - FDM_FINE
+          - MVI1_FINE
+          - GAUSS2_MVI1_COARSE
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+      MPLBACKEND: "Agg"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements.txt
+      - name: Run real shell 20ms (Newmark or independent Gauss IRK4)
+        shell: bash
+        run: |
+          mkdir -p long_logs
+          set +e
+          if [ "${{ matrix.case }}" = "GAUSS2_MVI1_COARSE" ]; then
+            python ci/kl_cc_long_dynamics.py gauss > long_logs/${{ matrix.case }}.log 2>&1
+            code=$?
+          else
+            python RUN_FINAL_CASE.py "config/verification/kl_cc_dynamic_long/${{ matrix.case }}.json" > long_logs/${{ matrix.case }}.log 2>&1
+            code=$?
+          fi
+          set -e
+          printf '{"case":"%s","exit_code":%s}\n' "${{ matrix.case }}" "$code" > long_logs/${{ matrix.case }}.json
+          echo "PHYSICAL_CALCULATION_EXIT_CODE=$code"
+          tail -n 32 long_logs/${{ matrix.case }}.log
+          exit "$code"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "kl-20ms-${{ matrix.case }}"
+          path: |
+            long_logs/${{ matrix.case }}.*
+            config/verification/kl_cc_dynamic_long/output/${{ matrix.case }}/
+          retention-days: 14
+          if-no-files-found: warn
+  compare:
+    name: Compare accepted 20ms Newmark MVI/MKR and Gauss IRK4 time histories
+    needs: physical
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      OPENBLAS_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install numpy scipy
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: "kl-20ms-*"
+          path: downloaded
+          merge-multiple: true
+      - name: Compare actual saved Newmark and Gauss fields
+        shell: bash
+        run: |
+          mkdir -p config/verification/kl_cc_dynamic_long/output
+          if [ -d downloaded/config/verification/kl_cc_dynamic_long/output ]; then
+            cp -r downloaded/config/verification/kl_cc_dynamic_long/output/. config/verification/kl_cc_dynamic_long/output/
+          fi
+          python ci/kl_cc_long_dynamics.py report
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kl-20ms-comparison
+          path: |
+            config/verification/kl_cc_dynamic_long/LONG_DYNAMICS_COMPARISON.csv
+            config/verification/kl_cc_dynamic_long/LONG_DYNAMICS_COMPARISON.json
+            config/verification/kl_cc_dynamic_long/NEWMARK_GAUSS_IRK4_DETAILED.json
+            downloaded/long_logs/*.log
+          retention-days: 14
+          if-no-files-found: warn
