@@ -1005,10 +1005,19 @@ class _SeparatedModalProblem:
 
 
 def _circumferential_seed_components(functional):
-    """Indices of v thickness coefficients in the mechanical field ordering."""
+    """Angular-quadrature seed fields in the physical theory ordering.
+
+    KL: (u,v,w); FSDT/Reddy: (u,v,w,theta_x,theta_s);
+    CUF: (u_0..u_N,v_0..v_N,w_0..w_N).
+    This affects initial separated trial factors only, never K/M or BCs.
+    """
     theory = str(functional.theory).upper()
     if theory == "KL":
         return (1,)
+    if theory in ("FSDT", "REDDY"):
+        if int(functional.n_mechanical) != 5:
+            raise ValueError("MODAL_MVI_INVALID_DIRECTOR_COMPONENT_ORDER")
+        return (1, 4)
     if theory in ("CUF_TE1", "CUF_TE2", "CUF_TE3", "CUF_TE4"):
         n_mechanical = int(functional.n_mechanical)
         n_thickness = n_mechanical // 3
@@ -1070,8 +1079,23 @@ def _modal_seed_plan(operator, mode, requested):
                     # even though the n=7 second axial family is 843 Hz.
                     **({"component_phase": "circumferential_quadrature"}
                        if operator.rank == 1 and n >= 7 and
+                       str(operator.f.theory).upper() not in ("FSDT", "REDDY") and
                        _circumferential_seed_components(operator.f)
                        else {})})
+                # FSDT/Reddy low bending families have v and theta_s in
+                # angular quadrature with u,w,theta_x. The original n=5/6
+                # seeds (and n=7/8 uniform seeds) remain untouched. Rank 1
+                # needs this *additional* physical partner to reach the same
+                # exact separated mode that ranks >=2 can represent using
+                # both sine/cosine factors.
+                if (operator.rank == 1 and
+                        str(operator.f.theory).upper() in ("FSDT", "REDDY")):
+                    starts.append({
+                        "kind": "harmonic_partner",
+                        "index": int(mode + 5101 + 17*n +
+                                     (7 if phase == "sin" else 0)),
+                        "n": n, "phase": phase,
+                        "component_phase": "circumferential_quadrature"})
     return starts
 
 
