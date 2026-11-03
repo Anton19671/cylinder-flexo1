@@ -106,6 +106,9 @@ def run_bathe_case(case,case_path,*,prepared=None):
     _npz(out/"REFERENCE_DYNAMIC_INITIAL.npz",time_s=np.array(settings.t_start_s),
          mechanical=q,velocity=v,acceleration=a,**({} if p is None else {"electrical":p}))
     prev=None
+    debug_restart=(case["dynamics"].get("bathe_debug_cold_start_each_full_step",False))
+    if type(debug_restart) is not bool:
+        raise ValueError("BATHE_DEBUG_COLD_START_FLAG_MUST_BE_BOOLEAN")
     summary={"solver_backend":"VARIATIONAL_REFERENCE","calculation_kind":"DYNAMIC",
         "integrator":"BATHE","integrator_order":2,"experimental":True,
         "method":prepared.method,"theory":f.theory,"geometry_model":case["geometry_model"],
@@ -113,7 +116,8 @@ def run_bathe_case(case,case_path,*,prepared=None):
         "status":"NOT_STARTED","converged":False,"accepted_steps":0,
         "requested_steps":settings.n_steps,"steps":[],
         "time_step_s":settings.dt_s,"start_time_s":settings.t_start_s,
-        "gamma_bathe":BATHE_GAMMA,"time_step_convergence_verified":False,
+        "gamma_bathe":BATHE_GAMMA,"debug_cold_start_each_full_step":debug_restart,
+        "time_step_convergence_verified":False,
         "spatial_rank_convergence_verified":False}
     _json(out/"FINAL_RUN_SUMMARY.json",summary)
     all_history=[]
@@ -128,7 +132,8 @@ def run_bathe_case(case,case_path,*,prepared=None):
                 prepared.problem,q,p,v,a,time_s=t0,h=settings.dt_s,
                 density_kg_m3=dyn.density_kg_m3,loads_at=loads,
                 method=prepared.method,settings=prepared.settings,
-                mvi_settings=prepared.mvi_settings,previous_mvi_result=prev)
+                mvi_settings=prepared.mvi_settings,
+                previous_mvi_result=(None if debug_restart else prev))
             t1=t0+BATHE_GAMMA*settings.dt_s
             t2=t0+settings.dt_s
             if abs(result.time_first_s-t1)>1e-12 or abs(result.time_final_s-t2)>1e-12:
@@ -156,6 +161,7 @@ def run_bathe_case(case,case_path,*,prepared=None):
                 "time_gamma_s":t1,
                 "load_factor":float(dyn.time_law.value(t2)),
                 "status":final.status,"converged":True,
+                "debug_cold_start_each_full_step":debug_restart,
                 "first_substep_status":first.status,
                 "first_substep_trace":first_trace,
                 "final_trace":final_trace,
