@@ -1,0 +1,66 @@
+name: KL C-C physical third time grid and Gauss IRK4 rank 2 4
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "config/verification/kl_cc_rk4_followup/**"
+      - ".github/workflows/kl-cc-rk4-followup.yml"
+permissions:
+  contents: read
+jobs:
+  physical:
+    name: "Real shell: ${{ matrix.case }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        case:
+          - MVI1_ULTRAFINE_40
+          - MVI2_RK_STEP1
+          - MVI4_RK_STEP1
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+      MPLBACKEND: "Agg"
+      PYTHONDONTWRITEBYTECODE: "1"
+      CASE_NAME: "${{ matrix.case }}"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install physical shell solver dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Execute independent Newmark or real two-stage Gauss IRK4
+        shell: bash
+        run: |
+          mkdir -p rk_followup_logs
+          set +e
+          if [ "$CASE_NAME" = "MVI1_ULTRAFINE_40" ]; then
+            python RUN_FINAL_CASE.py "config/verification/kl_cc_rk4_followup/$CASE_NAME.json" > "rk_followup_logs/$CASE_NAME.log" 2>&1
+            code=$?
+          else
+            python -c 'import os; from pathlib import Path; from cylinder_gauss2_case import run_gauss2_mvi_case; name=os.environ["CASE_NAME"]; base=Path("config/verification/kl_cc_rk4_followup").resolve(); result=run_gauss2_mvi_case(base/(name+".json"), output_dir=base/"output"/("GAUSS2_"+name)); assert result.accepted_steps == 1 and result.summary["status"] == "CONVERGED"; print("ACCEPTED_GAUSS2_PHYSICAL_RANK",name)' > "rk_followup_logs/$CASE_NAME.log" 2>&1
+            code=$?
+          fi
+          set -e
+          printf '{"case":"%s","exit_code":%s}\n' "$CASE_NAME" "$code" > "rk_followup_logs/$CASE_NAME.json"
+          echo "REAL_PHYSICAL_SOLVER_EXIT_CODE=$code"
+          tail -n 45 "rk_followup_logs/$CASE_NAME.log"
+          exit "$code"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "physical-rk-followup-${{ matrix.case }}"
+          path: |
+            rk_followup_logs/${{ matrix.case }}.*
+            config/verification/kl_cc_rk4_followup/output/${{ matrix.case }}/
+            config/verification/kl_cc_rk4_followup/output/GAUSS2_${{ matrix.case }}/
+          if-no-files-found: warn
+          retention-days: 14
