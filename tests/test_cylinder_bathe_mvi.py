@@ -101,7 +101,9 @@ def test_free_oscillator_bathe_is_second_order_and_damps_high_frequency():
         q,v,a=1.,0.,-omega*omega
         for i in range(round(final_time/h)):
             qp=q+c.delta*v+.25*c.delta**2*a
-            qg=(c.kappa*qp-a)/(c.kappa+omega*omega)
+            # q_pred already contains +delta^2*a_n/4; subtracting a_n
+            # here would count the initial acceleration twice.
+            qg=c.kappa*qp/(c.kappa+omega*omega)
             ag=c.kappa*(qg-qp)
             vg=v+.5*c.delta*(a+ag)
             qpred,vpred=second_predictors(
