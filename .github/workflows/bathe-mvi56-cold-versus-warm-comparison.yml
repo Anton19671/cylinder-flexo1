@@ -1,0 +1,102 @@
+name: Bathe rank5 rank6 continuation comparison against FDM
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/bathe-mvi56-cold-versus-warm-comparison.yml"
+permissions:
+  contents: read
+  actions: read
+jobs:
+  compare-cold-versus-continuation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install numpy
+      - name: Retrieve original independent physical FDM and MVI5 MVI6 fields
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p diagnostic_artifacts
+          for key in BATHE_FDM BATHE_MVI5 BATHE_MVI6; do
+            gh run download 41637040470 --repo "${{ github.repository }}" --name "bathe-real-$key" --dir "diagnostic_artifacts/warm_$key"
+          done
+          for rank in 5 6; do
+            gh run download 41641256444 --repo "${{ github.repository }}" --name "bathe-physical-cold-mvi$rank" --dir "diagnostic_artifacts/cold_$rank"
+          done
+      - name: Compare warm and cold for all four true physical stages against FDM
+        shell: bash
+        run: |
+          python - <<'PY'
+          import csv,json
+          from pathlib import Path
+          import numpy as np
+          root=Path("diagnostic_artifacts")
+          def locate(dirname,stem):
+              found=list((root/dirname).rglob("FINAL_RUN_SUMMARY.json"))
+              assert len(found)==1,(dirname,found)
+              folder=found[0].parent
+              assert folder.name==stem,(dirname,folder)
+              summary=json.loads(found[0].read_text(encoding="utf-8"))
+              assert summary["integrator"]=="BATHE"
+              assert summary["converged"] and summary["accepted_steps"]==2
+              return folder,summary
+          fdm,fdm_summary=locate("warm_BATHE_FDM","BATHE_FDM")
+          names={"warm_5":("warm_BATHE_MVI5","BATHE_MVI5"),
+                 "cold_5":("cold_5","BATHE_MVI5_DEBUG_COLD"),
+                 "warm_6":("warm_BATHE_MVI6","BATHE_MVI6"),
+                 "cold_6":("cold_6","BATHE_MVI6_DEBUG_COLD")}
+          accepted={name:locate(*value) for name,value in names.items()}
+          rows=[]
+          for step in (1,2):
+              for stage,filename in (("GAMMA",f"BATHE_SUBSTEP_{step:04d}_GAMMA.npz"),
+                                     ("END",f"REFERENCE_DYNAMIC_STEP_{step:04d}.npz")):
+                  with np.load(fdm/filename,allow_pickle=False) as f:
+                      t=float(f["time_s"])
+                      base={key:np.array(f[key]) for key in ("mechanical","velocity","acceleration")}
+                  for name,(folder,summary) in accepted.items():
+                      with np.load(folder/filename,allow_pickle=False) as z:
+                          assert abs(float(z["time_s"])-t)<1.e-12
+                          assert all(np.isfinite(z[key]).all() for key in base)
+                          differences={}
+                          for field,reference in base.items():
+                              actual=np.asarray(z[field])
+                              assert actual.shape==reference.shape
+                              absolute=float(np.linalg.norm(actual-reference))
+                              denominator=float(np.linalg.norm(reference))
+                              differences[field]=100*absolute/denominator if denominator else (0. if absolute==0 else float("inf"))
+                          rows.append(dict(case=name,step=step,stage=stage,time_s=t,
+                              displacement_difference_percent=differences["mechanical"],
+                              velocity_difference_percent=differences["velocity"],
+                              acceleration_difference_percent=differences["acceleration"]))
+          out=Path("BATHE_MVI56_WARM_COLD_FDM_COMPARISON.csv")
+          with out.open("w",newline="",encoding="utf-8") as fp:
+              writer=csv.DictWriter(fp,fieldnames=list(rows[0]))
+              writer.writeheader();writer.writerows(rows)
+          for rank in (5,6):
+              warm=max(r["displacement_difference_percent"] for r in rows if r["case"]==f"warm_{rank}")
+              cold=max(r["displacement_difference_percent"] for r in rows if r["case"]==f"cold_{rank}")
+              warm_a=max(r["acceleration_difference_percent"] for r in rows if r["case"]==f"warm_{rank}")
+              cold_a=max(r["acceleration_difference_percent"] for r in rows if r["case"]==f"cold_{rank}")
+              print("BATHE_COLD_WARM_PHYSICAL_COMPARISON",rank,
+                    "warm_w_percent",warm,"cold_w_percent",cold,
+                    "warm_a_percent",warm_a,"cold_a_percent",cold_a,
+                    "cold_reduces_displacement_error",cold<warm,flush=True)
+          print("COMPARED_16_TRUE_PHYSICAL_SUBSTEPS_SAVED_TO_CSV",flush=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bathe-physical-mvi56-cold-warm-vs-fdm
+          path: BATHE_MVI56_WARM_COLD_FDM_COMPARISON.csv
+          retention-days: 21
+          if-no-files-found: warn
