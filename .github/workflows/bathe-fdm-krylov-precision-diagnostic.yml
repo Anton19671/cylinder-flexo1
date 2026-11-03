@@ -1,0 +1,65 @@
+name: Bathe FDM Krylov precision versus original independent MVI1
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/bathe-fdm-krylov-precision-diagnostic.yml"
+      - "ci/bathe_fdm_krylov_precision.py"
+      - "numerics/cylinder_matrixfree_fdm.py"
+permissions:
+  contents: read
+  actions: read
+jobs:
+  physical-precision:
+    name: "${{ matrix.theory }} FDM Krylov ${{ matrix.krylov }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        theory: [FSDT, REDDY, CUF_TE2]
+        krylov: ["0.001", "0.0001"]
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      THEORY: "${{ matrix.theory }}"
+      KRYLOV_RTOL: "${{ matrix.krylov }}"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install real physical solver
+        run: python -m pip install -r requirements.txt
+      - name: Retrieve original MVI1 and FDM physical result archives
+        env:
+          GH_TOKEN: "${{ github.token }}"
+        run: gh run download 41645787449 --repo "$GITHUB_REPOSITORY" --pattern "bathe-linear-$THEORY-*" --dir bathe_precision_archived
+      - name: Generate immutable numerical-precision diagnostic CASE
+        run: python ci/bathe_fdm_krylov_precision.py generate
+      - name: Run real physical FDM with unchanged equations and tighter Krylov accuracy
+        shell: bash
+        run: |
+          tag=$(echo "$KRYLOV_RTOL" | tr . p)
+          mkdir -p bathe_precision_logs
+          python RUN_FINAL_CASE.py "config/verification/bathe_fdm_precision/$THEORY\_FDM_TIGHT_$tag.json" > "bathe_precision_logs/$THEORY-$tag.log" 2>&1 || {
+            tail -n 70 "bathe_precision_logs/$THEORY-$tag.log"
+            exit 1
+          }
+          tail -n 22 "bathe_precision_logs/$THEORY-$tag.log"
+      - name: Compare every component and node of both physical Bathe substeps
+        run: python ci/bathe_fdm_krylov_precision.py report
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "bathe-krylov-precision-${{ matrix.theory }}-${{ matrix.krylov }}"
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            bathe_precision_logs/
+            bathe_precision_report/
+            config/verification/bathe_fdm_precision/
