@@ -1,0 +1,30 @@
+name: KL C-C MVI-1 stationary-state regression
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "numerics/cylinder_variational_fdm.py"
+      - "numerics/cylinder_variational_mvi.py"
+      - "numerics/cylinder_boundary_spatial.py"
+      - "tests/test_kl_static_rank1_stationarity_regression.py"
+      - ".github/workflows/kl-cc-static-rank1-regression.yml"
+permissions:
+  contents: read
+jobs:
+  rank1-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements.txt
+      - name: Real physical KL rank-1 MVI and independent FDM comparison
+        run: python -m pytest -q tests/test_kl_static_rank1_stationarity_regression.py
