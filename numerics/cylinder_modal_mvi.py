@@ -843,11 +843,28 @@ class _SeparatedModalProblem:
         bm, be = self.projected_bases(x, y, "X")
         constraints = (np.stack([bm.T @ self.previous_mass(q) for q in previous])
                        if previous else np.zeros((0, bm.shape[1])))
+        if len(constraints):
+            # Use the same physical mass-overlap gate as the Y/X halfsteps.
+            # A preceding mode in another Fourier sector leaves a nonzero
+            # roundoff row here. Normalizing that row in the QR nullspace
+            # would remove arbitrary axial seed directions.
+            mass_columns = np.column_stack(
+                [self.mass(bm[:, j]) for j in range(bm.shape[1])])
+            projected_mass = bm.T @ mass_columns
+            projected_mass = 0.5 * (projected_mass + projected_mass.T)
+            mass_factor = cholesky(projected_mass, lower=True,
+                                   check_finite=True)
+            constraints = _significant_modal_constraints(
+                constraints, mass_factor)
         z = _mass_orthogonal_null(constraints)
         if not z.shape[1]:
             raise ValueError("MODAL MVI: no admissible independent start for mode")
         rng = np.random.default_rng(54011 + 103*mode + 31*self.rank)
-        coeff = z @ rng.standard_normal(z.shape[1])
+        # Draw in the original frozen-partner coordinates before projecting
+        # onto the admissible nullspace. A QR null basis may rotate with the
+        # phase of a previous doublet; drawing in its coordinates changes
+        # the physical seed even for identical CASEs.
+        coeff = z @ (z.T @ rng.standard_normal(bm.shape[1]))
         q = bm @ coeff
         if (harmonic_seed is not None and self.rank > 2
                 and harmonic is None and not self.ne):

@@ -82,6 +82,33 @@ def test_admissible_start_does_not_request_full_grid_modal_eigenvectors():
     assert operator.projected_bases.call_args.args[-1] == "X"
 
 
+def test_modal_seed_ignores_negligible_previous_mode_overlap():
+    """Roundoff from another Fourier sector must not rotate the seed."""
+    from cylinder_boundary_spatial import separated_profile_directions
+
+    operator = object.__new__(_SeparatedModalProblem)
+    operator.n_components, operator.rank = 1, 1
+    operator.nx, operator.ns, operator.nm, operator.ne = 4, 3, 12, 0
+    operator.shape = (1, 4, 3)
+    operator.scales = np.ones(12)
+    operator.mass = lambda q: np.asarray(q, float)
+    operator.previous_mass = operator.mass
+    operator.projected_bases = lambda x, y, axis: (
+        separated_profile_directions(x, y, "X")[:, [1, 2]],
+        np.empty((0, 0)))
+
+    x, y, original, _ = operator.admissible_start(0, [])
+    basis, _ = operator.projected_bases(x, y, "X")
+    outside = np.arange(1., 13.)
+    outside -= basis @ np.linalg.lstsq(basis, outside, rcond=None)[0]
+    almost_orthogonal = outside + 1.e-12 * basis[:, 0]
+    _, _, repeated, _ = operator.admissible_start(0, [almost_orthogonal])
+    np.testing.assert_allclose(repeated, original, rtol=0., atol=1.e-12)
+
+    _, _, independent, _ = operator.admissible_start(1, [original])
+    assert abs(float(independent @ original)) < 1.e-10
+
+
 def test_modal_algorithm_does_not_change_static_solver_file():
     static = (Path(__file__).resolve().parents[1] / "numerics" /
               "cylinder_variational_mvi.py").read_text(encoding="utf-8")
