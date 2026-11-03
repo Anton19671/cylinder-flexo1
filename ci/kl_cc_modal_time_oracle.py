@@ -167,6 +167,65 @@ def main():
         writer.writeheader()
         writer.writerows(replay)
 
+    # Exactly the same physical 9x9 K/M modes, independently advanced by
+    # Bathe's two displacement substeps. No spatial MVI factor iteration is
+    # involved here: this is a strict *time discretization* reference.
+    from cylinder_bathe_mvi import bathe_coefficients,second_predictors
+    bathe_rows=[]
+    for dt,steps in ((.002,10),(.001,20),(.0005,40),(.00025,80),
+                     (.000125,160),(.0000625,320),(.00003125,640),
+                     (.000015625,1280)):
+        coef=bathe_coefficients(dt)
+        qm=np.zeros_like(w)
+        vm=np.zeros_like(w)
+        am=np.zeros_like(w)
+        worst_error=0.
+        reference_amplitude=0.
+        for i in range(1,steps+1):
+            t0=(i-1)*dt
+            qp=qm+coef.delta*vm+.25*coef.delta**2*am
+            vp=vm+.5*coef.delta*am
+            qg=(modal_force*np.sin(forcing_omega*(t0+coef.delta))
+                +coef.kappa*qp)/(w+coef.kappa)
+            ag=coef.kappa*(qg-qp)
+            vg=vp+.5*coef.delta*ag
+            bq=coef.c1*qm+coef.c2*qg
+            bv=coef.c1*vm+coef.c2*vg
+            qp2=-(coef.c3*bq+bv)/coef.kappa
+            vp2=-bv/coef.c3
+            qnext=(modal_force*np.sin(forcing_omega*(t0+dt))
+                   +coef.kappa*qp2)/(w+coef.kappa)
+            anext=coef.kappa*(qnext-qp2)
+            vnext=vp2+anext/coef.c3
+            qm,vm,am=qnext,vnext,anext
+            t=t0+dt
+            exact_q=factor*(np.sin(forcing_omega*t)
+                            -(forcing_omega/omega)*np.sin(omega*t))
+            exact_v=factor*forcing_omega*(np.cos(forcing_omega*t)
+                                         -np.cos(omega*t))
+            defect=math.sqrt(float(np.sum(w*(qm-exact_q)**2+(vm-exact_v)**2)))
+            amplitude=math.sqrt(float(np.sum(w*exact_q**2+exact_v**2)))
+            worst_error=max(worst_error,defect)
+            reference_amplitude=max(reference_amplitude,amplitude)
+        bathe_rows.append(dict(dt_s=dt,steps=steps,time_final_s=.02,
+            mean_w_midspan_bathe_m=float(mid@qm),
+            mean_w_midspan_exact_time_m=float(mid@exact_q),
+            max_energy_state_error_relative=(worst_error/max(reference_amplitude,1e-30))))
+        print("BATHE_SPECTRAL_TIME_REPLAY",bathe_rows[-1],flush=True)
+    with (OUT/"KL_CC_BATHE_SPECTRAL_REPLAY_8_DT.csv").open(
+             "w",newline="",encoding="utf-8") as handle:
+        writer=csv.DictWriter(handle,fieldnames=list(bathe_rows[0]))
+        writer.writeheader()
+        writer.writerows(bathe_rows)
+    errors=[row["max_energy_state_error_relative"] for row in bathe_rows]
+    if not all(np.isfinite(errors)):
+        raise ValueError("BATHE_MODAL_TIME_NONFINITE")
+    if not (errors[-1]<errors[-2]<errors[-3] and
+            errors[-2]/errors[-1]>2.5):
+        raise ValueError("BATHE_SECOND_ORDER_ASYMPTOTIC_NOT_CONFIRMED")
+    print("BATHE_SECOND_ORDER_ASYMPTOTIC_VERIFIED",
+          "two_finest_error_reduction",errors[-2]/errors[-1],flush=True)
+
     # Independent two-stage Gauss-Legendre IRK4 on every true K/M mode.
     # This uses neither the fixed-rank MVI Gauss implementation nor a FDM
     # spatial Newton solver. It tests Runge-Kutta time integration separately
