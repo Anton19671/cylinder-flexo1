@@ -1,0 +1,29 @@
+name: KL CC static uniform load preflight (no PDE)
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'config/verification/kl_cc_uniform_static/**'
+      - 'ci/kl_cc_uniform_static.py'
+      - 'tests/test_kl_static_pressure_preflight.py'
+      - '.github/workflows/kl-cc-static-pressure-preflight.yml'
+permissions:
+  contents: read
+jobs:
+  validate-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      PYTHONPATH: '.:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -r requirements.txt
+      - name: Static CASE contract; no equilibrium or eigencomputations
+        run: |
+          python -m py_compile ci/kl_cc_uniform_static.py tests/test_kl_static_pressure_preflight.py
+          python -m pytest -q tests/test_kl_static_pressure_preflight.py
+          python ci/kl_cc_uniform_static.py
