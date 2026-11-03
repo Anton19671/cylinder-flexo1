@@ -46,7 +46,15 @@ def _check_trace(problem,q,p,result,time_s,initial_target,*,matrix_free=False):
     if c.shape!=initial_target[0].shape:
         raise ValueError("BATHE_MECHANICAL_TRACE_MATRIX_CHANGED")
     c0,d0=initial_target
-    if not np.allclose(c,c0,rtol=1e-12,atol=1e-12) or not np.allclose(d,d0,rtol=1e-12,atol=1e-12):
+    if matrix_free:
+        # Compare sparse physical trace entries without converting a
+        # high-order CUF full-nodal operator to an enormous dense matrix.
+        difference=(c-c0).tocsr()
+        matrix_equal=(difference.shape==c0.shape and
+            float(np.max(np.abs(difference.data),initial=0.))<=1.e-12)
+    else:
+        matrix_equal=np.allclose(c,c0,rtol=1.e-12,atol=1.e-12)
+    if not matrix_equal or not np.allclose(d,d0,rtol=1e-12,atol=1e-12):
         raise ValueError("BATHE_MOVING_SUPPORT_NOT_YET_SUPPORTED")
     errors={
         "displacement_m":float(np.max(abs(c@result.mechanical.ravel()-d),initial=0.)),
