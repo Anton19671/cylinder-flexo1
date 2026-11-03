@@ -1,0 +1,29 @@
+name: KL C-C forced Newmark MVI-1 stationary-state regression
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "numerics/cylinder_variational_dynamic.py"
+      - "tests/test_kl_cc_dynamic_rank1_stationarity.py"
+      - ".github/workflows/kl-cc-newmark-rank1-regression.yml"
+permissions:
+  contents: read
+jobs:
+  physical-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      MPLBACKEND: "Agg"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements.txt
+      - name: Physical forced KL Newmark one-step MVI1 vs independent FDM
+        run: python -m pytest -q -s tests/test_kl_cc_dynamic_rank1_stationarity.py
