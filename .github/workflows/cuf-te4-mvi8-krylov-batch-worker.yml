@@ -1,0 +1,134 @@
+name: CUF TE4 MVI8 verified GMRES physical Bathe batch worker
+on:
+  workflow_call:
+    inputs:
+      ordinal:
+        type: number
+        required: true
+      current_tag:
+        type: string
+        required: true
+      previous_tag:
+        type: string
+        required: true
+permissions:
+  contents: read
+jobs:
+  physical-mvi8:
+    name: "CUF TE4 MVI-8 actual steps batch ${{ inputs.current_tag }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+      MPLBACKEND: "Agg"
+      ORDINAL: ${{ inputs.ordinal }}
+      CURRENT_TAG: ${{ inputs.current_tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install real shell solver and graph dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Generate first CUF TE4 MVI-8 physical CASE, no FDM fallback
+        if: ${{ inputs.ordinal == 1 }}
+        run: |
+          python ci/generate_linear_bathe_case.py \
+            --theory CUF_TE4 --method MVI --rank 8 --steps 120 --dt 0.002 \
+            --output config/verification/cuf_te4_mvi8_krylov_long
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          from generate_linear_bathe_case import make_case
+          p=Path("config/verification/cuf_te4_mvi8_krylov_long/CUF_TE4_MVI8.json")
+          case=json.loads(p.read_text(encoding="utf-8"))
+          fdm=make_case("CUF_TE4","FDM",None,120,.002,"CUF_TE4_FDM")
+          for key in ("solver_backend","theory","cuf_model","calculation_kind",
+                      "scale_model","mode","geometry_model","material_model",
+                      "material","geometry","quadrature","boundary_conditions",
+                      "load_definition","dynamics","units"):
+              if case[key]!=fdm[key]:
+                  raise ValueError("MVI8_DIFFERENT_PHYSICS_FROM_INDEPENDENT_FDM:"+key)
+          assert case["rank"]==8 and case["method"]=="MVI"
+          assert case["mvi_grid"]=={"nx":9,"ns":9,"operator_scheme":"SBP42_FOURIER_ODD"}
+          assert case["dynamics"]["n_steps"]==120 and case["dynamics"]["time_step_s"]==0.002
+          assert case["dynamics"]["time_law"]["frequency_hz"]==25
+          assert case["load_definition"]["q"]==100000
+          case["reference_mvi"].update({
+             "dynamic_krylov_halfsteps":True,
+             "dynamic_krylov_rtol":1.e-6,
+             "dynamic_krylov_restart":50,
+             "dynamic_krylov_max_matvecs":1200,
+          })
+          p.write_text(json.dumps(case,ensure_ascii=False,indent=2)+"\n",
+                       encoding="utf-8")
+          print("CUF_TE4_MVI8_REAL_120_STEPS_PHYSICAL_PASSPORT_CONFIRMED",flush=True)
+          PY
+      - name: Retrieve prior accepted five-step physical checkpoint
+        if: ${{ inputs.ordinal != 1 }}
+        uses: actions/download-artifact@v4
+        with:
+          name: CUF_TE4_MVI8_KRYLOV_BATCH_${{ inputs.previous_tag }}_ACCEPTED
+          path: checkpoint_from_previous
+      - name: Restore exactly the previously accepted physical state and CASE
+        if: ${{ inputs.ordinal != 1 }}
+        shell: bash
+        run: |
+          mkdir -p config/verification/cuf_te4_mvi8_krylov_long
+          cp -a checkpoint_from_previous/. config/verification/cuf_te4_mvi8_krylov_long/
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          ordinal=int(os.environ["ORDINAL"])
+          f=Path("config/verification/cuf_te4_mvi8_krylov_long/output/CUF_TE4_MVI8/FINAL_RUN_SUMMARY.json")
+          summary=json.loads(f.read_text(encoding="utf-8"))
+          if (summary.get("accepted_steps") != (ordinal-1)*5 or
+                  summary.get("requested_steps")!=120 or
+                  summary.get("theory")!="CUF_TE4" or
+                  summary.get("method")!="MVI" or
+                  summary.get("rank")!=8):
+              raise ValueError("CUF_TE4_MVI8_CHECKPOINT_COUNT_OR_PASSPORT_MISMATCH")
+          print("CUF_TE4_MVI8_RESTARTING_AFTER_REAL_STEPS",summary["accepted_steps"],flush=True)
+          PY
+      - name: Compute five additional real fixed-rank X/Y Bathe steps
+        shell: bash
+        run: |
+          set -o pipefail
+          python -u ci/run_bathe_checkpoint_batch.py \
+            config/verification/cuf_te4_mvi8_krylov_long/CUF_TE4_MVI8.json \
+            --new-steps 5
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          n=int(os.environ["ORDINAL"])
+          f=Path("config/verification/cuf_te4_mvi8_krylov_long/output/CUF_TE4_MVI8/FINAL_RUN_SUMMARY.json")
+          s=json.loads(f.read_text(encoding="utf-8"))
+          assert s["accepted_steps"]==5*n,(s["accepted_steps"],n)
+          assert s["requested_steps"]==120 and s["rank"]==8
+          if n==24:
+              assert s["status"]=="CONVERGED" and s["converged"]
+          print("CUF_TE4_MVI8_REAL_ACCEPTED_STEPS_VERIFIED",s["accepted_steps"],flush=True)
+          PY
+      - name: Export actually accepted CSV histories and color graphs
+        if: always()
+        shell: bash
+        run: |
+          if [ -f config/verification/cuf_te4_mvi8_krylov_long/output/CUF_TE4_MVI8/FINAL_RUN_SUMMARY.json ]; then
+            python ci/export_bathe_te4_history.py \
+              config/verification/cuf_te4_mvi8_krylov_long/output/CUF_TE4_MVI8
+          else
+            echo "No physical summary yet; skip rather than synthesize values."
+          fi
+      - name: Preserve every accepted physical state and its plot data
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CUF_TE4_MVI8_KRYLOV_BATCH_${{ inputs.current_tag }}_ACCEPTED
+          path: config/verification/cuf_te4_mvi8_krylov_long/
+          retention-days: 60
+          if-no-files-found: warn
