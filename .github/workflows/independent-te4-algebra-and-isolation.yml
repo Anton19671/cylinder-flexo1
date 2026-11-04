@@ -10,8 +10,10 @@ on:
       - "tests/test_independent_te4_solver_isolation.py"
       - "tests/test_independent_te4_temporal_routes.py"
       - "tests/test_independent_mkr_seven_theories.py"
-      - "tests/test_independent_mvi_seven_theories.py"
+      - "tests/test_independent_mvi_seven_theories.py tests/test_independent_42_cases.py"
+      - "tests/test_independent_42_cases.py"
       - "config/verification/independent_te4/**"
+      - "config/verification/independent_all_models/**"
 permissions:
   contents: read
 jobs:
@@ -33,7 +35,7 @@ jobs:
         run: python -m pip install numpy scipy pytest
       - name: Compile two independent solvers and run operator-only tests
         run: |
-          python -m py_compile independent_mkr/linear_te4.py independent_mvi/linear_te4.py independent_mkr/run_case.py independent_mvi/run_case.py independent_mkr/linear_models.py independent_mvi/linear_models.py
+          python -m py_compile independent_mkr/linear_te4.py independent_mvi/linear_te4.py independent_mkr/run_case.py independent_mvi/run_case.py independent_mkr/linear_models.py independent_mvi/linear_models.py independent_mkr/run_models.py independent_mvi/run_models.py
           python -m pytest -q tests/test_independent_te4_solver_isolation.py tests/test_independent_te4_temporal_routes.py tests/test_independent_mkr_seven_theories.py tests/test_independent_mvi_seven_theories.py
       - name: Validate each physical CASE with its own runner without computing
         run: |
