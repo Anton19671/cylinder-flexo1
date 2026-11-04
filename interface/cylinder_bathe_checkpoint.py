@@ -91,7 +91,19 @@ def load_checked_bathe_checkpoint(out, case, prepared, dyn, *, q0, p0, v0,
                                   a0, initial_trace, debug_restart):
     """Read only full accepted stages, verifying CASE, time and constraints."""
     out = Path(out)
-    if _read_json(out/"REFERENCE_CASE.json") != case:
+    stored_case = _read_json(out/"REFERENCE_CASE.json")
+    # The restart toggle is an execution-control flag, not physical data.
+    # It may be enabled on retry of an older archive without changing
+    # geometry, loads, method, time grid, material or any other CASE key.
+    original = dict(stored_case)
+    current = dict(case)
+    original_dynamics = dict(original.get("dynamics") or {})
+    current_dynamics = dict(current.get("dynamics") or {})
+    original_dynamics.pop("bathe_resume_accepted", None)
+    current_dynamics.pop("bathe_resume_accepted", None)
+    original["dynamics"] = original_dynamics
+    current["dynamics"] = current_dynamics
+    if original != current:
         raise ValueError("BATHE_RESTART_PHYSICAL_CASE_CHANGED")
     summary = _read_json(out/"FINAL_RUN_SUMMARY.json")
     cfg = dyn.settings
