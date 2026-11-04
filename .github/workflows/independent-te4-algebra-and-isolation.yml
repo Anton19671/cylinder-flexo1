@@ -5,6 +5,11 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/independent-te4-algebra-and-isolation.yml"
+      - "independent_mkr/**"
+      - "independent_mvi/**"
+      - "tests/test_independent_te4_solver_isolation.py"
+      - "tests/test_independent_te4_temporal_routes.py"
+      - "config/verification/independent_te4/**"
 permissions:
   contents: read
 jobs:
