@@ -26,5 +26,11 @@ jobs:
         run: python -m pip install numpy scipy pytest
       - name: Compile two independent solvers and run operator-only tests
         run: |
-          python -m py_compile independent_mkr/linear_te4.py independent_mvi/linear_te4.py
-          python -m pytest -q tests/test_independent_te4_solver_isolation.py
+          python -m py_compile independent_mkr/linear_te4.py independent_mvi/linear_te4.py independent_mkr/run_case.py independent_mvi/run_case.py
+          python -m pytest -q tests/test_independent_te4_solver_isolation.py tests/test_independent_te4_temporal_routes.py
+      - name: Validate each physical CASE with its own runner without computing
+        run: |
+          for integrator in BATHE NEWMARK GAUSS_IRK4; do
+            python -m independent_mkr.run_case --case "config/verification/independent_te4/MKR_${integrator}.json" --validate-only > /dev/null
+            python -m independent_mvi.run_case --case "config/verification/independent_te4/MVI_${integrator}.json" --validate-only > /dev/null
+          done
