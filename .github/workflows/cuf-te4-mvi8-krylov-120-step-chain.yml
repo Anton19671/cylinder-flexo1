@@ -1,0 +1,203 @@
+name: CUF TE4 MVI8 120 physical Bathe steps with verified Krylov X Y
+run-name: "CUF TE4 MVI-8 real 120-step Bathe / 24 checkpoint batches at ${{ github.sha }}"
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/cuf-te4-mvi8-krylov-120-step-chain.yml"
+permissions:
+  contents: read
+  actions: read
+jobs:
+  batch_01:
+    uses: ./.github/workflows/cuf-te4-mvi8-krylov-batch-worker.yml
+    with:
+      ordinal: 1
+      current_tag: "01"
+      previous_tag: "00"
+
+  batch_02:
+    needs: [batch_01]
+    uses: ./.github/workflows/cuf-te4-mvi8-krylov-batch-worker.yml
+    with:
+      ordinal: 2
+      current_tag: "02"
+      previous_tag: "01"
+
+  batch_03:
+    needs: [batch_02]
+    uses: ./.github/workflows/cuf-te4-mvi8-krylov-batch-worker.yml
+    with:
+      ordinal: 3
+      current_tag: "03"
+      previous_tag: "02"
+
+  batch_04:
+    needs: [batch_03]
+    uses: ./.github/workflows/cuf-te4-mvi8-krylov-batch-worker.yml
+    with:
+      ordinal: 4
+      current_tag: "04"
+      previous_tag: "03"
+
+  batch_05:
+    needs: [batch_04]
+    uses: ./.github/workflows/cuf-te4-mvi8-krylov-batch-worker.yml
+    with:
+      ordinal: 5
+      current_tag: "05"
+      previous_tag: "04"
+
+  batch_06:
+    needs: [batch_05]
+    uses: ./.github/workflows/cuf-te4-mvi8-krylov-batch-worker.yml
+    with:
+      ordinal: 6
+      current_tag: "06"
+      previous_tag: "05"
+
+  batch_07:
+    needs: [batch_06]
+    uses: ./.github/workflows/cuf-te4-mvi8-krylov-batch-worker.yml
+    with:
+      ordinal: 7
+      current_tag: "07"
+      previous_tag: "06"
+
+  batch_08:
+    needs: [batch_07]
+    uses: ./.github/workflows/cuf-te4-mvi8-krylov-batch-worker.yml
+    with:
+      ordinal: 8
+      current_tag: "08"
+      previous_tag: "07"
+
+  batch_09:
+    needs: [batch_08]
+    uses: ./.github/workflows/cuf-te4-mvi8-krylov-batch-worker.yml
+    with:
+      ordinal: 9
+      current_tag: "09"
+      previous_tag: "08"
+
+  batch_10:
+    needs: [batch_09]
+    uses: ./.github/workflows/cuf-te4-mvi8-krylov-batch-worker.yml
+    with:
+      ordinal: 10
+      current_tag: "10"
+      previous_tag: "09"
+
+  batch_11:
+    needs: [batch_10]
+    uses: ./.github/workflows/cuf-te4-mvi8-krylov-batch-worker.yml
+    with:
+      ordinal: 11
+      current_tag: "11"
+      previous_tag: "10"
+
+  batch_12:
+    needs: [batch_11]
+    uses: ./.github/workflows/cuf-te4-mvi8-krylov-batch-worker.yml
+    with:
+      ordinal: 12
+      current_tag: "12"
+      previous_tag: "11"
+
+  batch_13:
+    needs: [batch_12]
+    uses: ./.github/workflows/cuf-te4-mvi8-krylov-batch-worker.yml
+    with:
+      ordinal: 13
+      current_tag: "13"
+      previous_tag: "12"
+
+  batch_14:
+    needs: [batch_13]
+    uses: ./.github/workflows/cuf-te4-mvi8-krylov-batch-worker.yml
+    with:
+      ordinal: 14
+      current_tag: "14"
+      previous_tag: "13"
+
+  batch_15:
+    needs: [batch_14]
+    uses: ./.github/workflows/cuf-te4-mvi8-krylov-batch-worker.yml
+    with:
+      ordinal: 15
+      current_tag: "15"
+      previous_tag: "14"
+
+  batch_16:
+    needs: [batch_15]
+    uses: ./.github/workflows/cuf-te4-mvi8-krylov-batch-worker.yml
+    with:
+      ordinal: 16
+      current_tag: "16"
+      previous_tag: "15"
+
+  batch_17:
+    needs: [batch_16]
+    uses: ./.github/workflows/cuf-te4-mvi8-krylov-batch-worker.yml
+    with:
+      ordinal: 17
+      current_tag: "17"
+      previous_tag: "16"
+
+  batch_18:
+    needs: [batch_17]
+    uses: ./.github/workflows/cuf-te4-mvi8-krylov-batch-worker.yml
+    with:
+      ordinal: 18
+      current_tag: "18"
+      previous_tag: "17"
+
+  batch_19:
+    needs: [batch_18]
+    uses: ./.github/workflows/cuf-te4-mvi8-krylov-batch-worker.yml
+    with:
+      ordinal: 19
+      current_tag: "19"
+      previous_tag: "18"
+
+  batch_20:
+    needs: [batch_19]
+    uses: ./.github/workflows/cuf-te4-mvi8-krylov-batch-worker.yml
+    with:
+      ordinal: 20
+      current_tag: "20"
+      previous_tag: "19"
+
+  batch_21:
+    needs: [batch_20]
+    uses: ./.github/workflows/cuf-te4-mvi8-krylov-batch-worker.yml
+    with:
+      ordinal: 21
+      current_tag: "21"
+      previous_tag: "20"
+
+  batch_22:
+    needs: [batch_21]
+    uses: ./.github/workflows/cuf-te4-mvi8-krylov-batch-worker.yml
+    with:
+      ordinal: 22
+      current_tag: "22"
+      previous_tag: "21"
+
+  batch_23:
+    needs: [batch_22]
+    uses: ./.github/workflows/cuf-te4-mvi8-krylov-batch-worker.yml
+    with:
+      ordinal: 23
+      current_tag: "23"
+      previous_tag: "22"
+
+  batch_24:
+    needs: [batch_23]
+    uses: ./.github/workflows/cuf-te4-mvi8-krylov-batch-worker.yml
+    with:
+      ordinal: 24
+      current_tag: "24"
+      previous_tag: "23"
+
