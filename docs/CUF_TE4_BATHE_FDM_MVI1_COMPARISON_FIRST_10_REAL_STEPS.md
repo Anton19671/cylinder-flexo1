@@ -3,6 +3,10 @@
 Date: 4 November 2026. The figures below compare **actual stored physical
 solver states**, not an illustrative waveform, fit, or rerun.
 
+**Terminology:** FDM (**Finite Difference Method**) is the same method as
+Russian **МКР (метод конечных разностей)**, not a separate numerical
+scheme. The actual comparison is **МКР/FDM versus MVI-1**.
+
 ## Provenance
 
 - Independent FDM, **40/40 steps completed**:
