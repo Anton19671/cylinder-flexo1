@@ -316,10 +316,11 @@ class StrongDifferenceTE4:
         # surface node; no variational mass tensor is reused.
         load=self.force*np.sin(2*pi*self.case.frequency_hz*(time_s+dt_s))
         am=load-self.elastic_strong_action(qend)
-        aend=np.linalg.solve(
-            self.mass,am.reshape(3,5,self.case.nx,self.case.ns).transpose(1,0,2,3)
-              .reshape(5,-1)).reshape(5,3,self.case.nx,self.case.ns)
-              .transpose(1,0,2,3).reshape(shape)
+        am_by_order=am.reshape(3,5,self.case.nx,self.case.ns)
+        am_matrix=am_by_order.transpose(1,0,2,3).reshape(5,-1)
+        end_matrix=np.linalg.solve(self.mass,am_matrix)
+        aend=end_matrix.reshape(5,3,self.case.nx,self.case.ns)
+        aend=aend.transpose(1,0,2,3).reshape(shape)
         aend[:,[0,-1],:]=0.
         if any(not np.isfinite(z).all() for z in
                 (qend,vend,aend,*qstage,*vstage,*acc)):
