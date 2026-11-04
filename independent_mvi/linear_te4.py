@@ -428,8 +428,9 @@ class VariationalTE4:
         else:
             factors=[tuple(z.copy() for z in previous_profiles)
                      for _ in range(2)]
-        if any(x.shape!=(15,self.rank,c.nx) or y.shape!=(15,self.rank,c.ns)
-               or np.any(x[:,:,[0,-1],:]) if x.ndim==4 else False
+        if any(x.shape!=(15,self.rank,c.nx) or
+               y.shape!=(15,self.rank,c.ns) or
+               np.any(x[:,:,[0,-1]])
                for x,y in factors):
             raise ValueError("MVI_IRK4_BAD_INITIAL_PROFILE_DIMENSIONS")
         initial=[q+dt_s*nodes[i]*v for i in range(2)]
