@@ -241,17 +241,18 @@ jobs:
         with:
           pattern: CUF_TE4_LONG_MVI_*_REAL_FIELDS_AND_GRAPHS
           path: saved_mvi
-      - name: Download original FDM 120-step archive if available
+      - name: Retrieve all truly accepted FDM states, including a partial run if timed out
         shell: bash
         env:
           SOURCE_RUN: ${{ github.event.workflow_run.id }}
         run: |
-          if [ "${{ github.event.workflow_run.conclusion }}" = "success" ]; then
-            gh run download "$SOURCE_RUN" --repo "$GITHUB_REPOSITORY" \
+          mkdir -p saved_fdm
+          if gh run download "$SOURCE_RUN" --repo "$GITHUB_REPOSITORY" \
               --name CUF_TE4_LONG_LINEAR_DYNAMIC_PHYSICAL_HISTORY_AND_GRAPHS \
-              --dir saved_fdm
+              --dir saved_fdm; then
+            echo "FDM archived states retrieved; the exported metadata determines whether history is complete."
           else
-            echo "FDM run did not complete successfully; preserve MVI graph data without inventing an FDM trajectory."
+            echo "No FDM physical archive available; do not invent any reference samples."
           fi
       - name: Plot independently computed full histories
         shell: bash
@@ -277,18 +278,47 @@ jobs:
                   records["FDM"]=list(csv.DictReader(f))
           if not records:
               raise ValueError("NO_SAVED_PHYSICAL_HISTORY_FOR_COMPARISON")
-          fig,ax=plt.subplots(figsize=(10,5.4))
           palette={"FDM":"#1763a6","MVI-1":"#c44536","MVI-8":"#237a67"}
-          names={"FDM":"w_mid_center_mm","MVI-1":"w_mid_mm","MVI-8":"w_mid_mm"}
+          keys={
+              "deflection":({"FDM":"w_mid_center_mm","MVI-1":"w_mid_mm","MVI-8":"w_mid_mm"},
+                  "Mid-surface center deflection (mm)"),
+              "velocity":({"FDM":"velocity_mid_center_mm_s","MVI-1":"radial_velocity_mid_mm_s",
+                           "MVI-8":"radial_velocity_mid_mm_s"},"Center radial velocity (mm/s)"),
+              "acceleration":({"FDM":"acceleration_mid_center_mm_s2",
+                               "MVI-1":"radial_acceleration_mid_mm_s2",
+                               "MVI-8":"radial_acceleration_mid_mm_s2"},
+                              "Center radial acceleration (mm/s²)")}
+          for quantity,(names,ylabel) in keys.items():
+              fig,ax=plt.subplots(figsize=(10,5.4))
+              for name,rows in records.items():
+                  if not rows:
+                      raise ValueError("EMPTY_PHYSICAL_HISTORY:"+name)
+                  times=[float(row["time_ms"]) for row in rows]
+                  if any(t2<=t1 for t1,t2 in zip(times,times[1:])):
+                      raise ValueError("NONMONOTONE_PHYSICAL_TIME:"+name)
+                  values=[float(row[names[name]]) for row in rows]
+                  ax.plot(times,values,label=name,color=palette[name],lw=2)
+              ax.set(xlabel="Time (ms)",ylabel=ylabel,
+                     title=f"CUF TE4: actual Bathe {quantity} histories, 25 Hz")
+              ax.legend(frameon=False);ax.grid(alpha=.2)
+              fig.tight_layout()
+              fig.savefig(out/f"CUF_TE4_FDM_MVI1_MVI8_{quantity.upper()}_COMPARISON_COLOR.png",
+                          dpi=220,bbox_inches="tight")
+              plt.close(fig)
+          fig,ax=plt.subplots(figsize=(7.5,5.6))
+          displacement_keys=keys["deflection"][0]
           for name,rows in records.items():
-              ax.plot([float(r["time_ms"]) for r in rows],
-                      [float(r[names[name]]) for r in rows],label=name,
-                      color=palette[name],lw=2)
-          ax.set(xlabel="Time (ms)",ylabel="Mid-surface center deflection (mm)",
-                 title="CUF TE4: actual Bathe displacement histories, 25 Hz")
+              pressure_key=("signed_inward_pressure_kpa" if name=="FDM"
+                            else "pressure_inward_kpa")
+              ax.plot([float(row[displacement_keys[name]]) for row in rows],
+                      [float(row[pressure_key]) for row in rows],
+                      color=palette[name],label=name,lw=2)
+          ax.set(xlabel="Mid-surface center deflection (mm)",
+                 ylabel="Signed inward pressure (kPa)",
+                 title="CUF TE4: measured dynamic load–deflection paths")
           ax.legend(frameon=False);ax.grid(alpha=.2)
           fig.tight_layout()
-          fig.savefig(out/"CUF_TE4_FDM_MVI1_MVI8_DEFLECTION_COMPARISON_COLOR.png",
+          fig.savefig(out/"CUF_TE4_FDM_MVI1_MVI8_LOAD_DEFLECTION_COMPARISON_COLOR.png",
                       dpi=220,bbox_inches="tight")
           plt.close(fig)
           manifest={"source_fdm_workflow_run":41809844866,
