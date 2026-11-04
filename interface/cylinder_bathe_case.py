@@ -101,10 +101,15 @@ def run_bathe_case(case,case_path,*,prepared=None):
     out=Path(case["output_dir"])
     if not out.is_absolute():out=Path(case_path).parent/out
     out=out.resolve()
-    if out.exists() and any(out.iterdir()):
+    restart=case["dynamics"].get("bathe_resume_accepted",False)
+    if type(restart) is not bool:
+        raise ValueError("BATHE_RESTART_FLAG_MUST_BE_BOOLEAN")
+    existing=out.exists() and any(out.iterdir())
+    if existing and not restart:
         raise ValueError("OUTPUT_DIR_NOT_EMPTY: Bathe results cannot mix with Newmark")
     out.mkdir(parents=True,exist_ok=True)
-    _json(out/"REFERENCE_CASE.json",case)
+    if not existing:
+        _json(out/"REFERENCE_CASE.json",case)
     f=prepared.problem.functional
     q=prepared.mechanical.copy()
     p=None if prepared.electrical is None else prepared.electrical.copy()
@@ -127,8 +132,9 @@ def run_bathe_case(case,case_path,*,prepared=None):
     for value in (v,a):
         if np.max(abs(initial_trace[0]@value.ravel()),initial=0.)>1e-7:
             raise ValueError("BATHE_INITIAL_SUPPORT_VELOCITY_ACCELERATION_INCONSISTENT")
-    _npz(out/"REFERENCE_DYNAMIC_INITIAL.npz",time_s=np.array(settings.t_start_s),
-         mechanical=q,velocity=v,acceleration=a,**({} if p is None else {"electrical":p}))
+    if not existing:
+        _npz(out/"REFERENCE_DYNAMIC_INITIAL.npz",time_s=np.array(settings.t_start_s),
+             mechanical=q,velocity=v,acceleration=a,**({} if p is None else {"electrical":p}))
     prev=None
     debug_restart=(case["dynamics"].get("bathe_debug_cold_start_each_full_step",False))
     if type(debug_restart) is not bool:
@@ -143,9 +149,19 @@ def run_bathe_case(case,case_path,*,prepared=None):
         "gamma_bathe":BATHE_GAMMA,"debug_cold_start_each_full_step":debug_restart,
         "time_step_convergence_verified":False,
         "spatial_rank_convergence_verified":False}
-    _json(out/"FINAL_RUN_SUMMARY.json",summary)
     all_history=[]
-    for i in range(1,settings.n_steps+1):
+    start_step=1
+    if existing:
+        from cylinder_bathe_checkpoint import load_checked_bathe_checkpoint
+        state,summary,all_history,prev,start_step=load_checked_bathe_checkpoint(
+            out,case,prepared,dyn,q0=q,p0=p,v0=v,a0=a,
+            initial_trace=initial_trace,debug_restart=debug_restart)
+        q,p,v,a=state
+        if debug_restart:
+            prev=None
+    else:
+        _json(out/"FINAL_RUN_SUMMARY.json",summary)
+    for i in range(start_step,settings.n_steps+1):
         t0=settings.t_start_s+(i-1)*settings.dt_s
         def loads(t):
             factor=dyn.time_law.value(t)
@@ -217,6 +233,8 @@ def run_bathe_case(case,case_path,*,prepared=None):
             summary["failed_step_message"]=str(exc)
             _json(out/"FINAL_RUN_SUMMARY.json",summary)
             raise
+    if len(all_history)!=settings.n_steps or not summary["converged"]:
+        raise ValueError("BATHE_HISTORY_NOT_ALL_STEPS_ACCEPTED")
     with (out/"REFERENCE_DYNAMIC_HISTORY.csv").open("w",newline="",encoding="utf-8") as fp:
         writer=csv.DictWriter(fp,fieldnames=list(all_history[0]))
         writer.writeheader();writer.writerows(all_history)
