@@ -67,7 +67,7 @@ def test_mvi_reddy_shear_zero_at_both_surfaces():
         ax,axp,bs,bsp=_reddy_warps(z,c.radius_m,c.thickness_m)
         assert abs(1+axp)<1.e-12
         H=1+z/c.radius_m
-        assert abs(1+bsp-bs/(c.radius_m*H))<2.e-11
+        assert abs(1+bsp-(z+bs)/(c.radius_m*H))<2.e-11
 
 
 def test_kl_rank8_cannot_be_falsely_enabled_on_small_clamped_grid():
