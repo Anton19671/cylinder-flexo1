@@ -41,39 +41,35 @@ KL 0/0; FSDT 0/6; Reddy 0/2; CUF TE1 0/8;
 CUF TE2 0/5; CUF TE3 3/12; CUF TE4 10/16.
 Total 62.
 
-## Physical displacement recovery for CUF TE4
+## Physical displacement recovery for CUF TE4 — basis correction
 
-The actual through-thickness physical fields are not individual Taylor
-coefficients. For each axis A in {U, V, W}, reconstruct
+**Correction (4 November 2026):** The original version of this audit
+incorrectly described the active CUF TE basis as `z**k`. That power basis
+belongs to the separate legacy/general provider
+`models/final_te_basis_provider.py`, **not** the variational solver used
+in the archived Bathe calculation.
 
-    A(x,s,z) = sum_{k=0}^4 z^k A_k(x,s),   -h/2 <= z <= h/2,
+The actual physical CUF TE1..TE4 solver uses
+`flexoelectric/cuf_g3d_weak.py::te_basis`:
 
-with h = 0.05 m and the **physical** dimensional coordinate z.
-This is the basis defined by `models/final_te_basis_provider.py`.
-The following values were checked directly against both archived
-independent NPZ states from the same GitHub run; no shell solver was
-executed during this audit.
+    A(x,s,z) = sum_{k=0}^N A_k(x,s) * (2*z/h)**k
 
-At t = 0.002 s, worst absolute difference over the full 9x9 grid:
+for each of A in {U,V,W}, with h = 0.05 m, -h/2 <= z <= h/2.
+Thus the physical inner and outer face factors are `(-1)**k` and
+`(+1)**k`, rather than `(-h/2)**k` and `(+h/2)**k`.
 
-| Physical field | z (m) | Max absolute MVI-FDM (m) | Percent of peak amplitude |
-| --- | ---: | ---: | ---: |
-| Axial U | -0.025 | 1.309e-11 | 0.009000 |
-| Axial U | 0 | 1.288e-11 | 0.009027 |
-| Axial U | +0.025 | 1.266e-11 | 0.009055 |
-| Radial W | -0.025 | 2.297e-10 | 0.007605 |
-| Radial W | 0 | 2.297e-10 | 0.007605 |
-| Radial W | +0.025 | 2.296e-10 | 0.007605 |
+The previous surface-reconstruction numerical table was derived with
+the wrong basis and **must not be used** for quantitative physical-field
+comparisons. The radial mid-surface displacement, which is simply W_0
+because all higher-order powers vanish at z=0, is unaffected. In the
+run's 9x9 grid at (x-index=4, s-index=4), t=0.002 s, this gives
+MVI = -2.877936954e-6 m and FDM = -2.877935860e-6 m.
+That central value alone does not prove agreement over the shell surface.
 
-The physical circumferential V amplitude itself is about 1.5e-14 m;
-a relative percentage of order 100% on that near-zero field cannot
-be interpreted as a 100% error in the dominant shell displacement.
-**Do not omit or suppress its raw component discrepancy** in the
-strict nodewise audit: it remains a failed recorded check.
-
-For the radial displacement at the central node (x-index=4, s-index=4)
-and z=0, MVI = -2.877936954e-6 m, FDM = -2.877935860e-6 m.
-These central values alone do not establish field agreement.
+A further recovery audit must obtain face fields using the normalized
+basis above, and compare original measured NPZ histories, not this
+withdrawn table. No physical solver calculations were made to perform
+the correction.
 
 ## Independent FDM accuracy sensitivity
 
