@@ -180,10 +180,13 @@ def _strain_matrices(c,dz,R,z):
 
 
 class IndependentVariationalModel:
-    def __init__(self,case:VariationalModelCase):
+    def __init__(self,case:VariationalModelCase,rank:int):
         if not isinstance(case,VariationalModelCase):
             raise TypeError("MVI model requires standalone VariationalModelCase")
+        if type(rank) is not int or not 1<=rank<=8:
+            raise ValueError("MVI_RANK_OUTSIDE_1_TO_8")
         self.case=case
+        self.rank=rank
         self.n=_ncomponents(case.theory)
         self.dx,self.wx=_mvi_axial_sbp(case.nx,case.length_m)
         self.ds,self.ws=_mvi_fourier(case.ns,case.radius_m)
@@ -194,9 +197,10 @@ class IndependentVariationalModel:
         self.mass=np.zeros((3,3,self.n,self.n))
         self._integrate_thickness()
         self.basis=self._boundary_basis()
+        if rank>min(case.ns,*(b.shape[1] for b in self.basis)):
+            raise ValueError("MVI_RANK_EXCEEDS_CLAMPED_FIELD_CAPACITY")
         self.dofs=tuple(b.shape[1]*case.ns for b in self.basis)
         self.force=self._loading()
-        self.rank=None
 
     def _integrate_thickness(self):
         c=self.case
