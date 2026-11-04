@@ -331,4 +331,199 @@ class VariationalTE4:
         return (q1,v1,a1),(q2,v2,a2),fac2,{"first":loops1,"second":loops2}
 
 
+    def step_newmark(self,q,v,a,time_s,dt_s=.002, *,
+                     previous_profiles=None,max_sweeps=35,beta=.25,gamma=.5):
+        """Own implicit Newmark; spatial MVI cycles X/Y at each physical step.
+
+        Newmark predictors are unrestricted physical fields; ONLY the
+        displacement endpoint is kept on the rank-fixed spatial manifold.
+        """
+        c=self.case
+        expect=(15,c.nx,c.ns)
+        q,v,a=tuple(np.asarray(field,float) for field in (q,v,a))
+        if any(field.shape!=expect or not np.isfinite(field).all()
+               for field in (q,v,a)):
+            raise ValueError("MVI_NEWMARK_INVALID_INITIAL_FIELDS")
+        if (not np.isfinite(dt_s) or dt_s<=0 or
+                not np.isclose(beta,.25) or not np.isclose(gamma,.5)):
+            raise ValueError("MVI_NEWMARK_REQUIRES_AVERAGE_ACCELERATION")
+        if any(np.any(field[:,[0,-1],:]) for field in (q,v,a)):
+            raise ValueError("MVI_NEWMARK_CLAMPED_SUPPORT_VIOLATED")
+        qp=q+dt_s*v+dt_s*dt_s*(.5-beta)*a
+        vp=v+dt_s*(1-gamma)*a
+        stiffness_factor=1/(beta*dt_s**2)
+        qn,factors,history=self._linear_endpoint(
+            qp,time_s+dt_s,stiffness_factor,
+            previous=previous_profiles,max_sweeps=max_sweeps)
+        an=stiffness_factor*(qn-qp)
+        vn=vp+gamma*dt_s*an
+        if not all(np.isfinite(arr).all() for arr in (qn,vn,an)):
+            raise RuntimeError("MVI_NEWMARK_NONFINITE")
+        return (qn,vn,an),factors,history
+
+    def _recover_rank_factors(self,field,*,relative_tolerance=3.e-9):
+        """Strict rank capacity certificate, never truncate an endpoint.
+
+        A full endpoint made from multiple time-varying rank-R stages can
+        have greater rank than R. Returning the stage-2 factors would be
+        mathematically wrong. Reject unsupported endpoints instead.
+        """
+        q=np.asarray(field,float)
+        c=self.case
+        if q.shape!=(15,c.nx,c.ns) or not np.isfinite(q).all():
+            raise ValueError("MVI_IRK4_INVALID_RANK_RECOVERY_FIELD")
+        if np.max(np.abs(q[:,[0,-1],:]))>1.e-11:
+            raise ValueError("MVI_IRK4_ENDPOINT_CLAMP_VIOLATED")
+        x=np.zeros((15,self.rank,c.nx))
+        y=np.zeros((15,self.rank,c.ns))
+        for component in range(15):
+            u,s,vh=np.linalg.svd(q[component],full_matrices=False)
+            tail=float(np.linalg.norm(s[self.rank:]))
+            total=float(np.linalg.norm(s))
+            if tail>relative_tolerance*max(total,1.e-30):
+                raise RuntimeError("MVI_IRK4_ENDPOINT_EXCEEDS_FIXED_RANK")
+            count=min(self.rank,len(s))
+            x[component,:count]=u[:,:count].T*np.sqrt(s[:count,None])
+            y[component,:count]=vh[:count]*np.sqrt(s[:count,None])
+        rec=self._field(x,y)
+        if np.max(np.abs(rec-q))>relative_tolerance*max(
+                float(np.max(np.abs(q))),1.e-30):
+            raise RuntimeError("MVI_IRK4_ENDPOINT_NOT_REPRESENTABLE")
+        return x,y
+
+    def step_runge_kutta_gauss4(self,q,v,a,time_s,dt_s=.002, *,
+                                previous_profiles=None,max_sweeps=45,
+                                krylov_rtol=2.e-8,max_krylov_matvec=1800,
+                                relative_change=2.e-7):
+        """Own two-stage Gauss-Legendre IRK4 with X/Y on BOTH stage fields.
+
+        For accelerations a_j, Gauss stages satisfy
+          Q_i=q0+dt*c_i*v0+dt^2*sum_j (A^2)_ij*a_j.
+        Invert A^2 to obtain a_j from Q_i, then enforce
+          T_i(X_i,Y_i)^T [ M*a_i + K*Q_i - F_i ] = 0
+        at each stage using frozen-partner variations; the two stages
+        remain coupled in every linear half-step.
+
+        End displacement is the exact Gauss endpoint combination.
+        Never replace the physical endpoint with rank-R SVD truncation.
+        If its rank exceeds R, fail explicitly without a partial result.
+        """
+        c=self.case
+        shape=(15,c.nx,c.ns)
+        q,v,a=tuple(np.asarray(z,float) for z in (q,v,a))
+        if any(z.shape!=shape or not np.isfinite(z).all() for z in (q,v,a)):
+            raise ValueError("MVI_IRK4_INVALID_INITIAL_FIELDS")
+        if not np.isfinite(dt_s) or dt_s<=0:
+            raise ValueError("MVI_IRK4_BAD_TIMESTEP")
+        if any(np.any(z[:,[0,-1],:]) for z in (q,v,a)):
+            raise ValueError("MVI_IRK4_CLAMPED_INITIAL_FIELDS")
+        root3=np.sqrt(3.)
+        nodes=np.array([.5-root3/6,.5+root3/6])
+        A=np.array([[.25,.25-root3/6],[.25+root3/6,.25]])
+        A2=A@A
+        invA2=np.linalg.inv(A2)
+        weights=np.array([.5,.5])
+        if previous_profiles is None:
+            factors=[self._initial(),self._initial()]
+        else:
+            factors=[tuple(z.copy() for z in previous_profiles)
+                     for _ in range(2)]
+        if any(x.shape!=(15,self.rank,c.nx) or y.shape!=(15,self.rank,c.ns)
+               or np.any(x[:,:,[0,-1],:]) if x.ndim==4 else False
+               for x,y in factors):
+            raise ValueError("MVI_IRK4_BAD_INITIAL_PROFILE_DIMENSIONS")
+        initial=[q+dt_s*nodes[i]*v for i in range(2)]
+        fstage=[self.weak_load(time_s+dt_s*nodes[i]) for i in range(2)]
+
+        def stage_fields():
+            return [self._field(x,y) for x,y in factors]
+
+        def stage_accelerations(Q):
+            return [sum(invA2[i,j]*(Q[j]-initial[j])
+                        for j in range(2))/(dt_s**2)
+                    for i in range(2)]
+
+        def stage_equations(Q):
+            acc=stage_accelerations(Q)
+            return [self.weak_mass(acc[i])+self.weak_stiffness(Q[i])
+                    -fstage[i] for i in range(2)]
+        histories=[]
+        converged=False
+        for sweep in range(1,max_sweeps+1):
+            baseline=stage_fields()
+            for freeze,active in (("X","Y"),("Y","X")):
+                for i in range(2):
+                    factors[i]=self._canonicalize(
+                        *factors[i],freeze)
+                directions=[self._directions(*factors[i],active)
+                            for i in range(2)]
+                Q=stage_fields()
+                eq=stage_equations(Q)
+                g=np.concatenate([directions[i].T@eq[i].ravel()
+                                  for i in range(2)])
+                sizes=[mat.shape[1] for mat in directions]
+                def action(z):
+                    s0=z[:sizes[0]];s1=z[sizes[0]:]
+                    dq=[(directions[0]@s0).reshape(shape),
+                        (directions[1]@s1).reshape(shape)]
+                    da=[sum(invA2[i,j]*dq[j] for j in range(2))/dt_s**2
+                        for i in range(2)]
+                    return np.concatenate([
+                        directions[i].T@(
+                            self.weak_mass(da[i])+
+                            self.weak_stiffness(dq[i])).ravel()
+                        for i in range(2)])
+                if np.linalg.norm(g)<1.e-18:
+                    continue
+                n=len(g)
+                operator=LinearOperator((n,n),matvec=action,dtype=float)
+                restart=min(75,n)
+                delta,info=gmres(operator,-g,rtol=krylov_rtol,atol=0.,
+                                 restart=restart,
+                                 maxiter=max(1,max_krylov_matvec//restart),
+                                 callback_type="pr_norm")
+                if info!=0 or not np.isfinite(delta).all():
+                    raise RuntimeError("MVI_IRK4_STAGE_COUPLED_GMRES_FAILED")
+                segments=(delta[:sizes[0]],delta[sizes[0]:])
+                for i in range(2):
+                    dx=segments[i].reshape(15,self.rank,-1)
+                    x,y=factors[i]
+                    if active=="Y": y=y+dx
+                    else:
+                        x=x.copy()
+                        x[:,:,1:-1]+=dx
+                    factors[i]=(x,y)
+                histories.append((sweep,active))
+            current=stage_fields()
+            difference=sum(np.linalg.norm(current[i]-baseline[i])**2
+                           for i in range(2))**.5
+            magnitude=sum(np.linalg.norm(current[i])**2
+                          for i in range(2))**.5
+            if difference<=relative_change*max(magnitude,1.e-30):
+                converged=True
+                break
+        if not converged:
+            raise RuntimeError("MVI_IRK4_COUPLED_XY_NOT_CONVERGED")
+        Q=stage_fields()
+        acceleration=stage_accelerations(Q)
+        V=[v+dt_s*sum(A[i,j]*acceleration[j] for j in range(2))
+           for i in range(2)]
+        endpoint=q+dt_s*v+dt_s**2*sum(
+            sum(weights[i]*A[i,j] for i in range(2))*acceleration[j]
+            for j in range(2))
+        endpoint_factors=self._recover_rank_factors(endpoint)
+        vend=v+dt_s*sum(weights[i]*acceleration[i] for i in range(2))
+        # A(t_end) is full nodal and is not subject to spatial rank R.
+        f_end=self.weak_load(time_s+dt_s)-self.weak_stiffness(endpoint)
+        ea=f_end.reshape(3,5,c.nx,c.ns) / self.surface_weight[None,None]
+        ea=np.linalg.solve(self.mass,ea.transpose(1,0,2,3).reshape(5,-1))
+        aend=ea.reshape(5,3,c.nx,c.ns).transpose(1,0,2,3).reshape(shape)
+        aend[:,[0,-1],:]=0.
+        if any(not np.isfinite(z).all() for z in
+               (endpoint,vend,aend,*Q,*V,*acceleration)):
+            raise RuntimeError("MVI_IRK4_NONFINITE")
+        return tuple(zip(Q,V,acceleration)),(
+            endpoint,vend,aend),endpoint_factors,tuple(histories)
+
+
 __all__=("VariationalCase","VariationalTE4")
