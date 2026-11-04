@@ -1,0 +1,309 @@
+name: CUF TE4 long Bathe MVI1 and MVI8 after real FDM
+run-name: "CUF TE4 120-step physical MVI-1/8 after FDM run ${{ github.event.workflow_run.id }}"
+on:
+  workflow_run:
+    workflows: ["CUF TE4 real long linear dynamics and plot data"]
+    types: [completed]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  physical-mvi:
+    if: ${{ github.event.workflow_run.id == 41809844866 && github.event.workflow_run.head_sha == '50db9d2675c255edd228c7ec6204f51c0df3e2cf' }}
+    name: "Real CUF TE4 MVI-${{ matrix.rank }} | 120 Bathe steps"
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        rank: [1, 8]
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+      MPLBACKEND: "Agg"
+    steps:
+      - name: Checkout exactly the physics code used by the FDM run
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements.txt
+      - name: Generate and check identical CUF TE4 physics and time history
+        shell: bash
+        env:
+          RANK: ${{ matrix.rank }}
+        run: |
+          python ci/generate_linear_bathe_case.py --theory CUF_TE4 --method MVI \
+            --rank "$RANK" --steps 120 --dt 0.002 \
+            --output config/verification/cuf_te4_long_mvi
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from generate_linear_bathe_case import make_case
+          rank=int(os.environ["RANK"])
+          source=Path(f"config/verification/cuf_te4_long_mvi/CUF_TE4_MVI{rank}.json")
+          case=json.loads(source.read_text(encoding="utf-8"))
+          fdm=make_case("CUF_TE4","FDM",None,120,.002,"CUF_TE4_FDM")
+          physical_keys=("solver_backend","theory","cuf_model","calculation_kind",
+             "scale_model","mode","geometry_model","material_model",
+             "material","geometry","quadrature","boundary_conditions",
+             "load_definition","dynamics","units")
+          for key in physical_keys:
+              if case[key]!=fdm[key]:
+                  raise ValueError("CUF_TE4_LONG_MVI_FDM_PHYSICAL_PASSPORT_DIFFERENCE:"+key)
+          assert case["rank"]==rank and case["method"]=="MVI"
+          assert case["mvi_grid"]=={"nx":9,"ns":9,"operator_scheme":"SBP42_FOURIER_ODD"}
+          assert fdm["fdm_grid"]=={"nx":9,"ns":9,"operator_scheme":"SBP42_FOURIER_ODD_CSR"}
+          assert case["dynamics"]["n_steps"]==120 and case["dynamics"]["time_step_s"]==.002
+          assert case["dynamics"]["time_law"]["frequency_hz"]==25
+          assert case["load_definition"]["q"]==100000
+          assert case["quadrature"]["n_gauss"]==9
+          print("CUF_TE4_SAME_REAL_FDM_PHYSICS_FOR_MVI_RANK",rank,flush=True)
+          PY
+      - name: Execute real 120-step CUF TE4 MVI dynamics without an FDM fallback
+        shell: bash
+        env:
+          RANK: ${{ matrix.rank }}
+        run: |
+          mkdir -p cuf_te4_mvi_logs
+          set -o pipefail
+          python -u RUN_FINAL_CASE.py \
+            "config/verification/cuf_te4_long_mvi/CUF_TE4_MVI$RANK.json" \
+            2>&1 | tee "cuf_te4_mvi_logs/CUF_TE4_MVI${RANK}_120_STEPS.log"
+      - name: Export only actual accepted Bathe states to CSV and color graphs
+        if: always()
+        shell: bash
+        env:
+          RANK: ${{ matrix.rank }}
+        run: |
+          python - <<'PY'
+          import csv,json,math,os
+          from pathlib import Path
+          import numpy as np
+          import matplotlib
+          matplotlib.use("Agg")
+          import matplotlib.pyplot as plt
+          rank=int(os.environ["RANK"])
+          folder=Path(f"config/verification/cuf_te4_long_mvi/output/CUF_TE4_MVI{rank}")
+          summary_file=folder/"FINAL_RUN_SUMMARY.json"
+          if not summary_file.exists():
+              print("MVI_NO_ACCEPTED_HISTORY_OR_PREFLIGHT_FAILED",rank,flush=True)
+              raise SystemExit(0)
+          summary=json.loads(summary_file.read_text(encoding="utf-8"))
+          accepted=summary.get("accepted_steps",0)
+          if not isinstance(accepted,int) or not 0<=accepted<=120:
+              raise ValueError("MVI_LONG_INVALID_ACCEPTED_COUNT")
+          if accepted==0:
+              print("MVI_NO_ACCEPTED_PHYSICAL_STEPS",rank,flush=True)
+              raise SystemExit(0)
+          if summary.get("method")!="MVI" or summary.get("theory")!="CUF_TE4" or summary.get("rank")!=rank:
+              raise ValueError("MVI_LONG_WRONG_THEORY_OR_RANK")
+          rows=[]
+          for step in range(accepted+1):
+              stages=(("INITIAL","REFERENCE_DYNAMIC_INITIAL.npz"),) if step==0 else (
+                 ("GAMMA",f"BATHE_SUBSTEP_{step:04d}_GAMMA.npz"),
+                 ("END",f"REFERENCE_DYNAMIC_STEP_{step:04d}.npz"))
+              for stage,filename in stages:
+                  path=folder/filename
+                  if not path.is_file():
+                      raise ValueError("MVI_LONG_ACCEPTED_FIELD_MISSING:"+filename)
+                  with np.load(path,allow_pickle=False) as z:
+                      t=float(z["time_s"])
+                      u=np.asarray(z["mechanical"],float)
+                      v=np.asarray(z["velocity"],float)
+                      a=np.asarray(z["acceleration"],float)
+                      if any(q.shape!=(15,9,9) or not np.isfinite(q).all() for q in (u,v,a)):
+                          raise ValueError("MVI_LONG_NONPHYSICAL_FIELD_SHAPE")
+                      load=float(z["load_factor"]) if stage!="INITIAL" else 0.
+                      expected=math.sin(2*math.pi*25*t)
+                      if abs(expected-load)>1.e-11:
+                          raise ValueError("MVI_LONG_WRONG_HARMONIC_LOAD_TIME")
+                      if stage!="INITIAL":
+                          x=np.asarray(z["x_profiles"],float)
+                          y=np.asarray(z["y_profiles"],float)
+                          scales=np.asarray(z["state_scales"],float)
+                          if x.shape!=(15,rank,9) or y.shape!=(15,rank,9):
+                              raise ValueError("MVI_LONG_WRONG_SPATIAL_RANK")
+                          rebuilt=np.einsum("crx,crs->cxs",x,y)*scales
+                          if float(np.max(abs(rebuilt-u)))>1.e-11:
+                              raise ValueError("MVI_LONG_UNRECONSTRUCTED_FIELD")
+                      w=u[10:15,4,4]
+                      rows.append({
+                        "step":step,"stage":stage,"time_s":t,"time_ms":t*1000,
+                        "pressure_inward_kpa":100*load,
+                        "w_mid_mm":1000*float(w[0]),
+                        "w_inner_mm":1000*float(np.dot(w,[1,-1,1,-1,1])),
+                        "w_outer_mm":1000*float(np.sum(w)),
+                        "radial_velocity_mid_mm_s":1000*float(v[10,4,4]),
+                        "radial_acceleration_mid_mm_s2":1000*float(a[10,4,4])})
+          gamma=2-math.sqrt(2)
+          expected_times=[0.]
+          for step in range(1,accepted+1):
+              expected_times.extend(((step-1+gamma)*.002,step*.002))
+          if len(rows)!=2*accepted+1 or any(abs(r["time_s"]-t)>1.e-12 for r,t in zip(rows,expected_times)):
+              raise ValueError("MVI_LONG_TIME_AXIS_INCONSISTENT")
+          def csv_save(name,items):
+              with (folder/name).open("w",newline="",encoding="utf-8") as f:
+                  writer=csv.DictWriter(f,fieldnames=list(rows[0]))
+                  writer.writeheader()
+                  writer.writerows(items)
+          csv_save("CUF_TE4_LONG_ALL_SUBSTEPS_PLOT_DATA.csv",rows)
+          csv_save("CUF_TE4_LONG_END_PLOT_DATA.csv",
+                   [r for r in rows if r["stage"] in ("INITIAL","END")])
+          complete=(accepted==120 and summary.get("converged") is True and
+                    summary.get("status")=="CONVERGED")
+          (folder/"CUF_TE4_LONG_PLOT_METADATA.json").write_text(json.dumps({
+             "source":"real accepted Bathe states","theory":"CUF_TE4","method":"MVI",
+             "rank":rank,"requested_steps":120,"accepted_steps":accepted,
+             "complete":complete,"duration_s":.24,"step_s":.002,
+             "frequency_hz":25,"amplitude_kpa":100,
+             "thickness_basis":"F_k(z)=(2*z/h)^k",
+             "physical_history_not_synthetic":True
+          },indent=2)+"\n",encoding="utf-8")
+          plt.rcParams.update({"font.size":11,"axes.spines.top":False,
+             "axes.spines.right":False,"axes.grid":True,"grid.alpha":.2})
+          t=np.array([r["time_ms"] for r in rows])
+          pressure=np.array([r["pressure_inward_kpa"] for r in rows])
+          middle=np.array([r["w_mid_mm"] for r in rows])
+          inner=np.array([r["w_inner_mm"] for r in rows])
+          outer=np.array([r["w_outer_mm"] for r in rows])
+          suffix="" if complete else " (accepted steps only)"
+          def save(fig,name):
+              fig.tight_layout()
+              fig.savefig(folder/name,dpi=220,bbox_inches="tight")
+              plt.close(fig)
+          fig,ax=plt.subplots(figsize=(9.5,5))
+          ax.plot(t,pressure,color="#1763a6",lw=2)
+          ax.set(xlabel="Time (ms)",ylabel="Signed inward pressure (kPa)",
+                 title=f"CUF TE4 MVI-{rank}: real harmonic load"+suffix)
+          save(fig,"CUF_TE4_PRESSURE_TIME_COLOR.png")
+          fig,ax=plt.subplots(figsize=(9.5,5))
+          ax.plot(t,middle,label="Mid-surface",color="#c44536",lw=2)
+          ax.plot(t,inner,label="Inner surface",color="#237a67",ls="--",lw=1.7)
+          ax.plot(t,outer,label="Outer surface",color="#584eac",ls=":",lw=1.7)
+          ax.legend(frameon=False)
+          ax.set(xlabel="Time (ms)",ylabel="Center radial deflection (mm)",
+                 title=f"CUF TE4 MVI-{rank}: real dynamic response"+suffix)
+          save(fig,"CUF_TE4_DEFLECTION_TIME_COLOR.png")
+          fig,ax=plt.subplots(figsize=(9.5,5))
+          ax.plot(t,[r["radial_velocity_mid_mm_s"] for r in rows],color="#237a67",lw=2)
+          ax.set(xlabel="Time (ms)",ylabel="Center radial velocity (mm/s)",
+                 title=f"CUF TE4 MVI-{rank}: radial velocity"+suffix)
+          save(fig,"CUF_TE4_VELOCITY_TIME_COLOR.png")
+          fig,ax=plt.subplots(figsize=(9.5,5))
+          ax.plot(t,[r["radial_acceleration_mid_mm_s2"] for r in rows],color="#584eac",lw=2)
+          ax.set(xlabel="Time (ms)",ylabel="Center radial acceleration (mm/s^2)",
+                 title=f"CUF TE4 MVI-{rank}: radial acceleration"+suffix)
+          save(fig,"CUF_TE4_ACCELERATION_TIME_COLOR.png")
+          fig,ax=plt.subplots(figsize=(7,5.5))
+          ax.plot(middle,pressure,color="#1763a6",lw=2)
+          ax.set(xlabel="Center radial deflection (mm)",
+                 ylabel="Signed inward pressure (kPa)",
+                 title=f"CUF TE4 MVI-{rank}: load-deflection history"+suffix)
+          save(fig,"CUF_TE4_PRESSURE_DEFLECTION_COLOR.png")
+          print("MVI_REAL_PHYSICAL_GRAPH_EXPORT",rank,accepted,"of",120,
+                "substeps",len(rows),"complete",complete,flush=True)
+          PY
+      - name: Preserve actual result archives, plotting tables and journal
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "CUF_TE4_LONG_MVI_${{ matrix.rank }}_REAL_FIELDS_AND_GRAPHS"
+          path: |
+            config/verification/cuf_te4_long_mvi/
+            cuf_te4_mvi_logs/
+          retention-days: 60
+          if-no-files-found: warn
+
+  compare-archived-histories:
+    name: "Combine real MVI and FDM graphable histories (no extra solve)"
+    if: ${{ always() && github.event.workflow_run.id == 41809844866 }}
+    needs: [physical-mvi]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      MPLBACKEND: Agg
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install numpy matplotlib
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: CUF_TE4_LONG_MVI_*_REAL_FIELDS_AND_GRAPHS
+          path: saved_mvi
+      - name: Download original FDM 120-step archive if available
+        shell: bash
+        env:
+          SOURCE_RUN: ${{ github.event.workflow_run.id }}
+        run: |
+          if [ "${{ github.event.workflow_run.conclusion }}" = "success" ]; then
+            gh run download "$SOURCE_RUN" --repo "$GITHUB_REPOSITORY" \
+              --name CUF_TE4_LONG_LINEAR_DYNAMIC_PHYSICAL_HISTORY_AND_GRAPHS \
+              --dir saved_fdm
+          else
+            echo "FDM run did not complete successfully; preserve MVI graph data without inventing an FDM trajectory."
+          fi
+      - name: Plot independently computed full histories
+        shell: bash
+        run: |
+          python - <<'PY'
+          import csv,json
+          from pathlib import Path
+          import matplotlib
+          matplotlib.use("Agg")
+          import matplotlib.pyplot as plt
+          out=Path("compared_time_histories");out.mkdir(exist_ok=True)
+          records={}
+          for rank in (1,8):
+              found=list(Path("saved_mvi").rglob(f"CUF_TE4_MVI{rank}/CUF_TE4_LONG_END_PLOT_DATA.csv"))
+              if len(found)!=1:
+                  print("MVI_HISTORY_NOT_AVAILABLE",rank,flush=True)
+                  continue
+              with found[0].open(newline="",encoding="utf-8") as f:
+                  records[f"MVI-{rank}"]=list(csv.DictReader(f))
+          found=list(Path("saved_fdm").rglob("TE4_LONG_END_STEPS_PLOT_DATA.csv"))
+          if len(found)==1:
+              with found[0].open(newline="",encoding="utf-8") as f:
+                  records["FDM"]=list(csv.DictReader(f))
+          if not records:
+              raise ValueError("NO_SAVED_PHYSICAL_HISTORY_FOR_COMPARISON")
+          fig,ax=plt.subplots(figsize=(10,5.4))
+          palette={"FDM":"#1763a6","MVI-1":"#c44536","MVI-8":"#237a67"}
+          names={"FDM":"w_mid_center_mm","MVI-1":"w_mid_mm","MVI-8":"w_mid_mm"}
+          for name,rows in records.items():
+              ax.plot([float(r["time_ms"]) for r in rows],
+                      [float(r[names[name]]) for r in rows],label=name,
+                      color=palette[name],lw=2)
+          ax.set(xlabel="Time (ms)",ylabel="Mid-surface center deflection (mm)",
+                 title="CUF TE4: actual Bathe displacement histories, 25 Hz")
+          ax.legend(frameon=False);ax.grid(alpha=.2)
+          fig.tight_layout()
+          fig.savefig(out/"CUF_TE4_FDM_MVI1_MVI8_DEFLECTION_COMPARISON_COLOR.png",
+                      dpi=220,bbox_inches="tight")
+          plt.close(fig)
+          manifest={"source_fdm_workflow_run":41809844866,
+                    "methods":{name:{"saved_time_points":len(rows),
+                         "last_time_s":float(rows[-1]["time_s"]),
+                         "complete":len(rows)==121} for name,rows in records.items()},
+                    "no_synthetic_fields":True,
+                    "note":"Comparison is descriptive, not an automatic convergence claim."}
+          (out/"COMPARISON_MANIFEST.json").write_text(json.dumps(manifest,indent=2)+"\n")
+          print("REAL_CUF_TE4_MVI_FDM_GRAPHED",manifest,flush=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: CUF_TE4_LONG_REAL_FDM_MVI_COMPARATIVE_GRAPH
+          path: compared_time_histories/
+          retention-days: 60
+          if-no-files-found: warn
