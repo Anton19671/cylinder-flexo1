@@ -162,7 +162,7 @@ class VariationalTE4:
         return np.einsum("ij,cjs->cis",self.dx,u,optimize=True)
 
     def _s(self,u):
-        return np.einsum("ij,cxi->cxj",self.ds,u,optimize=True)
+        return np.einsum("ij,cxj->cxi",self.ds,u,optimize=True)
 
     def weak_stiffness(self,q):
         c=self.case
@@ -177,7 +177,7 @@ class VariationalTE4:
         wx=self.surface_weight[None]
         return (wx*flux[0]+
                 np.einsum("ji,cjs->cis",self.dx,wx*flux[1],optimize=True)+
-                np.einsum("ij,cxj->cxi",self.ds,wx*flux[2],optimize=True))
+                np.einsum("ji,cxj->cxi",self.ds,wx*flux[2],optimize=True))
 
     def weak_mass(self,q):
         c=self.case
