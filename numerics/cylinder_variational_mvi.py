@@ -26,13 +26,27 @@ from cylinder_mvi_continuation import continue_accepted_mvi_profiles
 class StaticMVISettings:
     rank: int = 1
     max_sweeps: int = 30
+    # Opt-in for large DYNAMIC X/Y half-steps only. The direction space
+    # stays the classical rank-fixed MVI manifold, never full-nodal FDM.
+    dynamic_krylov_halfsteps: bool = False
+    dynamic_krylov_rtol: float = 1.e-6
+    dynamic_krylov_restart: int = 50
+    dynamic_krylov_max_matvecs: int = 1200
 
     def __post_init__(self):
-        for key in ("rank", "max_sweeps"):
+        for key in ("rank", "max_sweeps", "dynamic_krylov_restart",
+                    "dynamic_krylov_max_matvecs"):
             value=getattr(self,key)
             if isinstance(value,bool) or not isinstance(value,int) or value<1:
                 raise ValueError(key+" must be a positive integer")
         if self.rank>8:raise ValueError("MVI rank must be 1..8")
+        if type(self.dynamic_krylov_halfsteps) is not bool:
+            raise ValueError("dynamic_krylov_halfsteps must be boolean")
+        value=self.dynamic_krylov_rtol
+        if isinstance(value,bool) or not np.isfinite(float(value)) or not 0<float(value)<1:
+            raise ValueError("dynamic_krylov_rtol must be finite and between zero and one")
+        if self.dynamic_krylov_max_matvecs<self.dynamic_krylov_restart:
+            raise ValueError("dynamic_krylov_max_matvecs must cover one restart cycle")
 
 
 @dataclass(frozen=True)
