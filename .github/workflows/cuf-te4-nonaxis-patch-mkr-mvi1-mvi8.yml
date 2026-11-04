@@ -1,0 +1,144 @@
+name: CUF TE4 nonaxisymmetric patch MKR MVI1 MVI8 real Bathe validation
+run-name: "MKR/FDM and MVI1/8 real CUF TE4 PATCH dynamic fields at ${{ github.sha }}"
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/cuf-te4-nonaxis-patch-mkr-mvi1-mvi8.yml"
+permissions:
+  contents: read
+jobs:
+  input-validation:
+    name: Validate nonaxisymmetric pressure, physical equality and rank options
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models:tests"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements.txt
+      - run: |
+          python -m py_compile ci/generate_cuf_te4_nonaxis_bathe.py ci/compare_cuf_te4_nonaxis_bathe.py
+          python -m pytest -q tests/test_cuf_te4_nonaxis_bathe_inputs.py tests/test_variational_loads.py
+  actual-bathe-step:
+    needs: [input-validation]
+    name: "One real PATCH CUF TE4 Bathe step - ${{ matrix.method }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        method: [FDM, MVI1, MVI8]
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+      MPLBACKEND: "Agg"
+      PYTHONDONTWRITEBYTECODE: "1"
+      CASE_METHOD: ${{ matrix.method }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements.txt
+      - name: Create a distinct nonaxisymmetric physical pressure CASE
+        run: |
+          python ci/generate_cuf_te4_nonaxis_bathe.py \
+            --method "$CASE_METHOD" --steps 1 \
+            --output config/verification/cuf_te4_nonaxis_real
+      - name: Compute one full Bathe step, never replace a failed rank with FDM
+        shell: bash
+        run: |
+          mkdir -p nonaxis_logs
+          set -o pipefail
+          python -u RUN_FINAL_CASE.py \
+            "config/verification/cuf_te4_nonaxis_real/CUF_TE4_PATCH_${CASE_METHOD}.json" \
+            2>&1 | tee "nonaxis_logs/CUF_TE4_PATCH_${CASE_METHOD}.log"
+      - name: Verify exactly one fully accepted Bathe step and physical output
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          name=os.environ["CASE_METHOD"]
+          p=Path(f"config/verification/cuf_te4_nonaxis_real/output/CUF_TE4_PATCH_{name}")
+          s=json.loads((p/"FINAL_RUN_SUMMARY.json").read_text(encoding="utf-8"))
+          if (s.get("accepted_steps")!=1 or s.get("requested_steps")!=1 or
+                  s.get("converged") is not True or s.get("status")!="CONVERGED"):
+              raise ValueError("PATCH_TIME_STEP_NOT_ACCEPTED:"+name)
+          for fname in ("REFERENCE_DYNAMIC_INITIAL.npz",
+                        "BATHE_SUBSTEP_0001_GAMMA.npz",
+                        "REFERENCE_DYNAMIC_STEP_0001.npz"):
+              if not (p/fname).is_file():
+                  raise ValueError("PATCH_REAL_FIELD_MISSING:"+fname)
+          print("PATCH_FULL_PHYSICAL_BATHE_STEP_ACCEPTED",name,flush=True)
+          PY
+      - name: Preserve even partial physical archive and full journal
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: CUF_TE4_PATCH_REAL_${{ matrix.method }}
+          path: |
+            config/verification/cuf_te4_nonaxis_real/
+            nonaxis_logs/
+          retention-days: 60
+          if-no-files-found: warn
+  compare-real-fields:
+    name: Compare 15x9x9 physical fields at both Bathe substeps
+    needs: [actual-bathe-step]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MPLBACKEND: "Agg"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements.txt
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: CUF_TE4_PATCH_REAL_*
+          path: downloaded
+      - name: Compare truly independent field data and export plots
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess,sys
+          base=Path("downloaded")
+          folders={}
+          for name in ("FDM","MVI1","MVI8"):
+              found=list((base/("CUF_TE4_PATCH_REAL_"+name)).rglob(
+                  "output/CUF_TE4_PATCH_"+name+"/FINAL_RUN_SUMMARY.json"))
+              if len(found)!=1:
+                  raise ValueError("PATCH_ARCHIVE_MISSING_OR_AMBIGUOUS:"+name)
+              folders[name]=found[0].parent
+          subprocess.run([
+              sys.executable,"ci/compare_cuf_te4_nonaxis_bathe.py",
+              "--fdm",str(folders["FDM"]),
+              "--mvi1",str(folders["MVI1"]),
+              "--mvi8",str(folders["MVI8"]),
+              "--output","nonaxis_field_comparison"
+          ],check=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: CUF_TE4_PATCH_MKR_MVI1_MVI8_REAL_FIELDWISE_COMPARISON
+          path: nonaxis_field_comparison/
+          retention-days: 60
+          if-no-files-found: warn
