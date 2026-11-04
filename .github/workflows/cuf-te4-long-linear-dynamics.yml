@@ -1,5 +1,5 @@
 name: CUF TE4 real long linear dynamics and plot data
-run-name: "CUF TE4 FDM 60 real Bathe steps / 6 pressure cycles at ${{ github.sha }}"
+run-name: "CUF TE4 FDM 120 real Bathe steps / 6 pressure cycles at ${{ github.sha }}"
 on:
   workflow_dispatch:
   push:
@@ -28,10 +28,10 @@ jobs:
           python-version: "3.11"
       - name: Install the actual physics solver and plotting libraries
         run: python -m pip install -r requirements.txt
-      - name: Create ONE real CUF TE4 full-nodal FDM case (60 x 0.004 s)
+      - name: Create ONE real CUF TE4 full-nodal FDM case (120 x 0.002 s)
         run: |
           python ci/generate_linear_bathe_case.py \
-            --theory CUF_TE4 --method FDM --steps 60 --dt 0.004 \
+            --theory CUF_TE4 --method FDM --steps 120 --dt 0.002 \
             --output config/verification/cuf_te4_long_linear
           python - <<'PY'
           import json, math
@@ -42,7 +42,7 @@ jobs:
           assert case["method"]=="FDM" and case["fdm_backend"]=="MATRIX_FREE_GMRES"
           assert case["mode"]=="LINEAR_ELASTIC" and case["material_model"]=="HOOKE"
           assert case["geometry_model"]=="LINEAR" and d["integrator"]=="BATHE"
-          assert d["n_steps"]==60 and math.isclose(d["time_step_s"],0.004)
+          assert d["n_steps"]==120 and math.isclose(d["time_step_s"],0.002)
           assert d["time_law"]["kind"]=="HARMONIC" and d["time_law"]["frequency_hz"]==25
           assert case["load_definition"]["direction"]=="RADIAL_INWARD"
           assert case["load_definition"]["q"]==100000
@@ -50,7 +50,7 @@ jobs:
           assert case["fdm_grid"]=={"nx":9,"ns":9,"operator_scheme":"SBP42_FOURIER_ODD_CSR"}
           assert case["reference_newton"]["krylov_rtol"]==1e-4
           assert case["reference_newton"]["krylov_max_matvecs"]==1200
-          print("REAL_CUF_TE4_FDM_LONG_CASE_VALIDATED: 60 steps, 0.240 s, six 25 Hz cycles", flush=True)
+          print("REAL_CUF_TE4_FDM_LONG_CASE_VALIDATED: 120 steps, 0.240 s, six 25 Hz cycles", flush=True)
           PY
       - name: Run real long Bathe dynamics; never substitute synthetic states
         shell: bash
@@ -59,7 +59,7 @@ jobs:
           set -o pipefail
           python -u RUN_FINAL_CASE.py \
             config/verification/cuf_te4_long_linear/CUF_TE4_FDM.json \
-            2>&1 | tee cuf_te4_long_logs/CUF_TE4_FDM_60_STEPS.log
+            2>&1 | tee cuf_te4_long_logs/CUF_TE4_FDM_120_STEPS.log
       - name: Export measured load/time, displacement/time and load-deflection graphics
         if: always()
         shell: bash
@@ -86,7 +86,7 @@ jobs:
           if accepted<1:
               print("TE4_GRAPH_EXPORT_SKIPPED: no accepted physical steps",flush=True)
               raise SystemExit(0)
-          if requested!=60 or accepted>requested or summary.get("theory")!="CUF_TE4" or summary.get("method")!="FDM":
+          if requested!=120 or accepted>requested or summary.get("theory")!="CUF_TE4" or summary.get("method")!="FDM":
               raise ValueError("TE4_LONG_PHYSICAL_PASSPORT_INVALID")
           dt=float(case["dynamics"]["time_step_s"])
           pressure_kpa=float(case["load_definition"]["q"])/1e3
