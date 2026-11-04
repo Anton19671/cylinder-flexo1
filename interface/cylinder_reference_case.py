@@ -276,8 +276,13 @@ def prepare_reference_case(case, *, base_dir=None, modal_harmonic_large=False):
     mvi_settings=None
     if method=="MVI":
         mvi_options=case.get("reference_mvi",{})
-        if not isinstance(mvi_options,dict) or set(mvi_options)-{"max_sweeps"}:
-            raise ValueError("reference_mvi accepts only max_sweeps; rank belongs at CASE root")
+        allowed_mvi_options={"max_sweeps","dynamic_krylov_halfsteps",
+            "dynamic_krylov_rtol","dynamic_krylov_restart",
+            "dynamic_krylov_max_matvecs"}
+        if not isinstance(mvi_options,dict) or set(mvi_options)-allowed_mvi_options:
+            raise ValueError("reference_mvi contains unsupported options; rank belongs at CASE root")
+        if kind!="DYNAMIC" and any(k!="max_sweeps" for k in mvi_options):
+            raise ValueError("MVI_KRYLOV_OPTIONS_ARE_DYNAMIC_ONLY")
         rank=_integer(case.get("rank"),"MVI rank",1)
         mvi_settings=StaticMVISettings(rank=rank,**mvi_options)
         if rank>min(nx,ns):raise ValueError("MVI rank exceeds grid dimensions; increase nx and ns")
