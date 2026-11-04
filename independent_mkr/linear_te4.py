@@ -158,7 +158,7 @@ class StrongDifferenceTE4:
         return np.einsum("ij,cjs->cis",self.dx,q,optimize=True)
 
     def _s(self,q):
-        return np.einsum("ij,cxi->cxj",self.ds,q,optimize=True)
+        return np.einsum("ij,cxj->cxi",self.ds,q,optimize=True)
 
     def elastic_strong_action(self,q):
         """C0 - d(Ax)/dx - d(As)/ds, NOT a quadrature-adjoint gradient."""
