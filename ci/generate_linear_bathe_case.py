@@ -64,7 +64,10 @@ def make_case(theory,method,rank,steps,dt_s,output_folder):
            # resolves the dominant field differences on this fixed grid.
            "krylov_rtol":1.e-4,
            "krylov_restart":50,
-           "krylov_max_matvecs":300,
+           # At rtol=1e-4, the TE4 second Bathe substep exhausted 300
+           # matrix-free Jacobian-vector products. Raise only its work
+           # budget: the physical equations and accuracy target are intact.
+           "krylov_max_matvecs":1200 if theory=="CUF_TE4" else 300,
            "krylov_preconditioner":"NONE"
         }
     case["output_dir"]="output/"+output_folder
