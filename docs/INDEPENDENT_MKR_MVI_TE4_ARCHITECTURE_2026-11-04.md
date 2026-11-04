@@ -88,3 +88,66 @@ Nothing in existing `interface/cylinder_reference_case.py`,
 `numerics/cylinder_variational_dynamic.py`, or
 `numerics/cylinder_matrixfree_fdm.py` has been rerouted to either
 experimental independent module. The previous cases remain unchanged.
+
+
+## 2026-11-04 continuation: six FULLY ISOLATED TEMPORAL PROTOTYPES
+
+**Independent MKR (strong finite-difference, not the common variational
+functional):**
+- `independent_mkr/linear_te4.py` implements standalone **Bathe**,
+  **Newmark average acceleration** (β=1/4, γ=1/2), and coupled
+  two-stage **Gauss–Legendre implicit Runge–Kutta of order four (IRK4)**.
+- `independent_mkr/run_case.py` performs MKR-only CASE validation,
+  dispatch, independent history export and distinct named files.
+- `config/verification/independent_te4/MKR_{BATHE,NEWMARK,GAUSS_IRK4}.json`.
+
+**Independent MVI (rank-fixed frozen partner X/Y, own weak form):**
+- `independent_mvi/linear_te4.py` implements standalone **Bathe**,
+  **Newmark average acceleration**, and coupled two-stage **Gauss–Legendre
+  IRK4** with rank-fixed X/Y variations on both stages.
+- **IRK4 endpoint qualification:** a linear combination of rank-R stage
+  fields need not have spatial rank R. This implementation does not
+  project a nonrepresentable physical endpoint back onto rank R. Instead
+  `MVI_IRK4_ENDPOINT_EXCEEDS_FIXED_RANK` aborts that step. This is a
+  mathematical restriction of the experimental formulation, not a
+  physical solver success.
+- `independent_mvi/run_case.py` implements MVI-only CASE parsing,
+  own Bathe/Newmark/IRK4 output and x/y factor archives.
+- `config/verification/independent_te4/MVI_{BATHE,NEWMARK,GAUSS_IRK4}.json`.
+
+The two trees import neither each other nor shared legacy
+`cylinder_functional_assembly`, `cylinder_variational_dynamic`,
+`cylinder_bathe_mvi`, `cylinder_variational_fdm` or
+`cylinder_variational_mvi`. In the two new modules, **even the
+mass integration, radial load, Hooke law, spatial derivatives, support
+handling, and each time integrator are coded independently**. Equal
+underlying continuous physics is necessary; shared discrete numerical
+code is forbidden in these experimental routes.
+
+CI [#41894005812](https://github.com/Anton19671/cylinder-flexo1/actions/runs/41894005812)
+confirmed **14 passing tests**, with separate six CASE validations.
+The tests cover imports, independent operators, angular derivative
+orientation, exact rank-2 exclusion for rank-1, Newmark predictors,
+and a homogeneous manufactured Gauss two-stage problem in both
+implementations. The job performs no forced shell time-marching run.
+
+**Important limits:**
+- As of this commit, both paths support **linear, isotropic, non-electrical
+  CUF TE4 only**, homogeneous end displacement, zero start and prescribed
+  harmonic uniform or patch pressure. They are not certified for KL,
+  FSDT, Reddy, TE1–TE3, gradient/flexoelectric effects, nonlinear
+  geometry, plasticity, or all extended boundary conditions.
+- Time integration is implemented, but no nonzero physical results
+  from these new independent solvers have been verified, so neither
+  is production-ready and no quantitative agreement is claimed.
+- `MKR` strong interior difference + displacement clamp still
+  requires independent verification of TE4 natural higher-order
+  boundary conditions. The experimental MVI weak operator likewise
+  needs the full physical boundary classification and an external
+  independent reference.
+- The new CASE schema is intentionally **different** for MKR/MVI;
+  a case for one solver cannot be given to the other. No common
+  dispatcher was introduced.
+- Existing GUI/legacy calculation cases have **not** been redirected
+  to these prototypes. Only explicit method-specific commands with
+  `--run` can calculate; `--validate-only` does not run physics.
