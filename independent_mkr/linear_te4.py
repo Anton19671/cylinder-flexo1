@@ -237,4 +237,94 @@ class StrongDifferenceTE4:
         return (q1,v1,a1),(q2,v2,a2)
 
 
+    def step_newmark(self,q,v,a,time_s,dt_s=.002,*,beta=.25,gamma=.5):
+        """Own implicit average-acceleration Newmark with strong-FD MKR."""
+        q,v,a=(np.asarray(field,float) for field in (q,v,a))
+        expect=(15,self.case.nx,self.case.ns)
+        if any(field.shape!=expect for field in (q,v,a)):
+            raise ValueError("MKR_NEWMARK_BAD_FIELD_SHAPE")
+        if (not np.isfinite(dt_s) or dt_s<=0 or
+                not np.isclose(beta,.25) or not np.isclose(gamma,.5)):
+            raise ValueError("MKR_NEWMARK_ONLY_AVERAGE_ACCELERATION")
+        if any(np.any(field[:,[0,-1],:]) for field in (q,v,a)):
+            raise ValueError("MKR_NEWMARK_END_CLAMP_VIOLATED")
+        predictor=q+dt_s*v+(.5-beta)*dt_s*dt_s*a
+        kappa=1/(beta*dt_s*dt_s)
+        q1=self._solve_endpoint(predictor,time_s+dt_s,kappa)
+        a1=kappa*(q1-predictor)
+        v1=v+dt_s*((1-gamma)*a+gamma*a1)
+        if not all(np.isfinite(z).all() for z in (q1,v1,a1)):
+            raise ValueError("MKR_NEWMARK_NONFINITE")
+        return q1,v1,a1
+
+    def step_runge_kutta_gauss4(self,q,v,a,time_s,dt_s=.002, *,
+                               krylov_rtol=1.e-9,max_krylov_matvec=4000):
+        """Own fully coupled two-stage implicit Gauss-Legendre Runge-Kutta 4.
+
+        Unknowns are TWO unrestricted mechanical stage accelerations.
+        No weak-form or MVI module is called. Endpoint acceleration is
+        computed from the independent strong FD equations, not extrapolated.
+        """
+        q,v,a=(np.asarray(z,float) for z in (q,v,a))
+        shape=(15,self.case.nx,self.case.ns)
+        if any(z.shape!=shape or not np.isfinite(z).all() for z in (q,v,a)):
+            raise ValueError("MKR_RK4_BAD_FIELD")
+        if not np.isfinite(dt_s) or dt_s<=0:
+            raise ValueError("MKR_RK4_BAD_TIMESTEP")
+        if any(np.any(z[:,[0,-1],:]) for z in (q,v,a)):
+            raise ValueError("MKR_RK4_CLAMP")
+        g=np.sqrt(3.)
+        c=np.array([.5-g/6,.5+g/6])
+        aa=np.array([[.25,.25-g/6],[.25+g/6,.25]])
+        aa2=aa@aa
+        bb=np.array([.5,.5])
+        size=15*(self.case.nx-2)*self.case.ns
+        known=[q+dt_s*c[i]*v for i in range(2)]
+        rhs=np.stack([self._free_vector(
+            self.force*np.sin(2*pi*self.case.frequency_hz*(time_s+dt_s*c[i]))
+            -self.elastic_strong_action(known[i])) for i in range(2)])
+        def apply(z):
+            stages=np.asarray(z,float).reshape(2,size)
+            fields=[self._free_state(stages[j]) for j in range(2)]
+            kfields=[self.elastic_strong_action(field) for field in fields]
+            response=[]
+            for i in range(2):
+                acc=self.inertia_action(fields[i])
+                acc=acc+dt_s**2*sum(
+                    aa2[i,j]*kfields[j] for j in range(2))
+                response.append(self._free_vector(acc))
+            return np.stack(response).ravel()
+        operator=LinearOperator((2*size,2*size),matvec=apply,dtype=float)
+        restart=min(100,2*size)
+        sol,info=gmres(operator,rhs.ravel(),rtol=krylov_rtol,atol=0.,
+                       restart=restart,
+                       maxiter=max(1,max_krylov_matvec//restart),
+                       callback_type="pr_norm")
+        if info!=0 or not np.isfinite(sol).all():
+            raise RuntimeError("MKR_RK4_GAUSS_TWO_STAGE_NOT_SOLVED")
+        stages=np.asarray(sol,float).reshape(2,size)
+        acc=[self._free_state(stages[j]) for j in range(2)]
+        qstage=[q+dt_s*c[i]*v+dt_s**2*sum(
+            aa2[i,j]*acc[j] for j in range(2)) for i in range(2)]
+        vstage=[v+dt_s*sum(aa[i,j]*acc[j] for j in range(2))
+                for i in range(2)]
+        qend=q+dt_s*v+dt_s**2*sum(
+            sum(bb[i]*aa[i,j] for i in range(2))*acc[j]
+            for j in range(2))
+        vend=v+dt_s*sum(bb[j]*acc[j] for j in range(2))
+        # Pointwise coefficient mass is invertible independently at each
+        # surface node; no variational mass tensor is reused.
+        load=self.force*np.sin(2*pi*self.case.frequency_hz*(time_s+dt_s))
+        am=load-self.elastic_strong_action(qend)
+        aend=np.linalg.solve(
+            self.mass,am.reshape(3,5,self.case.nx,self.case.ns).transpose(1,0,2,3)
+              .reshape(5,-1)).reshape(5,3,self.case.nx,self.case.ns)
+              .transpose(1,0,2,3).reshape(shape)
+        aend[:,[0,-1],:]=0.
+        if any(not np.isfinite(z).all() for z in
+                (qend,vend,aend,*qstage,*vstage,*acc)):
+            raise RuntimeError("MKR_RK4_NONFINITE")
+        return tuple(zip(qstage,vstage,acc)),(qend,vend,aend)
+
+
 __all__=("PhysicalCase","StrongDifferenceTE4")
