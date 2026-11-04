@@ -55,7 +55,7 @@ def test_reddy_both_shears_vanish_at_faces_independent_of_curvature():
         ax,axp,bs,bsp=_reddy_warps(z,case.radius_m,case.thickness_m)
         np.testing.assert_allclose(1+axp,0.,rtol=0.,atol=2.e-14)
         H=1+z/case.radius_m
-        np.testing.assert_allclose(1+bsp-bs/(case.radius_m*H),
+        np.testing.assert_allclose(1+bsp-(z+bs)/(case.radius_m*H),
                                    0.,rtol=0.,atol=2.e-11)
 
 
