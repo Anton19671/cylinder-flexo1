@@ -1,0 +1,36 @@
+name: Bathe accepted-step checkpoint and runner regression
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "interface/cylinder_bathe_checkpoint.py"
+      - "interface/cylinder_bathe_case.py"
+      - "ci/run_bathe_checkpoint_batch.py"
+      - "ci/export_bathe_te4_history.py"
+      - "tests/test_cylinder_bathe_checkpoint.py"
+      - ".github/workflows/bathe-checkpoint-resume-regression.yml"
+permissions:
+  contents: read
+jobs:
+  checkpoint-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      MPLBACKEND: "Agg"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install solver test dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Compile new checkpoint and batch runner without executing a shell solve
+        run: |
+          python -m py_compile interface/cylinder_bathe_checkpoint.py interface/cylinder_bathe_case.py ci/run_bathe_checkpoint_batch.py ci/export_bathe_te4_history.py
+      - name: Test accepted physical checkpoint semantics and unchanged Bathe formulas
+        run: python -m pytest -q tests/test_cylinder_bathe_checkpoint.py tests/test_cylinder_bathe_mvi.py
