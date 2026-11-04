@@ -97,6 +97,17 @@ def test_restart_one_fdm_step_and_quarantine_unaccepted_stage(tmp_path):
     assert (out/"UNACCEPTED_INTERRUPTED_STAGE_FILES"/"BATHE_SUBSTEP_0002_GAMMA.npz").exists()
 
 
+def test_resume_flag_can_be_enabled_on_exact_original_case(tmp_path):
+    parts=_prepare(tmp_path)
+    out=parts[0]
+    stored=json.loads((out/"REFERENCE_CASE.json").read_text(encoding="utf-8"))
+    stored["dynamics"].pop("bathe_resume_accepted")
+    (out/"REFERENCE_CASE.json").write_text(json.dumps(stored),encoding="utf-8")
+    state,_,history,_,start=_load(parts)
+    assert start==1 and not history
+    np.testing.assert_array_equal(state[0],parts[4])
+
+
 def test_changed_case_is_rejected(tmp_path):
     parts=_prepare(tmp_path)
     parts[1]["load_definition"]["q"]=200000
