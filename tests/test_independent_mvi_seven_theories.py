@@ -79,6 +79,25 @@ def test_kl_rank8_cannot_be_falsely_enabled_on_small_clamped_grid():
     assert model.rank==8
 
 
+
+@pytest.mark.parametrize("theory",MODELS)
+def test_all_seven_theories_accept_eight_terms_on_clamped_15_by_9_grid(theory):
+    case=VariationalModelCase(theory=theory,nx=15,ns=9)
+    model=IndependentVariationalModel(case,rank=8)
+    x,y=model._first_factors()
+    assert x.shape==(model.n,8,15)
+    assert y.shape==(model.n,8,9)
+    assert np.max(np.abs(x[:,:,[0,-1]]))<1.e-13
+    if theory=="KL":
+        edge=np.einsum("ij,crj->cri",model.dx[[0,-1]],x[2:3])
+        np.testing.assert_allclose(edge,0.,atol=2.e-12)
+    field=model.field(x,y)
+    assert field.shape==(model.n,15,9)
+    assert np.allclose(field,0.)
+    # Frozen X rank-eight space remains one-dimensional in Y per factor.
+    _,widths=model._directions(x,y,"Y")
+    assert sum(widths)==model.n*8*9
+
 def test_mvi_never_imports_mkr_or_legacy_functional():
     p=Path(__file__).resolve().parents[1]/"independent_mvi"/"linear_models.py"
     tree=ast.parse(p.read_text(encoding="utf-8"))
