@@ -18,6 +18,7 @@ from independent_mkr.linear_te4 import PhysicalCase, StrongDifferenceTE4
 
 SCHEMA = "INDEPENDENT_MKR_CUF_TE4_V1"
 METHOD = "MKR_STRONG_FINITE_DIFFERENCES"
+INTEGRATORS = ("BATHE","NEWMARK","GAUSS_IRK4")
 
 
 def load_case(path: Path):
@@ -31,8 +32,11 @@ def load_case(path: Path):
         raise ValueError("MKR_PHYSICS_REQUIRES_OBJECT")
     physics=PhysicalCase(**raw)
     timing=document["time"]
-    if not isinstance(timing,dict) or set(timing)!={"dt_s","steps"}:
+    if not isinstance(timing,dict) or set(timing)!={"integrator","dt_s","steps"}:
         raise ValueError("MKR_TIME_KEYS_INVALID")
+    scheme=timing["integrator"]
+    if scheme not in INTEGRATORS:
+        raise ValueError("MKR_UNKNOWN_INDEPENDENT_TIME_SCHEME")
     dt_s=float(timing["dt_s"])
     steps=timing["steps"]
     if (not np.isfinite(dt_s) or not 0<dt_s<=.1 or
@@ -41,15 +45,15 @@ def load_case(path: Path):
     output=Path(document["output_dir"])
     if not str(output).strip() or str(output) in (".","/"):
         raise ValueError("MKR_OUTPUT_DIRECTORY_REQUIRED")
-    return physics,dt_s,steps,output,document
+    return physics,scheme,dt_s,steps,output,document
 
 
 def run(path: Path, *, validate_only: bool):
-    physics,dt_s,steps,output,document=load_case(path)
+    physics,scheme,dt_s,steps,output,document=load_case(path)
     if validate_only:
         return {
             "schema":SCHEMA,"method":METHOD,
-            "validated_only":True,"steps":steps,"dt_s":dt_s,
+            "validated_only":True,"integrator":scheme,"steps":steps,"dt_s":dt_s,
             "output_dir":str(output),"physics":asdict(physics)
         }
 
@@ -61,7 +65,8 @@ def run(path: Path, *, validate_only: bool):
     shape=(15,physics.nx,physics.ns)
     q=np.zeros(shape,float);v=np.zeros(shape,float);a=np.zeros(shape,float)
     summary={
-        "method":METHOD,"schema":SCHEMA,"status":"IN_PROGRESS",
+        "method":METHOD,"schema":SCHEMA,"integrator":scheme,
+        "status":"IN_PROGRESS",
         "accepted_steps":0,"requested_steps":steps,"dt_s":dt_s,
         "time_s":0.,"solver_module":"independent_mkr.linear_te4"
     }
@@ -72,13 +77,20 @@ def run(path: Path, *, validate_only: bool):
     table=[]
     for k in range(1,steps+1):
         t=(k-1)*dt_s
-        # The solver must return *two* accepted physical Bathe stages.
-        (qg,vg,ag),(qn,vn,an)=solver.step_bathe(q,v,a,t,dt_s)
-        gamma=2-np.sqrt(2.)
+        if scheme=="BATHE":
+            first,final=solver.step_bathe(q,v,a,t,dt_s)
+            gamma=2-np.sqrt(2.)
+            stages=(("GAMMA",t+gamma*dt_s,first),("END",k*dt_s,final))
+        elif scheme=="NEWMARK":
+            final=solver.step_newmark(q,v,a,t,dt_s)
+            stages=(("END",k*dt_s,final),)
+        else:
+            gauss,final=solver.step_runge_kutta_gauss4(q,v,a,t,dt_s)
+            offsets=(.5-np.sqrt(3)/6,.5+np.sqrt(3)/6)
+            stages=tuple((f"GAUSS_{i+1}",t+offsets[i]*dt_s,gauss[i])
+                         for i in range(2))+(("END",k*dt_s,final),)
         # Independent filenames; never load or write any MVI output.
-        for stage,time_s,fields in (
-            ("GAMMA",t+gamma*dt_s,(qg,vg,ag)),
-            ("END",k*dt_s,(qn,vn,an))):
+        for stage,time_s,fields in stages:
             pos=output/f"MKR_STEP_{k:04d}_{stage}.npz"
             np.savez_compressed(pos,time_s=time_s,mechanical=fields[0],
                                 velocity=fields[1],acceleration=fields[2])
@@ -87,7 +99,7 @@ def run(path: Path, *, validate_only: bool):
                 "central_w0_m":float(fields[0][10,physics.nx//2,physics.ns//2]),
                 "maximum_abs_w0_m":float(np.max(np.abs(fields[0][10])))
             })
-        q,v,a=qn.copy(),vn.copy(),an.copy()
+        q,v,a=tuple(np.array(field,copy=True) for field in final)
         summary["accepted_steps"]=k
         summary["time_s"]=k*dt_s
         save_summary()
