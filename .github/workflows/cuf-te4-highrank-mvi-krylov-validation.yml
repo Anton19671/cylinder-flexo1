@@ -1,0 +1,89 @@
+name: CUF TE4 dynamic high-rank MVI frozen-partner Krylov validation
+run-name: "MVI Krylov unit and physical TE4 MVI-8 first Bathe step at ${{ github.sha }}"
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/cuf-te4-highrank-mvi-krylov-validation.yml"
+permissions:
+  contents: read
+jobs:
+  regress:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models:tests"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements.txt
+      - name: Test strict MVI Krylov frozen directions against exact dense reference
+        run: python -m pytest -q tests/test_dynamic_mvi_highrank_krylov.py tests/test_mvi_grid_free_dof_gate.py tests/test_cylinder_bathe_mvi.py
+  physical:
+    name: "One real CUF TE4 MVI-8 Bathe step in frozen-partner Krylov subspace"
+    needs: [regress]
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+      MPLBACKEND: "Agg"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements.txt
+      - name: Generate real TE4 MVI8 physical CASE with same FDM material and load
+        run: |
+          python ci/generate_linear_bathe_case.py \
+            --theory CUF_TE4 --method MVI --rank 8 --steps 1 --dt 0.002 \
+            --output config/verification/te4_highrank_mvi_krylov
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from generate_linear_bathe_case import make_case
+          path=Path("config/verification/te4_highrank_mvi_krylov/CUF_TE4_MVI8.json")
+          case=json.loads(path.read_text(encoding="utf-8"))
+          fdm=make_case("CUF_TE4","FDM",None,1,.002,"CUF_TE4_FDM")
+          for key in ("solver_backend","theory","cuf_model","calculation_kind",
+                      "scale_model","mode","geometry_model","material_model",
+                      "material","geometry","quadrature","boundary_conditions",
+                      "load_definition","dynamics","units"):
+              assert case[key]==fdm[key],key
+          case["reference_mvi"].update({
+              "dynamic_krylov_halfsteps":True,
+              "dynamic_krylov_rtol":1e-6,
+              "dynamic_krylov_restart":50,
+              "dynamic_krylov_max_matvecs":1200
+          })
+          path.write_text(json.dumps(case,indent=2)+"\n",encoding="utf-8")
+          print("MVI8_PHYSICAL_CASE_EQUAL_FDM",flush=True)
+          PY
+      - name: Run exactly one full real physical Bathe MVI8 time step
+        shell: bash
+        run: |
+          mkdir -p te4_mvi8_krylov_logs
+          set -o pipefail
+          python -u RUN_FINAL_CASE.py \
+            config/verification/te4_highrank_mvi_krylov/CUF_TE4_MVI8.json \
+            2>&1 | tee te4_mvi8_krylov_logs/one_real_step.log
+      - name: Preserve physical fields, certificates, and journal
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CUF_TE4_MVI8_ONE_REAL_BATHE_STEP_KRYLOV
+          path: |
+            config/verification/te4_highrank_mvi_krylov/
+            te4_mvi8_krylov_logs/
+          retention-days: 60
+          if-no-files-found: warn
