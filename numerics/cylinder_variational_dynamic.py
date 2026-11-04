@@ -72,8 +72,13 @@ def solve_dynamic_subspace(problem, mechanical, electrical, *, q_predictor,
                            velocity_predictor, time_s, dt_s, beta, gamma,
                            density_kg_m3, dead_load=None, free_charge=None,
                            settings=None, directions=None, on_iteration=None,
-                           mass_damping_rate_per_s=0.0, eta_s=0.0):
-    """Newton solve of one effective Newmark residual in a chosen space."""
+                           mass_damping_rate_per_s=0.0, eta_s=0.0,
+                           krylov_settings=None):
+    """Newton solve in the selected exact admissible spatial subspace.
+
+    krylov_settings is opt-in and applies only to MVI frozen-partner
+    directions when the reduced dimension exceeds the dense safety cap.
+    """
     if problem.kind!="DYNAMIC":raise ValueError("dynamic solve requires DYNAMIC problem")
     settings=StaticFDMSettings() if settings is None else settings
     if not isinstance(settings,StaticFDMSettings):raise TypeError("invalid Newton settings")
@@ -102,8 +107,11 @@ def solve_dynamic_subspace(problem, mechanical, electrical, *, q_predictor,
                              first.state/scales,directions=directions,
                              constraint_rank_floor=trace_rank_floor)
     b=space.basis
-    if b.shape[1]>settings.max_free_dofs:
+    use_krylov=b.shape[1]>settings.max_free_dofs and krylov_settings is not None
+    if b.shape[1]>settings.max_free_dofs and not use_krylov:
         raise ValueError(f"reference dense solve has {b.shape[1]} free DOFs; limit={settings.max_free_dofs}")
+    if krylov_settings is not None and directions is None:
+        raise ValueError("MVI_KRYLOV_REQUIRES_FROZEN_PARTNER_DIRECTIONS")
     evaluate=_effective_evaluator(problem,q.shape,None if p is None else p.shape,qpred,vpred,
         time_s=float(time_s),dt_s=float(dt_s),beta=float(beta),gamma=float(gamma),
         density_kg_m3=float(density_kg_m3),dead_load=dead_load,free_charge=free_charge,
@@ -124,30 +132,80 @@ def solve_dynamic_subspace(problem, mechanical, electrical, *, q_predictor,
         if on_iteration is not None:on_iteration(dict(record))
         if norm<=tolerance:converged=True;status="CONVERGED";break
         if iteration==settings.max_iterations:break
-        tangent=np.empty((len(g),len(g)))
-        failed=False
-        for j,direction in enumerate(b.T):
-            step=settings.tangent_step_scaled
-            for _ in range(settings.max_halvings+1):
-                try:
-                    gp=evaluate(v+step*direction)[2]
-                    gm=evaluate(v-step*direction)[2]
-                    break
-                except ValueError as exc:
-                    if "INVALID_" not in str(exc):raise
-                    step*=.5
-            else:status="INVALID_TANGENT_PERTURBATION";failed=True;break
-            tangent[:,j]=(gp-gm)/(2*step)
-        if failed:break
-        record["tangent_symmetry_relative"]=float(
-            np.linalg.norm(tangent-tangent.T)/max(np.linalg.norm(tangent),1.e-300))
-        try:
-            correction,estimate=solve_checked_reduced_tangent(tangent,g)
-            record["tangent_condition"]=estimate
-            record["tangent_condition_method"]="LU_1_NORM_ESTIMATE"
-        except np.linalg.LinAlgError:
-            record["tangent_condition"]=float("inf")
-            status="SINGULAR_TANGENT_CHECK_SUPPORTS_AND_GAUGE";break
+        if use_krylov:
+            # The action stays strictly in B: no full-nodal FDM search
+            # direction, no enlarged rank, no artificial stiffness.
+            from scipy.sparse.linalg import LinearOperator, gmres
+
+            count=[0]
+            class _BudgetExceeded(RuntimeError):
+                pass
+
+            def action(delta):
+                if count[0]>=krylov_settings.dynamic_krylov_max_matvecs:
+                    raise _BudgetExceeded()
+                count[0]+=1
+                nodal=b@delta
+                mag=float(np.linalg.norm(nodal))
+                if mag<1.e-30:
+                    return np.zeros_like(delta)
+                h=settings.tangent_step_scaled/mag
+                for _ in range(settings.max_halvings+1):
+                    try:
+                        gp=evaluate(v+h*nodal)[2]
+                        gm=evaluate(v-h*nodal)[2]
+                        return (gp-gm)/(2*h)
+                    except ValueError as exc:
+                        if "INVALID_" not in str(exc):raise
+                        h*=.5
+                raise ValueError("INVALID_TANGENT_PERTURBATION")
+
+            operator=LinearOperator((len(g),len(g)),matvec=action,dtype=float)
+            try:
+                correction,info=gmres(
+                    operator,-g,rtol=krylov_settings.dynamic_krylov_rtol,
+                    atol=0.,restart=krylov_settings.dynamic_krylov_restart,
+                    maxiter=max(1,(krylov_settings.dynamic_krylov_max_matvecs //
+                                    krylov_settings.dynamic_krylov_restart)),
+                    callback_type="pr_norm")
+                if info!=0 or not np.isfinite(correction).all():
+                    status="MVI_KRYLOV_LINEAR_NOT_CONVERGED";break
+                # Fail closed: GMRES claims are checked using this actual
+                # projected physical Jacobian-vector action.
+                true_linear=float(np.linalg.norm(action(correction)+g))
+                if true_linear>max(
+                    1.e-11,2*krylov_settings.dynamic_krylov_rtol*
+                    float(np.linalg.norm(g))):
+                    status="MVI_KRYLOV_LINEAR_NOT_CONVERGED";break
+            except _BudgetExceeded:
+                status="MVI_KRYLOV_MATVEC_BUDGET_EXCEEDED";break
+            record["linear_solver"]="MVI_FROZEN_PARTNER_GMRES"
+            record["krylov_matvecs"]=count[0]
+        else:
+            tangent=np.empty((len(g),len(g)))
+            failed=False
+            for j,direction in enumerate(b.T):
+                step=settings.tangent_step_scaled
+                for _ in range(settings.max_halvings+1):
+                    try:
+                        gp=evaluate(v+step*direction)[2]
+                        gm=evaluate(v-step*direction)[2]
+                        break
+                    except ValueError as exc:
+                        if "INVALID_" not in str(exc):raise
+                        step*=.5
+                else:status="INVALID_TANGENT_PERTURBATION";failed=True;break
+                tangent[:,j]=(gp-gm)/(2*step)
+            if failed:break
+            record["tangent_symmetry_relative"]=float(
+                np.linalg.norm(tangent-tangent.T)/max(np.linalg.norm(tangent),1.e-300))
+            try:
+                correction,estimate=solve_checked_reduced_tangent(tangent,g)
+                record["tangent_condition"]=estimate
+                record["tangent_condition_method"]="LU_1_NORM_ESTIMATE"
+            except np.linalg.LinAlgError:
+                record["tangent_condition"]=float("inf")
+                status="SINGULAR_TANGENT_CHECK_SUPPORTS_AND_GAUGE";break
         merit=admissible_nodal_inf_norm(b,g)
         for halving in range(settings.max_halvings+1):
             alpha=2.**(-halving);trial=v+b@(alpha*correction)
@@ -300,7 +358,8 @@ def solve_dynamic_mvi(problem, mechanical, electrical=None, *, q_predictor,
                 gamma=gamma,density_kg_m3=density_kg_m3,dead_load=dead_load,
                 free_charge=free_charge,settings=settings,directions=directions,on_iteration=report,
                 mass_damping_rate_per_s=mass_damping_rate_per_s,
-            eta_s=eta_s)
+                eta_s=eta_s,
+                krylov_settings=mvi_settings if mvi_settings.dynamic_krylov_halfsteps else None)
             history.extend({**row,"event":"halfstep","sweep":sweep,"direction":axis}
                            for row in result.history)
             state=result.mechanical.ravel() if p is None else np.concatenate(
