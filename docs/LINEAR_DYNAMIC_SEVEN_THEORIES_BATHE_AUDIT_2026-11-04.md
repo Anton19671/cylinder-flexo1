@@ -1,0 +1,111 @@
+# Linear dynamic verification: seven shell theories (4 November 2026)
+
+## Scope and provenance
+
+Repository `Anton19671/cylinder-flexo1`, branch `main`, commit
+`0995b0067ed267d5b4d2024d53de68ba05ba2589`.
+Source: GitHub Actions run
+[41800966283](https://github.com/Anton19671/cylinder-flexo1/actions/runs/41800966283);
+its fourteen independently generated physical solver outputs and the archived
+strict component-field audit (`bathe-seven-theories-current-run-full-field-audit`).
+
+Seven models: KL, FSDT, Reddy, CUF TE1, CUF TE2, CUF TE3, CUF TE4.
+Linear Hooke material, zero initial state, clamped axial edges, 25 Hz
+harmonic radial dead pressure, grid 9x9, Bathe method with 0.002 s
+one full step and physical stages at 0.001171572875 s and 0.002 s.
+MVI fixed rank 1 versus independent full-nodal matrix-free FDM.
+
+All 14 physical solver jobs completed successfully (including TE4 FDM).
+**The independent field comparison FAILED**: 62 named component-field
+checks exceeded the *existing*, unchanged nodewise acceptance limits.
+This is not an all-model verification PASS.
+
+## Full generalized mechanical state comparison
+
+Percent values are 100 * norm(MVI - FDM) / norm(FDM), over every
+generalized mechanical coefficient and every node of the 9x9 grid.
+Entries below are from the final Bathe stage, t = 0.002 s.
+
+| Theory | Displacement (%) | Velocity (%) | Acceleration (%) |
+| --- | ---: | ---: | ---: |
+| KL | 0.0000002433 | 0.0000007012 | 0.0000009330 |
+| FSDT | 0.0003565381 | 0.0009887729 | 0.0012736807 |
+| Reddy | 0.0000210484 | 0.0000582146 | 0.0000755303 |
+| CUF TE1 | 0.0005157091 | 0.0013962273 | 0.0019109947 |
+| CUF TE2 | 0.0008802159 | 0.0023982530 | 0.0033060828 |
+| CUF TE3 | 0.0029663533 | 0.0076582016 | 0.0108457264 |
+| CUF TE4 | 0.0052176062 | 0.0132476223 | 0.0196935697 |
+
+Named component-field checks failing at GAMMA / END, respectively:
+KL 0/0; FSDT 0/6; Reddy 0/2; CUF TE1 0/8;
+CUF TE2 0/5; CUF TE3 3/12; CUF TE4 10/16.
+Total 62.
+
+## Physical displacement recovery for CUF TE4
+
+The actual through-thickness physical fields are not individual Taylor
+coefficients. For each axis A in {U, V, W}, reconstruct
+
+    A(x,s,z) = sum_{k=0}^4 z^k A_k(x,s),   -h/2 <= z <= h/2,
+
+with h = 0.05 m and the **physical** dimensional coordinate z.
+This is the basis defined by `models/final_te_basis_provider.py`.
+The following values were checked directly against both archived
+independent NPZ states from the same GitHub run; no shell solver was
+executed during this audit.
+
+At t = 0.002 s, worst absolute difference over the full 9x9 grid:
+
+| Physical field | z (m) | Max absolute MVI-FDM (m) | Percent of peak amplitude |
+| --- | ---: | ---: | ---: |
+| Axial U | -0.025 | 1.309e-11 | 0.009000 |
+| Axial U | 0 | 1.288e-11 | 0.009027 |
+| Axial U | +0.025 | 1.266e-11 | 0.009055 |
+| Radial W | -0.025 | 2.297e-10 | 0.007605 |
+| Radial W | 0 | 2.297e-10 | 0.007605 |
+| Radial W | +0.025 | 2.296e-10 | 0.007605 |
+
+The physical circumferential V amplitude itself is about 1.5e-14 m;
+a relative percentage of order 100% on that near-zero field cannot
+be interpreted as a 100% error in the dominant shell displacement.
+**Do not omit or suppress its raw component discrepancy** in the
+strict nodewise audit: it remains a failed recorded check.
+
+For the radial displacement at the central node (x-index=4, s-index=4)
+and z=0, MVI = -2.877936954e-6 m, FDM = -2.877935860e-6 m.
+These central values alone do not establish field agreement.
+
+## Independent FDM accuracy sensitivity
+
+Comparing the earlier archived CUF TE4 FDM state from
+[run 41645787449](https://github.com/Anton19671/cylinder-flexo1/actions/runs/41645787449)
+against the tighter FDM in 41800966283:
+
+- GAMMA: displacement norm changes by 0.0177267%.
+- END: displacement norm changes by 0.00639744%, velocity by
+  0.01498030%, acceleration by 0.06186675%.
+
+The last result demonstrates sensitivity of the full-nodal numerical
+reference to its Krylov precision settings. It does not show which
+solution is more accurate independently of a tighter or direct oracle.
+The current TE4 work budget is 1200 Jv actions, compared with 300
+before the correction; the prescribed accuracy target was not relaxed.
+
+## Remaining proof obligations
+
+1. Do not classify the seven-model comparison as PASS: reproduce and
+   explain the recorded nodewise discrepancies without altering the
+   published limits or changing any constitutive/kinematic equation.
+2. For TE3 and TE4, separately compare **reconstructed physical**
+   U(z), V(z), W(z) at surfaces and mid-thickness, and individual
+   Taylor coefficients; do not mix their units or numerical scales.
+3. Check FDM precision sensitivity for each model with an independently
+   validated numerical reference; distinguish solver precision from
+   fixed-rank truncation.
+4. Verify true time-step convergence over multiple accepted physical
+   time steps, and spatial-grid convergence.
+5. Examine MVI ranks 2 through 8 against the same physical baseline
+   before claiming rank convergence for any model.
+
+This document reports analysis of **existing** GitHub Actions archives.
+No new physical calculation has been launched by this report.
