@@ -1,4 +1,4 @@
-name: Independent CUF TE4 MKR MVI algebra and architecture
+name: Independent seven-model MKR MVI algebra and architecture
 on:
   workflow_dispatch:
   push:
@@ -18,7 +18,7 @@ permissions:
   contents: read
 jobs:
   algebra-only:
-    name: Independent MKR and MVI operator isolation; no physical time integration
+    name: Seven-model independent MKR and MVI with all three time schemes; no physical run
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -33,7 +33,7 @@ jobs:
           python-version: "3.11"
       - name: Install algebraic test dependencies
         run: python -m pip install numpy scipy pytest
-      - name: Compile two independent solvers and run operator-only tests
+      - name: Compile independent MKR/MVI for all seven theories and validate 42 cases
         run: |
           python -m py_compile independent_mkr/linear_te4.py independent_mvi/linear_te4.py independent_mkr/run_case.py independent_mvi/run_case.py independent_mkr/linear_models.py independent_mvi/linear_models.py independent_mkr/run_models.py independent_mvi/run_models.py
           python -m pytest -q tests/test_independent_te4_solver_isolation.py tests/test_independent_te4_temporal_routes.py tests/test_independent_mkr_seven_theories.py tests/test_independent_mvi_seven_theories.py tests/test_independent_42_cases.py
