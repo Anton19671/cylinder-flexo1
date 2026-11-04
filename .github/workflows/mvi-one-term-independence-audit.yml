@@ -1,0 +1,28 @@
+name: MVI rank-one independence and XY algebra audit
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/mvi-one-term-independence-audit.yml"
+permissions:
+  contents: read
+jobs:
+  algebraic:
+    name: Verify rank-one/ rank-two variational algebra, no physical solve
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models:tests"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements.txt
+      - name: Check factor dimensions, QR, exact rank-two limit and dispatch
+        run: |
+          python -m pytest -q tests/test_mvi_one_term_independence_audit.py tests/test_variational_mvi.py
