@@ -1,0 +1,226 @@
+name: CUF TE4 real long linear dynamics and plot data
+run-name: "CUF TE4 FDM 40 real Bathe steps / 2 pressure cycles at ${{ github.sha }}"
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/cuf-te4-long-linear-dynamics.yml"
+permissions:
+  contents: read
+jobs:
+  long-te4-fdm:
+    name: "CUF TE4 full-nodal FDM, 0.080 s, 25 Hz, 9x9"
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+      MPLBACKEND: "Agg"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install the actual physics solver and plotting libraries
+        run: python -m pip install -r requirements.txt
+      - name: Create ONE real CUF TE4 full-nodal FDM case (40 x 0.002 s)
+        run: |
+          python ci/generate_linear_bathe_case.py \
+            --theory CUF_TE4 --method FDM --steps 40 --dt 0.002 \
+            --output config/verification/cuf_te4_long_linear
+          python - <<'PY'
+          import json, math
+          from pathlib import Path
+          case=json.loads(Path("config/verification/cuf_te4_long_linear/CUF_TE4_FDM.json").read_text(encoding="utf-8"))
+          d=case["dynamics"]
+          assert case["theory"]=="CUF" and case["cuf_model"]=="TE4"
+          assert case["method"]=="FDM" and case["fdm_backend"]=="MATRIX_FREE_GMRES"
+          assert case["mode"]=="LINEAR_ELASTIC" and case["material_model"]=="HOOKE"
+          assert case["geometry_model"]=="LINEAR" and d["integrator"]=="BATHE"
+          assert d["n_steps"]==40 and math.isclose(d["time_step_s"],0.002)
+          assert d["time_law"]["kind"]=="HARMONIC" and d["time_law"]["frequency_hz"]==25
+          assert case["load_definition"]["direction"]=="RADIAL_INWARD"
+          assert case["load_definition"]["q"]==100000
+          assert case["quadrature"]["n_gauss"]==9
+          assert case["fdm_grid"]=={"nx":9,"ns":9,"operator_scheme":"SBP42_FOURIER_ODD_CSR"}
+          assert case["reference_newton"]["krylov_rtol"]==1e-4
+          assert case["reference_newton"]["krylov_max_matvecs"]==1200
+          print("REAL_CUF_TE4_FDM_LONG_CASE_VALIDATED: 40 steps, 0.080 s, two 25 Hz cycles", flush=True)
+          PY
+      - name: Run real long Bathe dynamics; never substitute synthetic states
+        shell: bash
+        run: |
+          mkdir -p cuf_te4_long_logs
+          set -o pipefail
+          python -u RUN_FINAL_CASE.py \
+            config/verification/cuf_te4_long_linear/CUF_TE4_FDM.json \
+            2>&1 | tee cuf_te4_long_logs/CUF_TE4_FDM_40_STEPS.log
+      - name: Export measured load/time, displacement/time and load-deflection graphics
+        if: always()
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import csv, json, math
+          import numpy as np
+          import matplotlib
+          matplotlib.use("Agg")
+          import matplotlib.pyplot as plt
+
+          base=Path("config/verification/cuf_te4_long_linear")
+          output=base/"output"/"CUF_TE4_FDM"
+          summary_file=output/"FINAL_RUN_SUMMARY.json"
+          case_file=base/"CUF_TE4_FDM.json"
+          if not summary_file.is_file() or not case_file.is_file():
+              print("TE4_GRAPH_EXPORT_SKIPPED: no physical summary or CASE; no data invented",flush=True)
+              raise SystemExit(0)
+          summary=json.loads(summary_file.read_text(encoding="utf-8"))
+          case=json.loads(case_file.read_text(encoding="utf-8"))
+          accepted=int(summary.get("accepted_steps",0))
+          requested=int(summary.get("requested_steps",0))
+          if accepted<1:
+              print("TE4_GRAPH_EXPORT_SKIPPED: no accepted physical steps",flush=True)
+              raise SystemExit(0)
+          if requested!=40 or accepted>requested or summary.get("theory")!="CUF_TE4" or summary.get("method")!="FDM":
+              raise ValueError("TE4_LONG_PHYSICAL_PASSPORT_INVALID")
+          dt=float(case["dynamics"]["time_step_s"])
+          pressure_kpa=float(case["load_definition"]["q"])/1e3
+          frequency=float(case["dynamics"]["time_law"]["frequency_hz"])
+          radial=10  # CUF_TE4 ordering U0..U4,V0..V4,W0..W4
+          even_coeff=np.array([1.,-1.,1.,-1.,1.])
+          rows=[]
+          def ingest(file, step, stage):
+              with np.load(file,allow_pickle=False) as states:
+                  time=float(states["time_s"])
+                  displacement=np.asarray(states["mechanical"],float)
+                  velocity=np.asarray(states["velocity"],float)
+                  acceleration=np.asarray(states["acceleration"],float)
+                  if (displacement.shape!=(15,9,9) or velocity.shape!=displacement.shape
+                      or acceleration.shape!=displacement.shape
+                      or any(not np.isfinite(f).all() for f in
+                          (displacement,velocity,acceleration))):
+                      raise ValueError("TE4_LONG_SAVED_PHYSICAL_STATE_INVALID")
+                  factor=(math.sin(2*math.pi*frequency*time)
+                          if stage=="INITIAL" else float(states["load_factor"]))
+                  if not math.isclose(factor,math.sin(2*math.pi*frequency*time),
+                                      abs_tol=1e-11,rel_tol=1e-11):
+                      raise ValueError("TE4_LONG_SAVED_LOAD_TIME_INVALID")
+                  coefficients=displacement[radial:radial+5,4,4]
+                  row={
+                     "step":step,
+                     "stage":stage,
+                     "time_s":time,
+                     "time_ms":time*1e3,
+                     "load_factor":factor,
+                     "signed_inward_pressure_kpa":pressure_kpa*factor,
+                     "w_mid_center_mm":float(coefficients[0]*1e3),
+                     "w_inner_center_mm":float(np.dot(coefficients,even_coeff)*1e3),
+                     "w_outer_center_mm":float(np.sum(coefficients)*1e3),
+                     "w_mid_peak_abs_mm":float(np.max(np.abs(displacement[radial]))*1e3),
+                     "velocity_mid_center_mm_s":float(velocity[radial,4,4]*1e3),
+                     "acceleration_mid_center_mm_s2":float(acceleration[radial,4,4]*1e3),
+                  }
+                  rows.append(row)
+
+          ingest(output/"REFERENCE_DYNAMIC_INITIAL.npz",0,"INITIAL")
+          gamma=2.0-math.sqrt(2.0)
+          for step in range(1,accepted+1):
+              ingest(output/f"BATHE_SUBSTEP_{step:04d}_GAMMA.npz",step,"GAMMA")
+              ingest(output/f"REFERENCE_DYNAMIC_STEP_{step:04d}.npz",step,"END")
+          expected_times=[0.]
+          for step in range(1,accepted+1):
+              expected_times.extend(((step-1+gamma)*dt,step*dt))
+          if len(rows)!=2*accepted+1 or any(
+              not math.isclose(r["time_s"],t,abs_tol=1e-12)
+              for r,t in zip(rows,expected_times)):
+              raise ValueError("TE4_LONG_STAGES_MISSING_OR_OUT_OF_ORDER")
+          output.mkdir(parents=True,exist_ok=True)
+          def save_csv(path, data):
+              with path.open("w",newline="",encoding="utf-8") as fp:
+                  writer=csv.DictWriter(fp,fieldnames=list(rows[0]))
+                  writer.writeheader()
+                  writer.writerows(data)
+          save_csv(output/"TE4_LONG_ALL_SUBSTEPS_PLOT_DATA.csv",rows)
+          save_csv(output/"TE4_LONG_END_STEPS_PLOT_DATA.csv",
+                   [r for r in rows if r["stage"] in ("INITIAL","END")])
+          complete=(accepted==requested and summary.get("converged") is True
+                    and summary.get("status")=="CONVERGED")
+          (output/"TE4_LONG_PLOT_METADATA.json").write_text(json.dumps({
+             "source":"physical accepted NPZ states from this exact GitHub Actions run",
+             "integrator":"BATHE","theory":"CUF_TE4","method":"FDM",
+             "requested_steps":requested,"accepted_steps":accepted,
+             "physical_history_complete":complete,
+             "sample_count_including_Bathe_substeps":len(rows),
+             "dt_s":dt,"frequency_hz":frequency,
+             "pressure_amplitude_pa":pressure_kpa*1000,
+             "pressure_convention":"positive = radially inward",
+             "thickness_basis":"F_k(z)=(2z/h)^k",
+             "center_grid_index":[4,4],
+             "warning":("Full history accepted" if complete else
+                        "INCOMPLETE: only accepted physical states were plotted")
+          },indent=2)+"\n",encoding="utf-8")
+          plt.rcParams.update({
+              "font.size":11,"axes.labelsize":12,"axes.titlesize":12,
+              "axes.spines.top":False,"axes.spines.right":False,
+              "axes.grid":True,"grid.alpha":0.20,
+              "lines.linewidth":2.0,"figure.dpi":140,
+          })
+          times=np.array([r["time_ms"] for r in rows],float)
+          loads=np.array([r["signed_inward_pressure_kpa"] for r in rows],float)
+          mid=np.array([r["w_mid_center_mm"] for r in rows],float)
+          inner=np.array([r["w_inner_center_mm"] for r in rows],float)
+          outer=np.array([r["w_outer_center_mm"] for r in rows],float)
+          suffix="" if complete else " (accepted steps only)"
+          def finalize(fig,name):
+              fig.tight_layout()
+              fig.savefig(output/name,dpi=220,bbox_inches="tight")
+              plt.close(fig)
+          fig,ax=plt.subplots(figsize=(9.3,4.8))
+          ax.plot(times,loads,color="#1763a6")
+          ax.axhline(0,color="#777777",lw=.8)
+          ax.set(xlabel="Time (ms)",ylabel="Signed inward pressure (kPa)",
+                 title="CUF TE4: actual harmonic pressure history"+suffix)
+          finalize(fig,"TE4_PRESSURE_VS_TIME_COLOR.png")
+
+          fig,ax=plt.subplots(figsize=(9.3,5.1))
+          ax.plot(times,mid,label="Mid-surface (z=0)",color="#c44536")
+          ax.plot(times,inner,label="Inner surface (z=-h/2)",color="#237a67",
+                  ls="--",alpha=.9)
+          ax.plot(times,outer,label="Outer surface (z=+h/2)",color="#584eac",
+                  ls=":",alpha=.9)
+          ax.axhline(0,color="#777777",lw=.8)
+          ax.set(xlabel="Time (ms)",ylabel="Radial displacement at center (mm)",
+                 title="CUF TE4: computed dynamic radial displacement"+suffix)
+          ax.legend(loc="best",frameon=False)
+          finalize(fig,"TE4_DEFLECTION_VS_TIME_COLOR.png")
+
+          fig,ax=plt.subplots(figsize=(6.7,5.5))
+          ax.plot(mid,loads,color="#1763a6")
+          ax.plot(mid[0],loads[0],marker="o",color="#237a67",
+                  label="Initial state",ls="none")
+          ax.set(xlabel="Mid-surface radial displacement (mm)",
+                 ylabel="Signed inward pressure (kPa)",
+                 title="CUF TE4: dynamic pressure-deflection trajectory"+suffix)
+          ax.legend(loc="best",frameon=False)
+          finalize(fig,"TE4_PRESSURE_VS_DEFLECTION_COLOR.png")
+
+          print("TE4_REAL_LONG_GRAPH_DATA_EXPORTED",
+                "accepted",accepted,"requested",requested,
+                "measurements",len(rows),"complete",complete,
+                "final_time_s",rows[-1]["time_s"],flush=True)
+          PY
+      - name: Upload physical states, numerical journal, tabular histories and color figures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CUF_TE4_LONG_LINEAR_DYNAMIC_PHYSICAL_HISTORY_AND_GRAPHS
+          path: |
+            config/verification/cuf_te4_long_linear/
+            cuf_te4_long_logs/
+          retention-days: 60
+          if-no-files-found: warn
