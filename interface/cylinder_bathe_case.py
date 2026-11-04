@@ -78,7 +78,16 @@ def _accept(result,prepared,rel_tolerance):
             raise ValueError("BATHE_MVI_FIXED_RANK_CERTIFICATE_FAILED")
 
 
-def run_bathe_case(case,case_path,*,prepared=None):
+def run_bathe_case(case,case_path,*,prepared=None,max_new_steps=None):
+    """Real Bathe solve; optional execution-only step budget for CI checkpointing.
+
+    max_new_steps does not change the CASE, load law, physical equations, or
+    required total step count. It merely limits work in this process.
+    """
+    if max_new_steps is not None and (
+        type(max_new_steps) is not int or max_new_steps<1):
+        raise ValueError("BATHE_INVALID_EXECUTION_STEP_BUDGET")
+
     from cylinder_reference_case import prepare_reference_case
     if str(case.get("calculation_kind","")).upper()!="DYNAMIC" or str(
         (case.get("dynamics") or {}).get("integrator","")).upper()!="BATHE":
@@ -161,7 +170,9 @@ def run_bathe_case(case,case_path,*,prepared=None):
             prev=None
     else:
         _json(out/"FINAL_RUN_SUMMARY.json",summary)
-    for i in range(start_step,settings.n_steps+1):
+    last_step=(settings.n_steps if max_new_steps is None else
+               min(settings.n_steps,start_step+max_new_steps-1))
+    for i in range(start_step,last_step+1):
         t0=settings.t_start_s+(i-1)*settings.dt_s
         def loads(t):
             factor=dyn.time_law.value(t)
@@ -233,11 +244,20 @@ def run_bathe_case(case,case_path,*,prepared=None):
             summary["failed_step_message"]=str(exc)
             _json(out/"FINAL_RUN_SUMMARY.json",summary)
             raise
-    if len(all_history)!=settings.n_steps or not summary["converged"]:
+    if max_new_steps is None and (len(all_history)!=settings.n_steps or
+                                  not summary["converged"]):
         raise ValueError("BATHE_HISTORY_NOT_ALL_STEPS_ACCEPTED")
-    with (out/"REFERENCE_DYNAMIC_HISTORY.csv").open("w",newline="",encoding="utf-8") as fp:
-        writer=csv.DictWriter(fp,fieldnames=list(all_history[0]))
-        writer.writeheader();writer.writerows(all_history)
+    if summary["converged"] and len(all_history)!=settings.n_steps:
+        raise ValueError("BATHE_FINAL_HISTORY_LENGTH_INCONSISTENT")
+    if all_history:
+        name=("REFERENCE_DYNAMIC_HISTORY.csv" if summary["converged"] else
+              "REFERENCE_DYNAMIC_ACCEPTED_PARTIAL_HISTORY.csv")
+        with (out/name).open("w",newline="",encoding="utf-8") as fp:
+            writer=csv.DictWriter(fp,fieldnames=list(all_history[0]))
+            writer.writeheader();writer.writerows(all_history)
+    if max_new_steps is not None:
+        print("BATHE_ACCEPTED_CHECKPOINT",summary["accepted_steps"],
+              "of",settings.n_steps,"complete",summary["converged"],flush=True)
     return summary
 
 __all__=("run_bathe_case",)
