@@ -41,7 +41,7 @@ def from_reference_case(case):
     if source.get("solver_backend")!="VARIATIONAL_REFERENCE":
         raise ValueError("MVI_BRIDGE_REFERENCE_BACKEND_REQUIRED")
     if str(source.get("method","")).upper()!="MVI":
-        raise ValueError("MVI_BRIDGE_OTHER_MVI_REJECTED")
+        raise ValueError("MVI_BRIDGE_OTHER_METHOD_REJECTED")
     for key,expected in (
         ("calculation_kind","DYNAMIC"),
         ("geometry_model","LINEAR"),
