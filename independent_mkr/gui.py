@@ -71,6 +71,7 @@ class IndependentMKRWindow(tk.Toplevel):
         self.saved_path=None
         self.saved_fingerprint=None
         self.saved_output=None
+        self.progress_text=tk.StringVar(self,value="Шаги: 0 / 0")
         self.proc=None
         self.pause_signal=None
         self.lines=queue.Queue()
@@ -114,6 +115,8 @@ class IndependentMKRWindow(tk.Toplevel):
         self.stop_button.pack(side="left",padx=3)
         ttk.Button(actions,text="Папка результатов",
                    command=self.open_result).pack(side="left",padx=3)
+        ttk.Label(self,textvariable=self.progress_text,anchor="w").pack(
+            fill="x",padx=12,pady=(0,3))
         self.log=tk.Text(self,height=8,wrap="word",state="disabled")
         self.log.pack(fill="both",padx=12,pady=(0,10))
         self.template(force=True)
@@ -146,6 +149,7 @@ class IndependentMKRWindow(tk.Toplevel):
         self.saved_path=None
         self.saved_output=None
         self.saved_fingerprint=None
+        self.progress_text.set("Шаги: 0 / 0")
         self._note(f"Загружен шаблон: {path.name} (расчёт не запускался)")
 
     def _draft(self):
@@ -203,6 +207,8 @@ class IndependentMKRWindow(tk.Toplevel):
             self.saved_path=case_file
             self.saved_output=output
             self.saved_fingerprint=self._fingerprint(self._draft())
+            self.progress_text.set(
+                f"Шаги: 0 / {document['time']['steps']}")
             self._note(f"Сохранён один CASE: {case_file}")
             self._note(f"Отдельные результаты: {output}")
             return case_file
@@ -248,6 +254,22 @@ class IndependentMKRWindow(tk.Toplevel):
             self.lines.put("Ошибка чтения лога: "+str(exc))
 
     def _poll(self):
+        # Read method-specific durable accepted-step count, not process
+        # stdout heuristics, to recover GUI progress after long Krylov stages.
+        if self.proc is not None and self.saved_output is not None:
+            summary=self.saved_output/OWN_SUMMARY
+            if summary.is_file():
+                try:
+                    data=json.loads(summary.read_text(encoding="utf-8"))
+                    completed=data.get("accepted_steps")
+                    requested=data.get("requested_steps")
+                    status=data.get("status")
+                    if (type(completed) is int and type(requested) is int
+                        and 0<=completed<=requested):
+                        self.progress_text.set(
+                            f"Шаги: {completed} / {requested} · {status}")
+                except (OSError,ValueError,TypeError):
+                    pass
         while True:
             try:self._note(self.lines.get_nowait())
             except queue.Empty:break
