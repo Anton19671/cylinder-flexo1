@@ -91,3 +91,48 @@ Therefore, the architecture/code **is separated for all seven linear
 models**, but *full-model physical verification and complete separation
 of every nonlinear/electrical capability remain unfinished*. It would
 be incorrect to claim otherwise.
+
+
+## 2026-11-05 GUI integration — two EXCLUSIVE method panels
+
+The actual user-facing entrypoint is `interface/FINAL_GUI.py` (loaded
+through the project-root `FINAL_GUI.py`). Its **last** `_build_ui`
+implementation in `FinalSolverGUI` now exposes two explicit buttons:
+- **МКР — свой решатель…** → `independent_mkr.gui.open_window`
+- **МВИ — свой решатель…** → `independent_mvi.gui.open_window`
+
+Each window lives in its OWN package. Its editor validates only that
+method's CASE schema and uses only its own
+`independent_mkr.run_models` or `independent_mvi.run_models` executable.
+Bathe, Newmark and two-stage Gauss IRK4 are chosen independently;
+all KL/FSDT/Reddy/CUF TE1..4 options are offered. The MVI window alone
+supports ranks 1–8, constrained by physically admissible axial fields.
+
+Every run creates a unique `CASES/METHOD_THEORY_TIME_...json` and a
+distinct `RUNS/METHOD_THEORY_TIME_...` directory under the user-selected
+result root. Existing CASE files, old numerical output and GUI workflows
+are not overwritten. Input validation and file saving NEVER execute
+physical calculations; **only a user's explicit «РАССЧИТАТЬ» button**
+starts the subprocess. The child writes own method-specific stage NPZ,
+history CSV, summary JSON and (for MVI) factor NPZ. Stop terminates
+only the window's own child process. Exit-code zero alone does NOT
+imply success: the GUI checks the method's own completed summary and
+fully accepted step count.
+
+The historical shared-functional GUI dispatch is deliberately NOT
+redirected into these prototype solvers. The legacy CASE contains
+nonlinear, micro and electric fields that must NOT be discarded or
+silently replaced by a linear/electric-OFF independent model.
+
+[CI run #42045606914](https://github.com/Anton19671/cylinder-flexo1/actions/runs/42045606914):
+**148 passed**. All 42 own CASE combinations are checked headlessly;
+both independent GUI modules and the main GUI compile; import checks
+fail upon cross-method or legacy-variational backend imports. No GUI
+window or forced physical shell simulation is started in CI.
+
+IMPORTANT: this demonstrates that the two prototype GUI routes are
+present and static/semantic preflight works. The GUI has not yet been
+visually verified on the user's Windows display; and no nonzero
+independent physical transient has been run or externally validated.
+**Only linear MACRO HOOKE, with no flexoelectric, no GL/VK, no plasticity
+and no modal analysis, is available in these isolated windows.**
