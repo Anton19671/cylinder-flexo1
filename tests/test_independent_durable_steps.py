@@ -82,11 +82,12 @@ def test_runner_persists_accepted_history_and_fails_closed_without_physics(
         rows=list(csv.DictReader(stream))
     assert len(rows)==(1 if nonfinite else 2)
     assert all(row["stage"]=="END" for row in rows)
-    assert len(list(output.glob(f"{method}_STEP_*.npz"))==(
-        (2 if method=="MVI" else 1) if nonfinite else
-        (4 if method=="MVI" else 2))
+    actual=list(output.glob("MKR_STEP_*.npz" if method=="MKR" else
+                            "MVI_R1_STEP_*.npz"))
+    expected=(1 if nonfinite else 2)*(1 if method=="MKR" else 2)
+    assert len(actual)==expected
     if nonfinite:
-        assert not list(output.glob(f"{method}_STEP_0002_*.npz"))
+        assert not list(output.glob("MKR_STEP_0002_*.npz"))
         assert not list(output.glob("MVI_R*_STEP_0002_*.npz"))
 
 
