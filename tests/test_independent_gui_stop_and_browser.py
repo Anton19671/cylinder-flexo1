@@ -48,6 +48,7 @@ def test_stop_status_persisted_in_valid_json_after_child_exit(
         run_button=Widget()
         stop_button=Widget()
         pause_button=Widget()
+        progress_text=SimpleNamespace(set=lambda _value:None)
         lines=Queue()
         def _note(self,value):
             observed.append(str(value))
