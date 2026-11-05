@@ -9,6 +9,7 @@ import argparse
 import csv
 from dataclasses import asdict
 import json
+import time
 from pathlib import Path
 
 import numpy as np
@@ -76,55 +77,99 @@ def run(path: Path, *, validate_only: bool):
         "requested_steps":steps,"dt_s":dt_s,"time_s":0.,
         "solver_module":"independent_mvi.linear_models"
     }
+    summary_path=output/"MVI_OWN_RUN_SUMMARY.json"
     def save_summary():
-        (output/"MVI_OWN_RUN_SUMMARY.json").write_text(
-            json.dumps(summary,indent=2)+"\n",encoding="utf-8")
+        temporary=summary_path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(summary,indent=2)+"\n",encoding="utf-8")
+        temporary.replace(summary_path)
     save_summary()
     radial=(2 if physics.theory in ("KL","FSDT","REDDY") else
             2*(int(physics.theory[-1])+1))
-    table=[]
-    for k in range(1,steps+1):
-        start=(k-1)*dt_s
-        if scheme=="BATHE":
-            first,final,profiles,details=solver.step_bathe(
-                q,v,a,start,dt_s,previous=profiles)
-            stages=(("GAMMA",start+(2-np.sqrt(2))*dt_s,first),
-                    ("END",k*dt_s,final))
-        elif scheme=="NEWMARK":
-            final,profiles,details=solver.step_newmark(
-                q,v,a,start,dt_s,previous=profiles)
-            stages=(("END",k*dt_s,final),)
-        else:
-            physical,final,profiles,details=solver.step_gauss_irk4(
-                q,v,a,start,dt_s,previous=profiles)
-            offsets=(.5-np.sqrt(3)/6,.5+np.sqrt(3)/6)
-            stages=tuple((f"GAUSS_{i+1}",start+offsets[i]*dt_s,physical[i])
-                         for i in range(2))+(("END",k*dt_s,final),)
-        for stage,time_s,(mechanical,velocity,acceleration) in stages:
-            if any(field.shape!=shape or not np.isfinite(field).all()
-                   for field in (mechanical,velocity,acceleration)):
-                raise RuntimeError("MVI_NONFINITE_OR_INVALID_ACCEPTED_FIELD")
-            name=output/f"MVI_R{rank}_STEP_{k:04d}_{stage}.npz"
-            np.savez_compressed(
-                name,time_s=time_s,mechanical=mechanical,
-                velocity=velocity,acceleration=acceleration)
-            table.append({
-                "step":k,"stage":stage,"time_s":time_s,
-                "central_w0_m":float(mechanical[radial,physics.nx//2,physics.ns//2]),
-                "maximum_abs_w0_m":float(np.max(np.abs(mechanical[radial])))
-            })
-        q,v,a=tuple(np.array(x,copy=True) for x in final)
-        np.savez_compressed(output/f"MVI_R{rank}_STEP_{k:04d}_FACTORS.npz",
-                            x_profiles=profiles[0],y_profiles=profiles[1])
-        summary["accepted_steps"]=k
-        summary["time_s"]=k*dt_s
-        save_summary()
-    with (output/"MVI_OWN_PHYSICAL_HISTORY.csv").open(
-            "w",newline="",encoding="utf-8") as out:
-        writer=csv.DictWriter(out,fieldnames=list(table[0]))
-        writer.writeheader();writer.writerows(table)
-    summary["status"]="CONVERGED"
-    save_summary()
+    pause_signal=Path(path).with_suffix(".pause")
+    history=output/"MVI_OWN_PHYSICAL_HISTORY.csv"
+    fields=("step","stage","time_s","central_w0_m","maximum_abs_w0_m")
+    failed_step=None
+    with history.open("x",newline="",encoding="utf-8") as stream:
+        writer=csv.DictWriter(stream,fieldnames=fields)
+        writer.writeheader()
+        stream.flush()
+        try:
+            for k in range(1,steps+1):
+                failed_step=k
+                if pause_signal.is_file():
+                    summary["status"]="PAUSED"
+                    save_summary()
+                    print(f"MVI PAUSED before step {k}/{steps}",flush=True)
+                    while pause_signal.is_file():
+                        time.sleep(.2)
+                    summary["status"]="IN_PROGRESS"
+                    save_summary()
+                    print(f"MVI RESUMED step {k}/{steps}",flush=True)
+                start=(k-1)*dt_s
+                if scheme=="BATHE":
+                    first,final,next_profiles,details=solver.step_bathe(
+                        q,v,a,start,dt_s,previous=profiles)
+                    stages=(("GAMMA",start+(2-np.sqrt(2))*dt_s,first),
+                            ("END",k*dt_s,final))
+                elif scheme=="NEWMARK":
+                    final,next_profiles,details=solver.step_newmark(
+                        q,v,a,start,dt_s,previous=profiles)
+                    stages=(("END",k*dt_s,final),)
+                else:
+                    physical,final,next_profiles,details=solver.step_gauss_irk4(
+                        q,v,a,start,dt_s,previous=profiles)
+                    offsets=(.5-np.sqrt(3)/6,.5+np.sqrt(3)/6)
+                    stages=tuple(
+                        (f"GAUSS_{i+1}",start+offsets[i]*dt_s,physical[i])
+                        for i in range(2))+(("END",k*dt_s,final),)
+                if (not isinstance(next_profiles,(tuple,list)) or
+                        len(next_profiles)!=2):
+                    raise RuntimeError("MVI_MISSING_XY_FACTORS")
+                X,Y=(np.asarray(z,float) for z in next_profiles)
+                if (X.shape!=(solver.n,rank,physics.nx) or
+                        Y.shape!=(solver.n,rank,physics.ns) or
+                        not np.isfinite(X).all() or not np.isfinite(Y).all()):
+                    raise RuntimeError("MVI_NONFINITE_OR_WRONG_SHAPE_FACTORS")
+                pending=[]
+                for stage,time_s,fields_at_stage in stages:
+                    mechanical,velocity,acceleration=fields_at_stage
+                    if any(z.shape!=shape or not np.isfinite(z).all()
+                           for z in (mechanical,velocity,acceleration)):
+                        raise RuntimeError("MVI_NONFINITE_OR_WRONG_SHAPE_STAGE")
+                    pending.append((
+                        output/f"MVI_R{rank}_STEP_{k:04d}_{stage}.npz",
+                        time_s,mechanical,velocity,acceleration,
+                        {"step":k,"stage":stage,"time_s":time_s,
+                         "central_w0_m":float(mechanical[
+                             radial,physics.nx//2,physics.ns//2]),
+                         "maximum_abs_w0_m":float(np.max(np.abs(
+                             mechanical[radial])))}
+                    ))
+                for filename,stage_time,mechanical,velocity,acceleration,row in pending:
+                    np.savez_compressed(filename,time_s=stage_time,
+                            mechanical=mechanical,velocity=velocity,
+                            acceleration=acceleration)
+                np.savez_compressed(output/f"MVI_R{rank}_STEP_{k:04d}_FACTORS.npz",
+                                    x_profiles=X,y_profiles=Y)
+                for *_,row in pending:
+                    writer.writerow(row)
+                stream.flush()
+                q,v,a=tuple(np.array(z,copy=True) for z in final)
+                profiles=(X.copy(),Y.copy())
+                summary["accepted_steps"]=k
+                summary["time_s"]=k*dt_s
+                save_summary()
+                print(f"MVI ACCEPTED {k}/{steps} t={k*dt_s:.9g} s",flush=True)
+            summary["status"]="CONVERGED"
+            save_summary()
+            print(f"MVI COMPLETED {steps}/{steps}",flush=True)
+        except Exception as exc:
+            summary.update(status="FAILED",failed_step=failed_step,
+                           error_type=type(exc).__name__,detail=str(exc))
+            save_summary()
+            print(f"MVI FAILED step={failed_step} error={type(exc).__name__}: {exc}",
+                  flush=True)
+            raise
     return summary
 
 
