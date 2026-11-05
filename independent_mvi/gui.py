@@ -20,6 +20,7 @@ from uuid import uuid4
 
 from independent_mvi.linear_models import VariationalModelCase
 from independent_mvi.run_models import SCHEMA, load_case
+from independent_mvi.reference_bridge import from_reference_case
 
 ROOT=Path(__file__).resolve().parents[1]
 THEORIES=("KL","FSDT","REDDY","CUF_TE1","CUF_TE2","CUF_TE3","CUF_TE4")
@@ -161,6 +162,26 @@ class IndependentMVIWindow(tk.Toplevel):
         self.saved_fingerprint=None
         self.progress_text.set("Шаги: 0 / 0")
         self._note(f"Загружен шаблон: {path.name} (расчёт не запускался)")
+
+    def import_reference_case(self,reference):
+        """Load only equivalent physical data; no save or physical run."""
+        if self.proc is not None and self.proc.poll() is None:
+            raise RuntimeError("Нельзя заменить CASE во время расчёта")
+        case=from_reference_case(reference)
+        inspect_document(case)
+        self.theory.set(case["physics"]["theory"])
+        self.integrator.set(case["time"]["integrator"])
+        self.rank.set(str(case["rank"]))
+        self.editor.delete("1.0","end")
+        self.editor.insert("1.0",json.dumps(case,ensure_ascii=False,indent=2))
+        self.saved_path=None
+        self.saved_fingerprint=None
+        self.saved_output=None
+        self.progress_text.set(f"Шаги: 0 / {case['time']['steps']}")
+        self._note("Перенесены только совместимые физические параметры. "
+                   "Численные МКР/МВИ операторы полностью отдельные. "
+                   "Проверьте CASE и сохраните перед запуском.")
+        return case
 
     def _draft(self):
         document=json.loads(self.editor.get("1.0","end-1c"))
