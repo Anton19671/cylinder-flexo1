@@ -178,3 +178,51 @@ physical shell response was calculated** for these checks.
 
 All new functionality remains EXPERIMENTAL for linear homogeneous
 HOOKE/MACRO. No changes to legacy physics or older GUI execution paths.
+
+
+## 2026-11-05 CASE handoff, history browser and explicit STOP status
+
+Full separation of **experimental LINEAR** MKR/MVI routes is preserved.
+The actual main GUI `interface/FINAL_GUI.py` now:
+- Opens `independent_mkr.gui` only for the MKR button;
+- Opens `independent_mvi.gui` only for the MVI button;
+- If a saved variational reference CASE is selected, uses *only* that
+  method's `independent_{mkr,mvi}/reference_bridge.py` to carry
+  equivalent physical inputs into the independent window, **before**
+  opening the child editor;
+- Respects the currently edited pending reference CASE rather than
+  inadvertently switching to a previous saved version;
+- Rejects wrong-method, nonlinear VK/GL, J2, MICRO/flexo, incompatible
+  spatial loads, unclamped ends, electric boundary traces, damping,
+  nonharmonic or phased time laws, nonzero initial states or unsupported
+  units rather than silently reducing the requested physics.
+- If there is no selected reference CASE, the independent window opens
+  its *explicit experimental template*; it does not pretend to have
+  imported the unrelated on-screen problem settings.
+
+Each independent method window now has:
+1. **Загрузить CASE**: a method-specific JSON file picker. Wrong-method
+   documents are rejected. Loading a CASE is not a calculation and
+   does not reuse or overwrite the prior run directory.
+2. **Просмотр результатов**: own accepted-step CSV in a Tk table and
+   own durable summary status; numerical stage NPZ and MVI factor NPZ
+   stay available in each method's result folder.
+3. **СТОП**: method-owned child process termination; once it exits, the
+   own summary changes from IN_PROGRESS or PAUSED to
+   `STOPPED_BY_USER`, preserving the already accepted steps.
+4. **ПАУЗА/ПРОДОЛЖИТЬ**: own signal file; cooperative between complete
+   accepted steps, never claimed to suspend an in-progress Krylov stage.
+
+[GitHub Actions #42050963083](https://github.com/Anton19671/cylinder-flexo1/actions/runs/42050963083):
+**214 tests passed**, including physical-field mapping for all seven
+theories and both methods, wrong-method and non-equivalent-physics
+rejection, headless CASE/browser checks and synthetic subprocess STOP.
+None of these tests runs a nonzero shell transient.
+
+**Remaining critical constraints:** These newly integrated routes remain
+EXPERIMENTAL and only linear MACRO HOOKE. They are not proved physically
+correct for all 42 nonzero transient combinations. Old production
+G3D/Gz/flexoelectric, modal, nonlinear geometry and other boundary
+conditions remain in their existing reference routes and have NOT been
+independently reimplemented in the experimental strong/weak solver pair.
+No GUI-level claim of complete VK/GL/flexo isolation is justified.
