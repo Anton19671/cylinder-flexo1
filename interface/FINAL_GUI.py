@@ -3548,6 +3548,16 @@ class EnhancedSolverGUI(SolverGUI):
 class FinalSolverGUI(EnhancedSolverGUI):
     """Stage12 final UI fixes. Solver mechanics remain unchanged."""
 
+    def open_independent_mkr(self):
+        """Open only the separate MKR GUI; no legacy/MVI solver is imported."""
+        from independent_mkr.gui import open_window
+        return open_window(self)
+
+    def open_independent_mvi(self):
+        """Open only the separate MVI GUI; no legacy/MKR solver is imported."""
+        from independent_mvi.gui import open_window
+        return open_window(self)
+
     def _build_ui(self):
         super()._build_ui()
         # Dedicated live calculation page.  It is a GUI/output layer only; the
@@ -8171,6 +8181,25 @@ class FinalSolverGUI(EnhancedSolverGUI):
         # Dynamic inputs now live in their own scrollable notebook page.
         # Keeping them here above the notebook squeezed the problem geometry
         # and boundary editors to an unusable strip on scaled Windows screens.
+
+        # Explicit EXPERIMENTAL independent solvers: never enter the shared
+        # VARIATIONAL_REFERENCE legacy dispatcher. Each owns its CASE, physics,
+        # temporal methods, output, subprocess and progress lifecycle.
+        independent_bar=ttk.Frame(self,padding=(12,2,12,5))
+        independent_bar.pack(fill="x")
+        ttk.Label(independent_bar,text="НЕЗАВИСИМЫЕ ЛИНЕЙНЫЕ РЕШАТЕЛИ:",
+                  foreground="#9a6700").pack(side="left",padx=(0,8))
+        self.independent_mkr_btn=ttk.Button(
+            independent_bar,text="МКР — свой решатель…",
+            command=self.open_independent_mkr)
+        self.independent_mkr_btn.pack(side="left",padx=(0,6))
+        self.independent_mvi_btn=ttk.Button(
+            independent_bar,text="МВИ — свой решатель…",
+            command=self.open_independent_mvi)
+        self.independent_mvi_btn.pack(side="left",padx=(0,6))
+        ttk.Label(independent_bar,text="KL / FSDT / Reddy / CUF TE1–TE4; "
+                  "Bathe / Newmark / IRK4. Пока без VK/GL и флексо.",
+                  foreground="#52687a").pack(side="left")
 
         self.reference_bar=ttk.Frame(self,padding=(12,3,12,3))
         self.reference_message=ttk.Label(self.reference_bar,text="",foreground="#8a4b00")
