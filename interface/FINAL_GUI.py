@@ -3549,14 +3549,48 @@ class FinalSolverGUI(EnhancedSolverGUI):
     """Stage12 final UI fixes. Solver mechanics remain unchanged."""
 
     def open_independent_mkr(self):
-        """Open only the separate MKR GUI; no legacy/MVI solver is imported."""
+        """Standalone MKR only: reject non-equivalent selected CASE before opening."""
         from independent_mkr.gui import open_window
-        return open_window(self)
+        from independent_mkr.reference_bridge import from_reference_case
+        active=self._active_reference_case()
+        candidate=None
+        if active is not None:
+            source=active[1]
+            pending=getattr(self,"_pending_reference_case",None)
+            if pending is not None and pending[0]==active[0].resolve():
+                source=pending[1]
+            try:
+                candidate=from_reference_case(source)
+            except (ValueError,TypeError,KeyError) as exc:
+                messagebox.showerror("Независимый МКР: несовместимый CASE",
+                                     str(exc),parent=self)
+                return None
+        window=open_window(self)
+        if candidate is not None:
+            window.import_reference_case(source)
+        return window
 
     def open_independent_mvi(self):
-        """Open only the separate MVI GUI; no legacy/MKR solver is imported."""
+        """Standalone MVI only: reject non-equivalent selected CASE before opening."""
         from independent_mvi.gui import open_window
-        return open_window(self)
+        from independent_mvi.reference_bridge import from_reference_case
+        active=self._active_reference_case()
+        candidate=None
+        if active is not None:
+            source=active[1]
+            pending=getattr(self,"_pending_reference_case",None)
+            if pending is not None and pending[0]==active[0].resolve():
+                source=pending[1]
+            try:
+                candidate=from_reference_case(source)
+            except (ValueError,TypeError,KeyError) as exc:
+                messagebox.showerror("Независимый МВИ: несовместимый CASE",
+                                     str(exc),parent=self)
+                return None
+        window=open_window(self)
+        if candidate is not None:
+            window.import_reference_case(source)
+        return window
 
     def _build_ui(self):
         super()._build_ui()
