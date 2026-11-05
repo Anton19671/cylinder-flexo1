@@ -76,6 +76,8 @@ class IndependentMKRWindow(tk.Toplevel):
         self.progress_text=tk.StringVar(self,value="Шаги: 0 / 0")
         self.proc=None
         self.pause_signal=None
+        self._stop_requested=False
+        self._close_after_stop=False
         self.lines=queue.Queue()
 
         ttk.Label(self,text=(
@@ -343,6 +345,8 @@ class IndependentMKRWindow(tk.Toplevel):
             self.pause_signal=self.saved_path.with_suffix(".pause")
             if self.pause_signal.exists():
                 raise FileExistsError("Найден старый сигнал паузы рядом с CASE")
+            self._stop_requested=False
+            self._close_after_stop=False
             self.proc=subprocess.Popen(command,cwd=str(ROOT),
                  stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
                  text=True,bufsize=1,encoding="utf-8",errors="replace")
@@ -383,6 +387,19 @@ class IndependentMKRWindow(tk.Toplevel):
             except queue.Empty:break
         if self.proc is not None and self.proc.poll() is not None:
             code=self.proc.returncode
+            if self._stop_requested and self.saved_output is not None:
+                summary_file=self.saved_output/OWN_SUMMARY
+                if summary_file.is_file():
+                    try:
+                        report=json.loads(summary_file.read_text(encoding="utf-8"))
+                        if report.get("status") in ("IN_PROGRESS","PAUSED"):
+                            report["status"]="STOPPED_BY_USER"
+                            temporary=summary_file.with_suffix(".tmp")
+                            temporary.write_text(json.dumps(
+                                report,indent=2)+"\\n",encoding="utf-8")
+                            temporary.replace(summary_file)
+                    except (OSError,ValueError,TypeError) as exc:
+                        self._note("Не удалось записать статус СТОП: "+str(exc))
             self.proc=None
             self.run_button.configure(state="normal")
             self.stop_button.configure(state="disabled")
@@ -403,6 +420,9 @@ class IndependentMKRWindow(tk.Toplevel):
                                ("ПРИНЯТО" if done else "НЕ ЗАВЕРШЕНО"))
                 except Exception as exc:self._note("Ошибка итогового файла: "+str(exc))
             else:self._note(f"МКР: процесс завершён, код={code}; нет итогового файла")
+        if self._close_after_stop and self.proc is None:
+            self.destroy()
+            return
         if self.winfo_exists():self.after(200,self._poll)
 
     def toggle_pause(self):
@@ -422,6 +442,7 @@ class IndependentMKRWindow(tk.Toplevel):
 
     def stop(self):
         if self.proc is not None and self.proc.poll() is None:
+            self._stop_requested=True
             self._note("МКР: пользователь запросил остановку")
             self.proc.terminate()
             if self.pause_signal is not None:
@@ -443,9 +464,9 @@ class IndependentMKRWindow(tk.Toplevel):
             if not messagebox.askyesno("МКР","Остановить выполняющийся расчёт?",
                                        parent=self):
                 return
-            self.proc.terminate()
-            if self.pause_signal is not None:
-                self.pause_signal.unlink(missing_ok=True)
+            self._close_after_stop=True
+            self.stop()
+            return
         self.destroy()
 
 
