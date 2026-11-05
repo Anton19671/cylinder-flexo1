@@ -6,6 +6,7 @@ legacy shared functional, or the old reference CASE dispatcher.
 """
 from __future__ import annotations
 
+import csv
 import json
 import os
 from pathlib import Path
@@ -115,6 +116,7 @@ class IndependentMVIWindow(tk.Toplevel):
         actions=ttk.Frame(self)
         actions.pack(fill="x",padx=12,pady=(9,7))
         ttk.Button(actions,text="Шаблон",command=self.template).pack(side="left",padx=3)
+        ttk.Button(actions,text="Загрузить CASE",command=self.load_own_case).pack(side="left",padx=3)
         ttk.Button(actions,text="Проверить",command=self.validate).pack(side="left",padx=3)
         ttk.Button(actions,text="Сохранить CASE",command=self.save).pack(side="left",padx=3)
         self.run_button=ttk.Button(actions,text="РАССЧИТАТЬ",command=self.run)
@@ -123,6 +125,8 @@ class IndependentMVIWindow(tk.Toplevel):
         self.pause_button.pack(side="left",padx=3)
         self.stop_button=ttk.Button(actions,text="СТОП",command=self.stop,state="disabled")
         self.stop_button.pack(side="left",padx=3)
+        ttk.Button(actions,text="Просмотр результатов",
+                   command=self.view_results).pack(side="left",padx=3)
         ttk.Button(actions,text="Папка результатов",
                    command=self.open_result).pack(side="left",padx=3)
         ttk.Label(self,textvariable=self.progress_text,anchor="w").pack(
@@ -182,6 +186,91 @@ class IndependentMVIWindow(tk.Toplevel):
                    "Численные МКР/МВИ операторы полностью отдельные. "
                    "Проверьте CASE и сохраните перед запуском.")
         return case
+
+    def load_own_case(self):
+        """User selects one method-specific CASE; no physical calculation."""
+        if self.proc is not None and self.proc.poll() is None:
+            messagebox.showerror("Загрузка CASE","Нельзя заменять CASE во время расчёта",
+                                 parent=self)
+            return
+        source=filedialog.askopenfilename(
+            parent=self,title="Открыть отдельный MVI CASE",
+            filetypes=(("CASE JSON","*.json"),("Все файлы","*.*")))
+        if not source:
+            return
+        try:
+            document=json.loads(Path(source).read_text(encoding="utf-8"))
+            inspect_document(document)
+            self.theory.set(document["physics"]["theory"])
+            self.integrator.set(document["time"]["integrator"])
+            self.rank.set(str(document["rank"]))
+            self.editor.delete("1.0","end")
+            self.editor.insert("1.0",json.dumps(
+                document,ensure_ascii=False,indent=2))
+            self.saved_path=None
+            self.saved_output=None
+            self.saved_fingerprint=None
+            self.progress_text.set(
+                f"Шаги: 0 / {document['time']['steps']}")
+            self._note("Загружен CASE без запуска: "+source)
+            self._note("Для нового расчёта нажмите «Сохранить CASE». "
+                       "Предыдущие файлы не перезаписываются.")
+        except Exception as exc:
+            messagebox.showerror("Неподдерживаемый MVI CASE",
+                                 str(exc),parent=self)
+
+    def view_results(self):
+        """Read the selected method's accepted-step history and summary."""
+        folder=self.saved_output
+        if folder is None or not folder.is_dir():
+            messagebox.showinfo("MVI","Нет папки результатов для просмотра",
+                                parent=self)
+            return
+        summary_file=folder/OWN_SUMMARY
+        history_file=folder/"MVI_OWN_PHYSICAL_HISTORY.csv"
+        if not summary_file.is_file() or not history_file.is_file():
+            messagebox.showwarning("MVI","Нет сохранённой истории",
+                                   parent=self)
+            return
+        try:
+            summary=json.loads(summary_file.read_text(encoding="utf-8"))
+            with history_file.open(newline="",encoding="utf-8") as stream:
+                reader=csv.DictReader(stream)
+                rows=list(reader)
+                columns=reader.fieldnames
+            if not columns:
+                raise ValueError("История пуста или не имеет заголовка")
+            if summary.get("method")!="MVI_XY_VARIATIONAL_ITERATIONS":
+                raise ValueError("Папка содержит результаты другого метода")
+            win=tk.Toplevel(self)
+            win.title("MVI — сохранённые числовые результаты")
+            win.geometry("900x530")
+            accepted=summary.get("accepted_steps",0)
+            requested=summary.get("requested_steps",0)
+            ttk.Label(win,text=(
+                f"MVI · {summary.get('theory')} · "
+                f"{summary.get('integrator')} · {summary.get('status')} · "
+                f"шагов {accepted}/{requested}"),
+                padding=12,anchor="w").pack(fill="x")
+            holder=ttk.Frame(win,padding=9)
+            holder.pack(fill="both",expand=True)
+            table=ttk.Treeview(holder,columns=columns,show="headings")
+            scroll=ttk.Scrollbar(holder,orient="vertical",command=table.yview)
+            table.configure(yscrollcommand=scroll.set)
+            table.pack(side="left",fill="both",expand=True)
+            scroll.pack(side="right",fill="y")
+            for name in columns:
+                table.heading(name,text=name)
+                table.column(name,width=165,anchor="center",stretch=True)
+            for row in rows:
+                table.insert("","end",values=tuple(row.get(k,"") for k in columns))
+            ttk.Label(win,text="Числовая история всех принятых стадий; "
+                      "поля механических перемещений, скоростей и ускорений "
+                      "сохранены полностью в отдельных NPZ.",
+                      padding=(12,5)).pack(fill="x")
+        except Exception as exc:
+            messagebox.showerror("Ошибка просмотра MVI",
+                                 str(exc),parent=self)
 
     def _draft(self):
         document=json.loads(self.editor.get("1.0","end-1c"))
