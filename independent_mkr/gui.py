@@ -396,7 +396,7 @@ class IndependentMKRWindow(tk.Toplevel):
                             report["status"]="STOPPED_BY_USER"
                             temporary=summary_file.with_suffix(".tmp")
                             temporary.write_text(json.dumps(
-                                report,indent=2)+"\\n",encoding="utf-8")
+                                report,indent=2)+"\n",encoding="utf-8")
                             temporary.replace(summary_file)
                     except (OSError,ValueError,TypeError) as exc:
                         self._note("Не удалось записать статус СТОП: "+str(exc))
