@@ -64,8 +64,31 @@ def test_seven_linear_kinematics_are_objective_for_in_plane_rigid_shift(theory):
         2*np.pi*np.arange(cm.ns)/cm.ns)[None,:]
     typical=_unweighted_stiffness_energy(mvi,comparison)
     assert typical>0 and np.isfinite(typical)
-    assert abs(vi_energy)<1.e-20*typical, (
+    # Direct physical strain check avoids cancellation when summing
+    # large pre-integrated stiffness blocks to a near-zero total energy.
+    # Here strain is formed BEFORE squaring, so no matrix-energy
+    # cancellation can hide a wrong cylindrical kinematic term.
+    from independent_mvi.linear_models import (
+        _kinematic_coefficients as vi_kinematics,
+        _strain_matrices as vi_strains,
+    )
+    derivatives=[mvi._differentiate(qvi,k) for k in range(6)]
+    measured=0.
+    for xi in (-.95,-.3,0.,.3,.95):
+        z=xi*cm.thickness_m/2
+        C,Z=vi_kinematics(theory,z,cm.radius_m,cm.thickness_m)
+        B=vi_strains(C,Z,cm.radius_m,z)
+        strain=sum(np.einsum(
+            "ij,jxs->ixs",B[k],derivatives[k],optimize=True)
+            for k in range(6))
+        measured=max(measured,float(np.max(np.abs(strain))))
+    assert measured<2.e-16, (
         "MVI_WRONG_CYLINDRICAL_LINEAR_RIGID_TRANSLATION",theory,
+        measured)
+    # A tiny signed quadrature cancellation in the assembled energy is
+    # acceptable only AFTER the direct zero-strain identity was verified.
+    assert abs(vi_energy)<1.e-12*typical, (
+        "MVI_RIGID_MOTION_QUADRATURE_CANCELLATION_TOO_LARGE",theory,
         vi_energy,typical)
     # The MKR angular derivative is a deliberately *different*, second
     # order centered stencil. It cannot represent sin/cos exactly at
