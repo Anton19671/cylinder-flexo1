@@ -136,3 +136,45 @@ visually verified on the user's Windows display; and no nonzero
 independent physical transient has been run or externally validated.
 **Only linear MACRO HOOKE, with no flexoelectric, no GL/VK, no plasticity
 and no modal analysis, is available in these isolated windows.**
+
+
+## 2026-11-05 accepted-step execution hardening
+
+Two separate method-owned executables were updated:
+`independent_mkr/run_models.py` and
+`independent_mvi/run_models.py`.
+
+The following defects were found in experimental routes and corrected:
+
+1. In the independent MKR runner, physical stages were exported without
+   rejecting nonfinite/wrong-shape output. An invalid physical field could
+   appear as an accepted successful time step. Both methods now validate
+   **every displacement, velocity and acceleration stage** before writing.
+2. The old runners wrote the CSV history only after completing all steps.
+   On failure or user STOP, previously accepted history rows could be
+   missing. Both methods now append and flush the method-specific CSV
+   at each accepted step.
+3. Previously an unhandled step exception did not produce an explicit
+   durable failed summary. Each runner now persists `FAILED`,
+   `failed_step`, exception type and a descriptive detail; success
+   is written only after every step has been accepted. The JSON summary
+   is updated using a temporary file and atomic replacement.
+4. Both independent GUIs now offer their own **PAUSE / CONTINUE / STOP**
+   controls. PAUSE is a cooperative file signal next to that method's
+   unique CASE, checked *before the next physical step*. It does NOT
+   interrupt the in-progress iterative or implicit solve; STOP terminates
+   that method's subprocess. The two signals and their result roots
+   never cross methods.
+5. Progress in each GUI comes from the method's saved summary
+   `accepted_steps / requested_steps`, not from a speculative time
+   estimate, GUI progress counter or child process exit code.
+
+[CI run #42047772426](https://github.com/Anton19671/cylinder-flexo1/actions/runs/42047772426)
+successfully completed **156 algebra and mocked-step tests**. The
+added fake-solver checks establish that nonfinite step-2 output leaves
+only step 1 accepted, with step-1 CSV/NPZ preserved, and that
+`--validate-only` constructs no numerical solver. **No nonzero
+physical shell response was calculated** for these checks.
+
+All new functionality remains EXPERIMENTAL for linear homogeneous
+HOOKE/MACRO. No changes to legacy physics or older GUI execution paths.
