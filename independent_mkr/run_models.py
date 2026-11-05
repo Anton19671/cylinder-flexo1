@@ -10,6 +10,7 @@ import argparse
 import csv
 from dataclasses import asdict
 import json
+import time
 from pathlib import Path
 
 import numpy as np
@@ -70,47 +71,87 @@ def run(path: Path, *, validate_only: bool):
         "accepted_steps":0,"requested_steps":steps,"dt_s":dt_s,
         "time_s":0.,"solver_module":"independent_mkr.linear_models"
     }
+    summary_path=output/"MKR_OWN_RUN_SUMMARY.json"
     def save_summary():
-        (output/"MKR_OWN_RUN_SUMMARY.json").write_text(
-            json.dumps(summary,indent=2)+"\n",encoding="utf-8")
+        partial=summary_path.with_suffix(".tmp")
+        partial.write_text(json.dumps(summary,indent=2)+"\n",encoding="utf-8")
+        partial.replace(summary_path)
     save_summary()
     radial=(2 if physics.theory in ("KL","FSDT","REDDY") else
             2*(int(physics.theory[-1])+1))
-    table=[]
-    for k in range(1,steps+1):
-        t=(k-1)*dt_s
-        if scheme=="BATHE":
-            first,final=solver.step_bathe(q,v,a,t,dt_s)
-            gamma=2-np.sqrt(2.)
-            stages=(("GAMMA",t+gamma*dt_s,first),("END",k*dt_s,final))
-        elif scheme=="NEWMARK":
-            final=solver.step_newmark(q,v,a,t,dt_s)
-            stages=(("END",k*dt_s,final),)
-        else:
-            gauss,final=solver.step_gauss_irk4(q,v,a,t,dt_s)
-            offsets=(.5-np.sqrt(3)/6,.5+np.sqrt(3)/6)
-            stages=tuple((f"GAUSS_{i+1}",t+offsets[i]*dt_s,gauss[i])
-                         for i in range(2))+(("END",k*dt_s,final),)
-        # Independent filenames; never load or write any MVI output.
-        for stage,time_s,fields in stages:
-            pos=output/f"MKR_STEP_{k:04d}_{stage}.npz"
-            np.savez_compressed(pos,time_s=time_s,mechanical=fields[0],
-                                velocity=fields[1],acceleration=fields[2])
-            table.append({
-                "step":k,"stage":stage,"time_s":time_s,
-                "central_w0_m":float(fields[0][radial,physics.nx//2,physics.ns//2]),
-                "maximum_abs_w0_m":float(np.max(np.abs(fields[0][radial])))
-            })
-        q,v,a=tuple(np.array(field,copy=True) for field in final)
-        summary["accepted_steps"]=k
-        summary["time_s"]=k*dt_s
-        save_summary()
-    with (output/"MKR_OWN_PHYSICAL_HISTORY.csv").open(
-            "w",newline="",encoding="utf-8") as out:
-        writer=csv.DictWriter(out,fieldnames=list(table[0]))
-        writer.writeheader();writer.writerows(table)
-    summary["status"]="CONVERGED"
-    save_summary()
+    # Method-owned cooperative pause signal: one isolated CASE, one process.
+    # Pause takes effect BETWEEN accepted steps, never in the middle of Newton.
+    pause_signal=Path(path).with_suffix(".pause")
+    history_path=output/"MKR_OWN_PHYSICAL_HISTORY.csv"
+    fields=("step","stage","time_s","central_w0_m","maximum_abs_w0_m")
+    failed_step=None
+    with history_path.open("x",newline="",encoding="utf-8") as stream:
+        writer=csv.DictWriter(stream,fieldnames=fields)
+        writer.writeheader()
+        stream.flush()
+        try:
+            for k in range(1,steps+1):
+                failed_step=k
+                if pause_signal.is_file():
+                    summary["status"]="PAUSED"
+                    save_summary()
+                    print(f"MKR PAUSED before step {k}/{steps}",flush=True)
+                    while pause_signal.is_file():
+                        time.sleep(.2)
+                    summary["status"]="IN_PROGRESS"
+                    save_summary()
+                    print(f"MKR RESUMED step {k}/{steps}",flush=True)
+                t=(k-1)*dt_s
+                if scheme=="BATHE":
+                    first,final=solver.step_bathe(q,v,a,t,dt_s)
+                    gamma=2-np.sqrt(2.)
+                    stages=(("GAMMA",t+gamma*dt_s,first),
+                            ("END",k*dt_s,final))
+                elif scheme=="NEWMARK":
+                    final=solver.step_newmark(q,v,a,t,dt_s)
+                    stages=(("END",k*dt_s,final),)
+                else:
+                    gauss,final=solver.step_gauss_irk4(q,v,a,t,dt_s)
+                    offsets=(.5-np.sqrt(3)/6,.5+np.sqrt(3)/6)
+                    stages=tuple((f"GAUSS_{i+1}",t+offsets[i]*dt_s,gauss[i])
+                                 for i in range(2))+(("END",k*dt_s,final),)
+                pending=[]
+                for stage,time_s,fields_at_stage in stages:
+                    mechanical,velocity,acceleration=fields_at_stage
+                    if any(z.shape!=shape or not np.isfinite(z).all()
+                           for z in (mechanical,velocity,acceleration)):
+                        raise RuntimeError("MKR_NONFINITE_OR_WRONG_SHAPE_STAGE")
+                    pending.append((
+                        output/f"MKR_STEP_{k:04d}_{stage}.npz",
+                        time_s,mechanical,velocity,acceleration,
+                        {"step":k,"stage":stage,"time_s":time_s,
+                         "central_w0_m":float(mechanical[
+                             radial,physics.nx//2,physics.ns//2]),
+                         "maximum_abs_w0_m":float(np.max(np.abs(
+                             mechanical[radial])))}
+                    ))
+                for filename,stage_time,mechanical,velocity,acceleration,row in pending:
+                    np.savez_compressed(
+                        filename,time_s=stage_time,mechanical=mechanical,
+                        velocity=velocity,acceleration=acceleration)
+                for *_,row in pending:
+                    writer.writerow(row)
+                stream.flush()
+                q,v,a=tuple(np.array(z,copy=True) for z in final)
+                summary["accepted_steps"]=k
+                summary["time_s"]=k*dt_s
+                save_summary()
+                print(f"MKR ACCEPTED {k}/{steps} t={k*dt_s:.9g} s",flush=True)
+            summary["status"]="CONVERGED"
+            save_summary()
+            print(f"MKR COMPLETED {steps}/{steps}",flush=True)
+        except Exception as exc:
+            summary.update(status="FAILED",failed_step=failed_step,
+                           error_type=type(exc).__name__,detail=str(exc))
+            save_summary()
+            print(f"MKR FAILED step={failed_step} error={type(exc).__name__}: {exc}",
+                  flush=True)
+            raise
     return summary
 
 
