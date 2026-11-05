@@ -72,6 +72,7 @@ class IndependentMKRWindow(tk.Toplevel):
         self.saved_fingerprint=None
         self.saved_output=None
         self.proc=None
+        self.pause_signal=None
         self.lines=queue.Queue()
 
         ttk.Label(self,text=(
@@ -107,6 +108,8 @@ class IndependentMKRWindow(tk.Toplevel):
         ttk.Button(actions,text="Сохранить CASE",command=self.save).pack(side="left",padx=3)
         self.run_button=ttk.Button(actions,text="РАССЧИТАТЬ",command=self.run)
         self.run_button.pack(side="left",padx=10)
+        self.pause_button=ttk.Button(actions,text="ПАУЗА",command=self.toggle_pause,state="disabled")
+        self.pause_button.pack(side="left",padx=3)
         self.stop_button=ttk.Button(actions,text="СТОП",command=self.stop,state="disabled")
         self.stop_button.pack(side="left",padx=3)
         ttk.Button(actions,text="Папка результатов",
@@ -223,19 +226,23 @@ class IndependentMKRWindow(tk.Toplevel):
             if self.saved_output.exists():
                 raise FileExistsError("Результаты уже созданы; сохраните новый CASE")
             command=[sys.executable,"-m",MODULE,"--case",str(self.saved_path),"--run"]
+            self.pause_signal=self.saved_path.with_suffix(".pause")
+            if self.pause_signal.exists():
+                raise FileExistsError("Найден старый сигнал паузы рядом с CASE")
             self.proc=subprocess.Popen(command,cwd=str(ROOT),
                  stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
                  text=True,bufsize=1,encoding="utf-8",errors="replace")
             self.run_button.configure(state="disabled")
             self.stop_button.configure(state="normal")
+            self.pause_button.configure(state="normal",text="ПАУЗА")
             self._note("Запущен только отдельный МКР по нажатию пользователя")
-            threading.Thread(target=self._reader,daemon=True).start()
+            threading.Thread(target=self._reader,args=(self.proc,),daemon=True).start()
         except Exception as exc:
             messagebox.showerror("МКР: запуск",str(exc),parent=self)
 
-    def _reader(self):
+    def _reader(self,process):
         try:
-            for line in self.proc.stdout:
+            for line in process.stdout:
                 self.lines.put(line.rstrip())
         except Exception as exc:
             self.lines.put("Ошибка чтения лога: "+str(exc))
@@ -249,6 +256,9 @@ class IndependentMKRWindow(tk.Toplevel):
             self.proc=None
             self.run_button.configure(state="normal")
             self.stop_button.configure(state="disabled")
+            self.pause_button.configure(state="disabled",text="ПАУЗА")
+            if self.pause_signal is not None:
+                self.pause_signal.unlink(missing_ok=True)
             summary_path=self.saved_output/OWN_SUMMARY if self.saved_output else None
             if summary_path is not None and summary_path.exists():
                 try:
@@ -265,10 +275,27 @@ class IndependentMKRWindow(tk.Toplevel):
             else:self._note(f"МКР: процесс завершён, код={code}; нет итогового файла")
         if self.winfo_exists():self.after(200,self._poll)
 
+    def toggle_pause(self):
+        if self.proc is None or self.proc.poll() is not None:
+            return
+        signal=self.pause_signal
+        if signal is None:
+            return
+        if signal.is_file():
+            signal.unlink()
+            self.pause_button.configure(text="ПАУЗА")
+            self._note("MKR: возобновление между шагами")
+        else:
+            signal.write_text("PAUSE_BY_USER\\n",encoding="ascii")
+            self.pause_button.configure(text="ПРОДОЛЖИТЬ")
+            self._note("MKR: пауза после принятого шага")
+
     def stop(self):
         if self.proc is not None and self.proc.poll() is None:
             self._note("МКР: пользователь запросил остановку")
             self.proc.terminate()
+            if self.pause_signal is not None:
+                self.pause_signal.unlink(missing_ok=True)
 
     def open_result(self):
         target=self.saved_output
@@ -287,6 +314,8 @@ class IndependentMKRWindow(tk.Toplevel):
                                        parent=self):
                 return
             self.proc.terminate()
+            if self.pause_signal is not None:
+                self.pause_signal.unlink(missing_ok=True)
         self.destroy()
 
 
