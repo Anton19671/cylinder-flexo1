@@ -11,7 +11,7 @@ import argparse
 import json
 from pathlib import Path
 
-from generate_linear_bathe_case import make_case
+from ci.generate_linear_bathe_case import make_case
 
 METHODS = {"FDM": None, "MVI1": 1, "MVI8": 8}
 SHARED_KEYS = (
