@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from generate_cuf_te4_nonaxis_bathe import experiment_cases
+from ci.generate_cuf_te4_nonaxis_bathe import experiment_cases
 from cylinder_reference_case import prepare_reference_case
 from cylinder_variational_loads import project_radial_load
 
