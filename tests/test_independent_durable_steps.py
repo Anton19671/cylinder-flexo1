@@ -119,3 +119,48 @@ def test_gui_pause_is_explicit_signal_not_subprocess_os_suspend(method):
     assert 'while pause_signal.is_file():' in runner
     assert 'status="PAUSED"' not in runner
     assert 'summary["status"]="PAUSED"' in runner
+
+
+@pytest.mark.parametrize("method", ("MKR", "MVI"))
+def test_interrupted_npz_write_rolls_back_entire_uncommitted_step(
+    tmp_path, monkeypatch, method
+):
+    """Simulate write failure on step two; no physical solve is constructed."""
+    module=mkr_runner if method=="MKR" else mvi_runner
+    path,output=_case(tmp_path,method)
+    count=[]
+    class SyntheticSolver:
+        def __init__(self,physics,*args):
+            self.n=6
+            self.physics=physics
+        def step_newmark(self,q,v,a,t,dt_s,**kwargs):
+            count.append(1)
+            state=(q.copy(),v.copy(),a.copy())
+            if method=="MVI":
+                X=np.zeros((self.n,1,self.physics.nx))
+                Y=np.zeros((self.n,1,self.physics.ns))
+                return state,(X,Y),()
+            return state
+    monkeypatch.setattr(module,
+        "IndependentStrongModel" if method=="MKR" else "IndependentVariationalModel",
+        SyntheticSolver)
+    original=module._save_npz_atomic
+    def fail_on_second_step(destination,**arrays):
+        if "STEP_0002_" in str(destination):
+            raise OSError("SIMULATED_STEP_WRITE_FAILURE")
+        return original(destination,**arrays)
+    monkeypatch.setattr(module,"_save_npz_atomic",fail_on_second_step)
+    with pytest.raises(OSError,match="SIMULATED_STEP_WRITE_FAILURE"):
+        module.run(path,validate_only=False)
+    report=json.loads((output/f"{method}_OWN_RUN_SUMMARY.json").read_text())
+    assert report["status"]=="FAILED"
+    assert report["accepted_steps"]==1
+    assert report["failed_step"]==2
+    with (output/f"{method}_OWN_PHYSICAL_HISTORY.csv").open(
+        encoding="utf-8",newline=""
+    ) as stream:
+        rows=list(csv.DictReader(stream))
+    assert len(rows)==1
+    assert rows[0]["step"]=="1"
+    assert not list(output.glob("*STEP_0002_*.npz"))
+    assert list(output.glob("*STEP_0001_*.npz"))
