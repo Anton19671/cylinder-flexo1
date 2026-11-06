@@ -1,0 +1,38 @@
+name: Coupled Newton, global enthalpy and boundary audit
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/coupled-newton-scientific.yml"
+      - "tests/test_scientific_global_coupled_newton.py"
+      - "mechanics/cylinder_functional_assembly.py"
+      - "mechanics/cylinder_variational_boundary.py"
+      - "numerics/cylinder_boundary_spatial.py"
+      - "numerics/cylinder_variational_dynamic.py"
+      - "flexoelectric/cuf_g3d_weak.py"
+      - "flexoelectric/flexo_gradient_g3d.py"
+permissions:
+  contents: read
+jobs:
+  scientific-newton:
+    name: Seven-theory global coupled work and restricted Newton cross blocks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONPATH: ".:mechanics:flexoelectric:numerics:physics"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install algebraic audit dependencies
+        run: python -m pip install numpy scipy pytest
+      - name: Syntax and global coupled Newton/BC audit
+        run: |
+          python -m py_compile tests/test_scientific_global_coupled_newton.py
+          python -m pytest -q tests/test_scientific_global_coupled_newton.py
