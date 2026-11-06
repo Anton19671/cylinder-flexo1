@@ -4,7 +4,7 @@ import pytest
 from cylinder_paths import activate
 activate()
 from cylinder_reference_case import prepare_reference_case
-from scientific_real_coupled_case import catalog,build_case
+from scientific_real_coupled_case import catalog,build_case,expected_accepted_summary
 
 def test_full_and_pilot_scientific_matrices_unique():
     full=catalog(full=True)
@@ -33,3 +33,18 @@ def test_real_pilot_cases_preflight_without_simulation_or_output(item,tmp_path):
     assert prepared.calculation_kind==item["kind"]
     assert prepared.method==item["method"]
     assert not folder.exists()
+
+
+@pytest.mark.parametrize("item",catalog())
+def test_scientific_summary_expectations_match_public_solver_labels(item,tmp_path):
+    case=build_case(item,tmp_path/"unwritten")
+    expected=expected_accepted_summary(case)
+    assert expected["theory"]==item["theory"]
+    assert expected["gradient_model"]==item["gradient"]
+    assert expected["active_strain_gradient_components"]==(
+        18 if item["gradient"]=="G3D" else 6)
+    assert expected["status"]==(
+        "CONVERGED_FULL" if item["kind"]=="STATIC" and item["method"]=="MVI"
+        else "CONVERGED")
+    assert expected["converged"] is True
+    assert expected["accepted_steps"]==1

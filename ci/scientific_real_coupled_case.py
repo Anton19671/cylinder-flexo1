@@ -96,17 +96,37 @@ def digest(path):
             hash.update(part)
     return hash.hexdigest()
 
+def expected_accepted_summary(case):
+    """Exact public run-summary labels, not uppercased material enums.
+
+    The physical material names Gz, but internally normalizes it to GZ.
+    Static MVI reports CONVERGED_FULL, whereas the dynamic driver and
+    static FDM report CONVERGED. Preserve these distinct scientific states.
+    """
+    theory=("CUF_"+case["cuf_model"] if case["theory"]=="CUF"
+            else case["theory"])
+    gradient=case["micro"]["gradient_model"].upper()
+    if gradient not in ("G3D","GZ"):
+        raise ValueError("PHYSICAL_GRADIENT_MODEL_INVALID")
+    method=case["method"]
+    kind=case["calculation_kind"]
+    if method not in ("FDM","MVI") or kind not in ("STATIC","DYNAMIC"):
+        raise ValueError("PHYSICAL_METHOD_OR_KIND_INVALID")
+    return dict(
+        theory=theory,method=method,calculation_kind=kind,
+        gradient_model=("G3D" if gradient=="G3D" else "Gz"),
+        electrical_enabled=case["micro"]["enable_flexoelectric"],
+        active_strain_gradient_components=18 if gradient=="G3D" else 6,
+        converged=True,accepted_steps=1,
+        status=("CONVERGED_FULL" if kind=="STATIC" and method=="MVI"
+                else "CONVERGED"))
+
+
 def assert_physical_output(case,folder):
     output=folder/"RESULTS"
     summary=json.loads((output/"FINAL_RUN_SUMMARY.json").read_text(encoding="utf-8"))
     theory=("CUF_"+case["cuf_model"] if case["theory"]=="CUF" else case["theory"])
-    expected=dict(theory=theory,method=case["method"],
-        calculation_kind=case["calculation_kind"],
-        gradient_model=case["micro"]["gradient_model"].upper(),
-        electrical_enabled=case["micro"]["enable_flexoelectric"],
-        active_strain_gradient_components=(
-            18 if case["micro"]["gradient_model"].upper()=="G3D" else 6),
-        converged=True,accepted_steps=1,status="CONVERGED")
+    expected=expected_accepted_summary(case)
     for key,value in expected.items():
         if summary.get(key)!=value:
             raise AssertionError("PHYSICAL_SUMMARY_MISMATCH_"+key)
