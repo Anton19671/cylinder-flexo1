@@ -20,7 +20,7 @@ def test_npz_checkpoint_is_readable_and_no_temporary_file_remains(tmp_path, save
 
 
 @pytest.mark.parametrize("save", [save_mkr, save_mvi])
-def test_npz_failed_compression_never_publishes_incomplete_checkpoint(tmp_path, monkeypatch):
+def test_npz_failed_compression_never_publishes_incomplete_checkpoint(tmp_path, monkeypatch, save):
     module = __import__(save.__module__, fromlist=["np"])
     final = tmp_path / "step_0002.npz"
 
@@ -36,7 +36,7 @@ def test_npz_failed_compression_never_publishes_incomplete_checkpoint(tmp_path, 
 
 
 @pytest.mark.parametrize("save", [save_mkr, save_mvi])
-def test_existing_checkpoint_remains_unchanged_after_failed_new_write(tmp_path, monkeypatch):
+def test_existing_checkpoint_remains_unchanged_after_failed_new_write(tmp_path, monkeypatch, save):
     module = __import__(save.__module__, fromlist=["np"])
     final = tmp_path / "step_0003.npz"
     save(final, mechanical=np.array([3.0]))
