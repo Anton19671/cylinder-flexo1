@@ -164,3 +164,61 @@ def test_interrupted_npz_write_rolls_back_entire_uncommitted_step(
     assert rows[0]["step"]=="1"
     assert not list(output.glob("*STEP_0002_*.npz"))
     assert list(output.glob("*STEP_0001_*.npz"))
+
+
+@pytest.mark.parametrize("method", ("MKR", "MVI"))
+@pytest.mark.parametrize("scheme", ("BATHE", "GAUSS_IRK4"))
+def test_multistage_write_failure_discards_all_uncommitted_stages(
+    tmp_path, monkeypatch, method, scheme
+):
+    """Bathe and Gauss stages are rolled back as a unit, with fake solver only."""
+    module=mkr_runner if method=="MKR" else mvi_runner
+    path,output=_case(tmp_path,method)
+    document=json.loads(path.read_text(encoding="utf-8"))
+    document["time"]["integrator"]=scheme
+    path.write_text(json.dumps(document),encoding="utf-8")
+
+    class SyntheticSolver:
+        def __init__(self,physics,*args):
+            self.n=6
+            self.physics=physics
+        def _factors(self):
+            X=np.zeros((self.n,1,self.physics.nx))
+            Y=np.zeros((self.n,1,self.physics.ns))
+            return (X,Y)
+        def step_bathe(self,q,v,a,t,dt_s,**kwargs):
+            state=(q.copy(),v.copy(),a.copy())
+            if method=="MVI":
+                return state,state,self._factors(),()
+            return state,state
+        def step_gauss_irk4(self,q,v,a,t,dt_s,**kwargs):
+            state=(q.copy(),v.copy(),a.copy())
+            if method=="MVI":
+                return (state,state),state,self._factors(),()
+            return (state,state),state
+
+    monkeypatch.setattr(module,
+        "IndependentStrongModel" if method=="MKR" else "IndependentVariationalModel",
+        SyntheticSolver)
+    original=module._save_npz_atomic
+    last_stage="END"
+    def fail_last_stage(destination,**arrays):
+        if "STEP_0002_END.npz" in str(destination):
+            raise OSError("SIMULATED_MULTISTAGE_WRITE_FAILURE")
+        return original(destination,**arrays)
+    monkeypatch.setattr(module,"_save_npz_atomic",fail_last_stage)
+    with pytest.raises(OSError,match="SIMULATED_MULTISTAGE_WRITE_FAILURE"):
+        module.run(path,validate_only=False)
+    report=json.loads((output/f"{method}_OWN_RUN_SUMMARY.json").read_text())
+    assert report["status"]=="FAILED"
+    assert report["accepted_steps"]==1
+    with (output/f"{method}_OWN_PHYSICAL_HISTORY.csv").open(
+        newline="",encoding="utf-8"
+    ) as stream:
+        rows=list(csv.DictReader(stream))
+    assert rows
+    assert all(row["step"]=="1" for row in rows)
+    assert len(rows)==(2 if scheme=="BATHE" else 3)
+    assert not list(output.glob("*STEP_0002_*.npz"))
+    assert len(list(output.glob("*STEP_0001_*.npz")))==(
+        (2 if scheme=="BATHE" else 3)+(1 if method=="MVI" else 0))
