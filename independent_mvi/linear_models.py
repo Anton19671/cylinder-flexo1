@@ -432,7 +432,7 @@ class IndependentVariationalModel:
         raise RuntimeError("MVI_XY_CYCLES_NOT_COMPLETED")
 
     def step_newmark(self,q,v,a,t,dt_s=.002,previous=None):
-        if dt_s<=0:
+        if not np.isfinite(dt_s) or dt_s<=0:
             raise ValueError("MVI_TIME_STEP_INVALID")
         predictor=q+dt_s*v+.25*dt_s**2*a
         qend,factors,history=self._effective_step(
@@ -442,7 +442,8 @@ class IndependentVariationalModel:
         return (qend,vend,aend),factors,history
 
     def step_bathe(self,q,v,a,t,dt_s=.002,previous=None):
-        if dt_s<=0:raise ValueError("MVI_TIME_STEP_INVALID")
+        if not np.isfinite(dt_s) or dt_s<=0:
+            raise ValueError("MVI_TIME_STEP_INVALID")
         gamma=2-sqrt(2)
         delta=gamma*dt_s
         predictor=q+delta*v+.25*delta**2*a
@@ -480,7 +481,8 @@ class IndependentVariationalModel:
     def step_gauss_irk4(self,q,v,a,t,dt_s=.002,previous=None,
                         *,max_sweeps=40):
         """Two coupled Gauss stages, each constrained by own frozen-partner MVI."""
-        if dt_s<=0:raise ValueError("MVI_GAUSS_BAD_STEP")
+        if not np.isfinite(dt_s) or dt_s<=0:
+            raise ValueError("MVI_GAUSS_BAD_STEP")
         root=np.sqrt(3)
         nodes=np.array([.5-root/6,.5+root/6])
         A=np.array([[.25,.25-root/6],[.25+root/6,.25]])
