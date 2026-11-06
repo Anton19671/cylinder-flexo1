@@ -22,7 +22,7 @@ def test_full_and_pilot_scientific_matrices_unique():
 def test_real_pilot_cases_preflight_without_simulation_or_output(item,tmp_path):
     folder=tmp_path/"unwritten"
     c=build_case(item,folder)
-    assert c["load_definition"]["face"]=="OUTER"
+    assert c["load_definition"]["face"]==("MIDDLE" if item["theory"]=="KL" else "OUTER")
     assert c["load_definition"]["kinematics"]=="DEAD_REFERENCE"
     assert c["geometry_model"]=="GREEN_LAGRANGE"
     assert c["scale_model"]=="MICRO"
