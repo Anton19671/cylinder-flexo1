@@ -6,11 +6,13 @@ on:
     paths:
       - ".github/workflows/scientific-krysko-zhong-algebra.yml"
       - "tests/test_scientific_krysko_zhong_audit.py"
+      - "tests/test_scientific_axial_natural_boundary.py"
       - "flexoelectric/**"
       - "mechanics/cylinder_kinematic_models.py"
       - "mechanics/cylinder_director_g3d.py"
       - "mechanics/cylinder_kl_g3d_weak.py"
       - "mechanics/cylinder_functional_assembly.py"
+      - "mechanics/cylinder_g3d_natural_edges.py"
 permissions:
   contents: read
 jobs:
@@ -33,4 +35,4 @@ jobs:
       - name: Syntax check and independent scientific regression
         run: |
           python -m py_compile flexoelectric/cuf_g3d_weak.py flexoelectric/flexo_gradient_g3d.py mechanics/cylinder_kinematic_models.py
-          python -m pytest -q tests/test_scientific_krysko_zhong_audit.py tests/test_cuf_batched_virtual_variations.py tests/test_cuf_g3d_weak.py tests/test_flexo_gradient_g3d.py
+          python -m pytest -q tests/test_scientific_krysko_zhong_audit.py tests/test_scientific_axial_natural_boundary.py tests/test_cuf_batched_virtual_variations.py tests/test_cuf_g3d_weak.py tests/test_flexo_gradient_g3d.py

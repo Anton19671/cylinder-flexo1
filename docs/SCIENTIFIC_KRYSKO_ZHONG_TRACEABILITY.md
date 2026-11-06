@@ -31,3 +31,19 @@ convergence, and verifying local stress/induction recovery.
 The full nonlinear G3D/Gz research implementation lives in the coupled
 mechanics/electric modules; passing independent-branch architecture tests
 must never be described as full flexoelectric verification.
+
+
+## Manufactured axial natural boundary work (source §§22, 30–33, 40–41)
+
+An independent continuum integration-by-parts manufactured test now
+covers all second- and third-order surface derivative positions (including
+`q_xs`, `q_xxs`, `q_xss`) one-by-one and in combination. The comparison
+uses low Fourier modes, exact polynomial derivatives, independent Gaussian
+quadrature, both axial end orientations, natural single/double/triple
+tractions and the electric natural flux. This verifies the **continuum
+boundary work algebra**, not convergence or stable imposition of
+discrete microfree boundary conditions in the full nonlinear solver.
+
+Because the circumferential direction is physically periodic for a
+*closed cylinder*, there are no independent angular boundary corners in
+the benchmark. Open shell patches require separate corner/edge checks.
