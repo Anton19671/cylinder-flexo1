@@ -64,7 +64,9 @@ def build_case(spec,folder):
         c["micro"]["potential_order"]=0
         c["boundary_conditions"]["variational"]["electrical"]={}
     # Reference face and constitutive passport are explicit.
-    c["load_definition"].update(face="OUTER",
+    # KL offset-face dead pressure is not represented by its current nodal
+    # kinematics. Do not bypass the validated restriction.
+    c["load_definition"].update(face="MIDDLE" if theory=="KL" else "OUTER",
                                 kinematics="DEAD_REFERENCE",q=.01)
     if method=="FDM":
         for name in ("mvi_grid","rank","reference_mvi"):
@@ -166,6 +168,7 @@ def run(spec,folder):
     evidence=dict(id=spec["id"],input_sha256=digest(path),
         code_revision=os.getenv("GITHUB_SHA","UNSPECIFIED"),
         reference="Krysko-Zhong corrected 2026-10-24",
+        load_face=case["load_definition"]["face"],
         status="STARTED",scientific_scope="REAL_ONE_STEP_SMOKE")
     marker=folder/"SCIENTIFIC_EVIDENCE.json"
     def save():
