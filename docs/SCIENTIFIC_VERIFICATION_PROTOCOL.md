@@ -1,56 +1,21 @@
-# Mandatory scientific verification protocol (cylinder-flexo1)
+# Mandatory scientific verification protocol — cylinder-flexo1
 
-This is a **verification checklist**, not a certificate of validated results.
-It records the two separate audit tracks requested by the project owner:
-the five-field Reddy Green–Lagrange mathematical audit (8 October 2026)
-and the genuinely independent MKR/FDM–MVI spatial/dynamic audit
-(4 November 2026). No production solver should be silently changed merely
-to make an algebraic or physical test pass.
+**Primary mathematical specification:** `Krysko_Zhong_TE1_TE4_PARALLEL_ENDS_CORRECTED_20261024.docx` (24 October 2026), the owner's corrected reference derivation for **geometrically nonlinear flexoelectric cylindrical microshells**. This is a verification checklist, not proof that the implementation is already correct. The separate five-field Reddy–Green–Lagrange audit of 8 October and the MKR/MVI independence audit of 4 November remain supplementary and must never replace the primary CUF equations.
 
-## A. Physical and mathematical model: five-field Reddy + GL
+## A. Primary physics-to-code trace: corrected Krysko–Zhong CUF TE1–TE4
 
-1. **Geometry and kinematics.** Derive the displacement map, cylindrical
-   metric, and deformation gradient `F` from the chosen five generalized
-   fields. Derive *symbolically and independently* all six Green–Lagrange
-   components `E_XX, E_YY, E_XY, E_XZ, E_YZ, E_ZZ`. Compare coefficient
-   identities at each thickness order to implementation. For `E_ZZ`,
-   distinguish the kinematic full-GL value from whether and why this
-   component enters the *reduced* shell energy; it must not be omitted by
-   an unproved assumption.
-2. **Constitutive reduction and energy.** Derive the reduced transverse
-   plane-stress shell energy from the intended constitutive law. Verify
-   its relation to a full 3D GL formulation and any eliminated thickness
-   variable. Check the reduced-energy quadratic form is nonnegative
-   within its stated assumptions. Do **not** require the tangent stiffness
-   to be positive definite in compression/buckling regimes.
-3. **Variations and equilibrium.** Compute `delta Pi` and the appropriate
-   stress transformations, including `P = F S` when the stated 3D
-   hyperelastic formulation applies. Independently derive all five
-   generalized equilibrium/variational equations and their coupling.
-   Symbolically cross-check first variations and the consistency/symmetry
-   of the tangent in the range where a potential exists.
-4. **Natural boundary conditions.** Derive the complete integration-by-parts
-   boundary terms for the five-field theory, including higher-order
-   edge terms and **corner contributions**, not only essential clamps.
-   Verify all implemented boundary-condition types against the derived
-   work-conjugate traces.
-5. **Thickness and forcing.** Verify layerwise Gauss thickness integration,
-   metric factors, interfaces, integration bounds, and surface-pressure
-   work: reference pressure vs follower load must be distinguished.
-6. **Consistent limiting theories.** Independently verify the LINEAR,
-   von Karman and full Green–Lagrange reductions from the *same*
-   displacement kinematics. For von Karman, identify the retained and
-   omitted terms explicitly; do not mix truncation orders.
-7. **Physical checks.** Verify shear and other free-surface traction
-   conditions **without overwriting computed stress profiles** to force
-   artificial zeros. Verify geometric objectivity/rigid motions, the
-   zero-curvature limit where applicable, and analytic/manufactured
-   benchmarks. Compare local stress and displacement fields, not just a
-   single center deflection.
-8. **No premature edits.** Complete the symbolic/reference comparison
-   before altering sensitive physics formulas. Every correction requires
-   its own failing-before/fixed-after regression with physical scope and
-   applicable theory clearly identified.
+1. **Geometry and displacement:** check `H(z)=1+z/R`, signed reference-face area factors, nine cylindrical physical displacement derivatives, and CUF polynomial `F_k=(2z/h)^k` for TE1–TE4 (§§3–4, 13–14, Eqs. 1–9, 61–73).
+2. **Green–Lagrange strain:** derive all six components from `F.T@F` at every quadrature point, including `E_zz`; verify zero strain for finite rigid rotations (§5, Eqs. 10–18, §48). Do not treat the reduced Reddy plane-stress law as if it were full CUF thickness kinematics.
+3. **Covariant G3D/Gz strain gradients:** test all 18 covariant physical gradient components (and the precise six active in Gz), especially cylindrical rotation-basis terms; compare direct and batched implementations (§6, Eqs. 19–33).
+4. **Electro-mechanical enthalpy:** independently verify 3D Hooke energy, gradient terms, material electric field, both direct/inverse flexoelectric couplings, three electric induction components, and six stress/18 hyperstress components by derivative tests (§§7–11, Eqs. 34–56). G3D and Gz are distinct constitutive models, not postprocessing switches.
+5. **Damping and inertia:** verify Kelvin–Voigt dissipative work, the exact curved-cylinder CUF thickness moments including nonzero odd moments, and a mechanically constrained initial acceleration (§§12, 15, 34).
+6. **Reference outer-face pressure:** enforce **every radial CUF coefficient** `Q_(w,k)=-pressure_pa*H_out*F_k(h/2)` for positive inward pressure; here `F_k(h/2)=1` and `H_out=1+h/(2R)`. This is the corrected document's Eqs. (83)–(85), not a mid-surface point load (§16). Check mechanical virtual work and the stated sign convention.
+7. **Weak/strong equations:** derive the full variations of all mechanical and electrical fields, the mixed-derivative coefficients, the thickness-integrated six mechanical coefficient families, and the unique global electric gauge. Confirm 6+2, 9+3, 12+4, 15+5 coupled local equations for TE1–TE4 (§§17–29).
+8. **Boundary closure:** verify the full essential torques/tractions and higher-order **micro-free** axial trace for the chosen end supports. Do not impose `q_x=0` alongside a micro-free natural higher-order condition without variational justification. Keep angular periodicity and electric boundary/gauge conditions (§§30–35, 41).
+9. **Independent discretizations:** check that the MKR strong route employs compatible face gradients/divergences and resolves the even-grid Nyquist/checkerboard mode; MVI must preserve separated X/Y sweeps and genuine rank limitation. Both must act on the *same physical source* with independent spatial algebra (§§39–40.1).
+10. **Time integration and publication gates:** verify consistent nonlinear Newton and Newmark, Bathe and Gauss stages, the complete coupled mechanical/electric tangent, physical manufactured solutions, frequencies, fields, stress recovery, rank/grid/time-step convergence, and independent WQEM/other external benchmarks after matching model passports (§§37–48).
+
+**Status:** neither the full coupled flexoelectric model nor the independent seven-theory prototype is fully scientifically validated merely because CI passes. In particular, the independent `linear_models.py` branches implement only *linear, electrical-off* mechanics; full G3D/Gz claims must be audited on the original coupled modules. The 8 October five-field Reddy GL proof remains a separate supplementary track.
 
 ## B. Numerical independence and dynamics: MKR versus MVI
 

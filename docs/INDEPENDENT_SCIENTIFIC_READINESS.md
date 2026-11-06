@@ -46,3 +46,20 @@ non-electrical** mechanics, with Bathe, Newmark, and Gauss IRK4 dynamics.
 **Status:** material reduction is analytically testable; seven-model
 physical and coupled flexoelectric validation remains open. Do not report
 the independent solver as experimentally verified merely because CI passes.
+
+## Reference-face loading correction (Krysko-Zhong, 24 October 2026)
+
+The standalone experimental MKR and MVI models now interpret positive
+`pressure_pa` as the **inward nominal pressure on the outer reference face**
+`z=+h/2`. In the mid-surface reference area the consistent load is
+`-pressure_pa*(1+h/(2*R))*F_k(h/2)`; for the normalized CUF TE basis,
+`F_k(h/2)=1` for **every** radial thickness coefficient. Classical
+KL/FSDT/Reddy models have only one radial displacement coefficient.
+Both runners record the convention and outer-face area factor in the summary.
+This **changes results compared with earlier independent-branch CASE runs**
+that applied pressure only to `w0` and omitted the face-area factor;
+previous numerical comparisons need rerunning and relabeling. The original
+coupled mechanics' `radial_nominal_face_load` already uses face projection.
+
+This fix follows §16, Eqs. (83)–(85), of
+`Krysko_Zhong_TE1_TE4_PARALLEL_ENDS_CORRECTED_20261024.docx`.

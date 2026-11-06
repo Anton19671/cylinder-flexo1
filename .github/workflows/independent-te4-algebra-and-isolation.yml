@@ -11,6 +11,7 @@ on:
       - "tests/test_independent_te4_temporal_routes.py"
       - "tests/test_independent_mkr_seven_theories.py"
       - "tests/test_independent_shell_constitutive.py"
+      - "tests/test_independent_outer_face_load.py"
       - "tests/test_independent_mvi_seven_theories.py"
       - "tests/test_independent_42_cases.py"
       - "tests/test_independent_seven_model_rigid_motion.py"

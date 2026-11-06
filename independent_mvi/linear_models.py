@@ -272,9 +272,17 @@ class IndependentVariationalModel:
             angular=front((hi-lo)/2-np.abs(d),c.theta_edge_rad)
             window=np.outer(axial,angular)
         q=np.zeros((self.n,c.nx,c.ns))
-        radial=2 if c.theory in ("KL","FSDT","REDDY") else (
-            2*(int(c.theory[-1])+1))
-        q[radial]=-c.pressure_pa*window
+        # Krysko-Zhong Eq. (83)-(85): pressure on the OUTER reference face.
+        # +pressure_pa is inward; H_out is the cylindrical face-area factor.
+        outer_face_area=1.+c.thickness_m/(2.*c.radius_m)
+        face_force=-c.pressure_pa*outer_face_area*window
+        if c.theory in ("KL","FSDT","REDDY"):
+            # Classical shell W(z)=w0, hence only one radial amplitude.
+            q[2]=face_force
+        else:
+            # CUF F_k(z)=(2z/h)^k and F_k(h/2)=1 for every k.
+            order=int(c.theory[-1])+1
+            q[2*order:3*order]=face_force[None,:,:]
         return q
 
     def _differentiate(self,q,order):
