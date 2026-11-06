@@ -84,6 +84,9 @@ def run(path: Path, *, validate_only: bool):
     profiles=None
     summary={
         "method":METHOD,"schema":SCHEMA,"integrator":scheme,"rank":rank,"theory":physics.theory,
+        "constitutive_model":("PLANE_STRESS_SHELL" if
+                              physics.theory in ("KL","FSDT","REDDY")
+                              else "THREE_DIMENSIONAL_CUF"),
         "status":"IN_PROGRESS","accepted_steps":0,
         "requested_steps":steps,"dt_s":dt_s,"time_s":0.,
         "solver_module":"independent_mvi.linear_models"

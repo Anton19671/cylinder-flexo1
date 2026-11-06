@@ -78,6 +78,9 @@ def run(path: Path, *, validate_only: bool):
     q=np.zeros(shape,float);v=np.zeros(shape,float);a=np.zeros(shape,float)
     summary={
         "method":METHOD,"schema":SCHEMA,"integrator":scheme,"theory":physics.theory,
+        "constitutive_model":("PLANE_STRESS_SHELL" if
+                              physics.theory in ("KL","FSDT","REDDY")
+                              else "THREE_DIMENSIONAL_CUF"),
         "status":"IN_PROGRESS",
         "accepted_steps":0,"requested_steps":steps,"dt_s":dt_s,
         "time_s":0.,"solver_module":"independent_mkr.linear_models"

@@ -179,6 +179,25 @@ def _strain_matrices(c,dz,R,z):
     return b
 
 
+def _elastic_tensor(theory, young_pa, poisson):
+    """Reduced plane stress for classical shells; full 3D for CUF thickness stretch.
+
+    The KL/FSDT/Reddy kinematics do not retain independent thickness strain.
+    Eliminate it from 3D isotropic energy by the sigma_zz=0 condition.
+    CUF TE1..4 retains independent z-dependent displacement components.
+    """
+    mu=young_pa/(2*(1+poisson))
+    if theory in ("KL","FSDT","REDDY"):
+        lam_ps=young_pa*poisson/(1-poisson**2)
+        hooke=np.diag((2*mu,2*mu,0.,mu,mu,mu))
+        hooke[:2,:2]+=lam_ps
+    else:
+        lam=young_pa*poisson/((1+poisson)*(1-2*poisson))
+        hooke=np.diag((2*mu,2*mu,2*mu,mu,mu,mu))
+        hooke[:3,:3]+=lam
+    return hooke
+
+
 class IndependentVariationalModel:
     def __init__(self,case:VariationalModelCase,rank:int):
         if not isinstance(case,VariationalModelCase):
@@ -204,10 +223,7 @@ class IndependentVariationalModel:
 
     def _integrate_thickness(self):
         c=self.case
-        lmb=c.young_pa*c.poisson/((1+c.poisson)*(1-2*c.poisson))
-        mu=c.young_pa/(2*(1+c.poisson))
-        hooke=np.diag((2*mu,2*mu,2*mu,mu,mu,mu))
-        hooke[:3,:3]+=lmb
+        hooke=_elastic_tensor(c.theory,c.young_pa,c.poisson)
         zeta,wts=np.polynomial.legendre.leggauss(12)
         for xi,wi in zip(zeta,wts):
             z=.5*c.thickness_m*xi
