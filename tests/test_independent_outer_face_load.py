@@ -56,8 +56,8 @@ def test_exact_outer_face_projection_for_every_shell_theory(method,theory,load_k
     else:
         np.testing.assert_allclose(solver.force[2],expected,
                                    rtol=0,atol=1e-9)
-        np.testing.assert_array_equal(solver.force[:2],0.)
-        np.testing.assert_array_equal(solver.force[3:],0.)
+        np.testing.assert_array_equal(solver.force[:2],np.zeros_like(solver.force[:2]))
+        np.testing.assert_array_equal(solver.force[3:],np.zeros_like(solver.force[3:]))
 
 
 @pytest.mark.parametrize("method",("MKR","MVI"))
