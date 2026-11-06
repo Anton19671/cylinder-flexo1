@@ -96,10 +96,12 @@ def run(path: Path, *, validate_only: bool):
     history_path=output/"MKR_OWN_PHYSICAL_HISTORY.csv"
     fields=("step","stage","time_s","central_w0_m","maximum_abs_w0_m")
     failed_step=None
+    committed_steps=0
     with history_path.open("x",newline="",encoding="utf-8") as stream:
         writer=csv.DictWriter(stream,fieldnames=fields)
         writer.writeheader()
         stream.flush()
+        committed_csv_position=stream.tell()
         try:
             for k in range(1,steps+1):
                 failed_step=k
@@ -152,11 +154,23 @@ def run(path: Path, *, validate_only: bool):
                 summary["accepted_steps"]=k
                 summary["time_s"]=k*dt_s
                 save_summary()
+                committed_steps=k
+                committed_csv_position=stream.tell()
                 print(f"MKR ACCEPTED {k}/{steps} t={k*dt_s:.9g} s",flush=True)
             summary["status"]="CONVERGED"
             save_summary()
             print(f"MKR COMPLETED {steps}/{steps}",flush=True)
         except Exception as exc:
+            # The summary is the commit marker. Discard any partially written
+            # stages and CSV lines belonging to the uncommitted time step.
+            if failed_step is not None and failed_step > committed_steps:
+                for orphan in output.glob(f"MKR_STEP_{failed_step:04d}_*.npz"):
+                    orphan.unlink(missing_ok=True)
+                stream.seek(committed_csv_position)
+                stream.truncate()
+                stream.flush()
+            summary["accepted_steps"]=committed_steps
+            summary["time_s"]=committed_steps*dt_s
             summary.update(status="FAILED",failed_step=failed_step,
                            error_type=type(exc).__name__,detail=str(exc))
             save_summary()
