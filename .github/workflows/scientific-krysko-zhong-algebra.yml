@@ -1,0 +1,36 @@
+name: Scientific Krysko-Zhong CUF material and weak-form audit
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/scientific-krysko-zhong-algebra.yml"
+      - "tests/test_scientific_krysko_zhong_audit.py"
+      - "flexoelectric/**"
+      - "mechanics/cylinder_kinematic_models.py"
+      - "mechanics/cylinder_director_g3d.py"
+      - "mechanics/cylinder_kl_g3d_weak.py"
+      - "mechanics/cylinder_functional_assembly.py"
+permissions:
+  contents: read
+jobs:
+  scientific-algebra:
+    name: All TE1-TE4, three geometry measures, G3D/Gz analytic checks only
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONPATH: ".:mechanics:flexoelectric:numerics:physics"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install algebraic test dependencies
+        run: python -m pip install numpy scipy pytest
+      - name: Syntax check and independent scientific regression
+        run: |
+          python -m py_compile flexoelectric/cuf_g3d_weak.py flexoelectric/flexo_gradient_g3d.py mechanics/cylinder_kinematic_models.py
+          python -m pytest -q tests/test_scientific_krysko_zhong_audit.py tests/test_cuf_batched_virtual_variations.py tests/test_cuf_g3d_weak.py tests/test_flexo_gradient_g3d.py
