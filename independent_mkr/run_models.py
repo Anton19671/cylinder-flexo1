@@ -49,6 +49,17 @@ def load_case(path: Path):
     return physics,scheme,dt_s,steps,output,document
 
 
+def _save_npz_atomic(destination: Path, **arrays):
+    """Commit a complete NPZ only after compression succeeds; never expose partial data."""
+    temporary = destination.with_name(destination.stem + ".tmp.npz")
+    try:
+        with temporary.open("xb") as stream:
+            np.savez_compressed(stream, **arrays)
+        temporary.replace(destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def run(path: Path, *, validate_only: bool):
     physics,scheme,dt_s,steps,output,document=load_case(path)
     if validate_only:
@@ -131,7 +142,7 @@ def run(path: Path, *, validate_only: bool):
                              mechanical[radial])))}
                     ))
                 for filename,stage_time,mechanical,velocity,acceleration,row in pending:
-                    np.savez_compressed(
+                    _save_npz_atomic(
                         filename,time_s=stage_time,mechanical=mechanical,
                         velocity=velocity,acceleration=acceleration)
                 for *_,row in pending:
