@@ -86,3 +86,33 @@ def test_gui_has_case_browser_numerical_history_and_safe_browse(ui):
     assert "csv.DictReader" in source
     assert "load_case(case_file)" in source
     assert 'report["status"]="STOPPED_BY_USER"' in source
+
+
+@pytest.mark.parametrize("ui", (mkr, mvi))
+def test_history_view_excludes_uncommitted_step_after_interruption(ui):
+    """Only accepted time steps are visible; no GUI or physics is started."""
+    rows = [
+        {"step": "1", "stage": "END", "time_s": "0.002"},
+        {"step": "2", "stage": "GAMMA", "time_s": "0.003"},
+        {"step": "2", "stage": "END", "time_s": "0.004"},
+        {"step": "3", "stage": "END", "time_s": "0.006"},
+    ]
+    filtered = ui._committed_history_rows(rows, 1)
+    assert filtered == rows[:1]
+    assert ui._committed_history_rows(rows, 2) == rows[:3]
+    assert ui._committed_history_rows(rows, 0) == []
+
+
+@pytest.mark.parametrize("ui", (mkr, mvi))
+def test_history_view_skips_malformed_step_rows(ui):
+    rows = [
+        {"step": "bad", "stage": "END"},
+        {"stage": "END"},
+        {"step": "1", "stage": "END"},
+        {"step": "-1", "stage": "END"},
+    ]
+    assert ui._committed_history_rows(rows, 1) == [rows[2]]
+    with pytest.raises(ValueError, match="Invalid accepted-step counter"):
+        ui._committed_history_rows(rows, -1)
+    with pytest.raises(ValueError, match="Invalid accepted-step counter"):
+        ui._committed_history_rows(rows, 1.0)
