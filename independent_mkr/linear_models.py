@@ -343,6 +343,8 @@ class IndependentStrongModel:
         return qn,vn,an
 
     def step_bathe(self,q,v,a,time_s,dt_s=.002):
+        if not np.isfinite(dt_s) or dt_s<=0:
+            raise ValueError("MKR_MODEL_INVALID_BATHE_STEP")
         g=2-sqrt(2)
         d=g*dt_s
         qp=q+d*v+.25*d*d*a
