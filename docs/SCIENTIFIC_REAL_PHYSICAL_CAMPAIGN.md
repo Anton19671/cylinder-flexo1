@@ -23,7 +23,13 @@ The MICRO material uses GL geometry, explicit outer reference face
 DEAD_REFERENCE pressure (KL on MIDDLE face; FSDT, Reddy, CUF on OUTER face),
 SI units, positive gradient length, correct
 G3D (18 gradients) or Gz (6) and the requested electric switch.
-This is a small 4x4 grid, one load step or one time step; it cannot
+The pilot uses 4x4 except KL, which uses 5x4: with four axial points,
+clamping both ends also fixes their axial slopes and may remove every KL
+radial bending degree of freedom. One accepted status at zero displacement
+is NOT a valid pressure-response check. A campaign-specific nonzero radial
+response gate now guards all pilot cases at the stated E and load.
+It is not a general numerical threshold or a substitute for convergence.
+One load step or one time step cannot
 establish mesh convergence, time accuracy or rank convergence.
 
 **Critical limitation:** Coupled FDM and coupled MVI reference modes
@@ -32,3 +38,19 @@ individual executable branches and persistence, not mathematical
 independence of the two spatial discretizations. External analytic,
 WQEM or FE benchmarks, higher-order edges, free-surface traction, and
 real 3D field convergence remain publication-release gates.
+
+## Pilot discovery and scientific caveats
+
+The initial all-green eight-job physical campaign (run `42299220539`)
+was **not** yet a fully meaningful mechanical smoke result: inspecting
+its archived NPZ shows the 4x4 clamped KL case had identically zero
+mechanical displacement, electric potential and all recovered stresses
+under nonzero pressure. The case was therefore under-resolved in its
+admissible radial trial space, although the solver reported an accepted
+step. The successor pilot explicitly rejects this degenerate state.
+
+The small-grid GL results may carry the solver's diagnostic
+`thickness_locking: YES` for the classical/director theories and TE1.
+This is a physical-model caution, not a number to silently correct.
+Full higher-order free-face strong traction testing remains incomplete;
+a completed small-grid pilot cannot certify higher-order boundary work.

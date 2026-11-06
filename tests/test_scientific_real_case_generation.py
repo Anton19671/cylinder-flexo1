@@ -4,7 +4,9 @@ import pytest
 from cylinder_paths import activate
 activate()
 from cylinder_reference_case import prepare_reference_case
-from scientific_real_coupled_case import catalog,build_case,expected_accepted_summary
+from scientific_real_coupled_case import (catalog,build_case,
+    expected_accepted_summary,_physical_radial_response)
+import numpy as np
 
 def test_full_and_pilot_scientific_matrices_unique():
     full=catalog(full=True)
@@ -48,3 +50,27 @@ def test_scientific_summary_expectations_match_public_solver_labels(item,tmp_pat
         else "CONVERGED")
     assert expected["converged"] is True
     assert expected["accepted_steps"]==1
+
+
+def test_kl_clamped_short_axial_grid_cannot_be_accepted_as_physical_bending(tmp_path):
+    entry=next(x for x in catalog() if x["theory"]=="KL")
+    c=build_case(entry,tmp_path/"KL")
+    assert c["fdm_grid"]=={"nx":5,"ns":4}
+    zeros=np.zeros((3,5,4))
+    with pytest.raises(AssertionError,match="PHYSICAL_ZERO_RADIAL_RESPONSE"):
+        _physical_radial_response(c,zeros)
+    zeros[2,2,1]=1.e-12
+    assert _physical_radial_response(c,zeros)==pytest.approx(1.e-12)
+
+
+def test_cuf_real_pilot_preserves_small_grid_and_radial_component_order(tmp_path):
+    entry=next(x for x in catalog() if x["theory"]=="CUF_TE4")
+    c=build_case(entry,tmp_path/"TE4")
+    assert c["fdm_grid"]=={"nx":4,"ns":4}
+    trial=np.zeros((15,4,4))
+    trial[10,2,2]=3.e-10
+    assert _physical_radial_response(c,trial)==pytest.approx(3.e-10)
+    trial[10,2,2]=0.
+    trial[0,2,2]=1.e-3
+    with pytest.raises(AssertionError,match="PHYSICAL_ZERO_RADIAL_RESPONSE"):
+        _physical_radial_response(c,trial)

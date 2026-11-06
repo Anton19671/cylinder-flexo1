@@ -68,13 +68,17 @@ def build_case(spec,folder):
     # kinematics. Do not bypass the validated restriction.
     c["load_definition"].update(face="MIDDLE" if theory=="KL" else "OUTER",
                                 kinematics="DEAD_REFERENCE",q=.01)
+    # Four axial nodes plus two clamped KL end slopes exhaust the
+    # four-node radial subspace. Use at least five axial nodes so the
+    # manufactured KL pressure can excite a genuine bending mode.
+    nx=5 if theory=="KL" else 4
     if method=="FDM":
         for name in ("mvi_grid","rank","reference_mvi"):
             c.pop(name,None)
-        c["fdm_grid"]={"nx":4,"ns":4}
+        c["fdm_grid"]={"nx":nx,"ns":4}
     else:
         c.pop("fdm_grid",None)
-        c["mvi_grid"]={"nx":4,"ns":4}
+        c["mvi_grid"]={"nx":nx,"ns":4}
         c["rank"]=1
         c["reference_mvi"]={"max_sweeps":30}
     if spec["kind"]=="DYNAMIC":
@@ -122,6 +126,22 @@ def expected_accepted_summary(case):
                 else "CONVERGED"))
 
 
+def _physical_radial_response(case,mechanical):
+    """Campaign-specific safeguard against a constrained zero bending field.
+
+    This is a smoke-test excitation threshold for this nonzero-pressure,
+    E=100 Pa, one-step benchmark only; it is NOT an error tolerance for
+    production or for other dimensional scalings.
+    """
+    theory=("CUF_"+case["cuf_model"] if case["theory"]=="CUF"
+            else case["theory"])
+    radial=2*(int(theory[-1])+1) if theory.startswith("CUF_TE") else 2
+    result=float(np.max(np.abs(np.asarray(mechanical)[radial])))
+    if not np.isfinite(result) or result<=1.e-15:
+        raise AssertionError("PHYSICAL_ZERO_RADIAL_RESPONSE")
+    return result
+
+
 def assert_physical_output(case,folder):
     output=folder/"RESULTS"
     summary=json.loads((output/"FINAL_RUN_SUMMARY.json").read_text(encoding="utf-8"))
@@ -148,8 +168,11 @@ def assert_physical_output(case,folder):
         if "mechanical" not in saved:
             raise AssertionError("MECHANICAL_STATE_MISSING")
         q=saved["mechanical"]
-        if q.ndim!=3 or q.shape[1:]!=(4,4):
+        grid=case["fdm_grid" if case["method"]=="FDM" else "mvi_grid"]
+        expected_shape=(grid["nx"],grid["ns"])
+        if q.ndim!=3 or q.shape[1:]!=expected_shape:
             raise AssertionError("MECHANICAL_STATE_SHAPE_INVALID")
+        radial_max_m=_physical_radial_response(case,q)
         on=case["micro"]["enable_flexoelectric"]
         if ("electrical" in saved.files)!=on:
             raise AssertionError("ELECTRICAL_STATE_SWITCH_INVALID")
@@ -173,6 +196,8 @@ def assert_physical_output(case,folder):
             np.testing.assert_allclose(saved["state_scales"]*field,
                                        target,rtol=2e-8,atol=2e-11)
     return {"saved_state":expected_file,"state_sha256":digest(state),
+            "radial_displacement_abs_max_m":radial_max_m,
+            "physical_excitation_check":"NONZERO_RADIAL_RESPONSE",
             "physical_state_accepted":True,
             "external_physical_accuracy_verified":False,
             "coupled_spatial_methods_independent":False}
