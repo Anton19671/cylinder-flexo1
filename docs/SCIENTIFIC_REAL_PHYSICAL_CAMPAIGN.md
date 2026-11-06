@@ -20,7 +20,8 @@ the failed journal; no numerical fields are fabricated or substituted.
 In MVI the saved X/Y factors must reproduce the accepted physical state.
 
 The MICRO material uses GL geometry, explicit outer reference face
-DEAD_REFERENCE pressure, SI units, positive gradient length, correct
+DEAD_REFERENCE pressure (KL on MIDDLE face; FSDT, Reddy, CUF on OUTER face),
+SI units, positive gradient length, correct
 G3D (18 gradients) or Gz (6) and the requested electric switch.
 This is a small 4x4 grid, one load step or one time step; it cannot
 establish mesh convergence, time accuracy or rank convergence.
