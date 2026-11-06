@@ -58,6 +58,21 @@ def inspect_document(document):
     return physics
 
 
+def _committed_history_rows(rows, accepted_steps):
+    """Expose only stages belonging to steps committed in the run summary."""
+    if type(accepted_steps) is not int or accepted_steps < 0:
+        raise ValueError("Invalid accepted-step counter")
+    result=[]
+    for row in rows:
+        try:
+            step=int(row["step"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if 1 <= step <= accepted_steps:
+            result.append(row)
+    return result
+
+
 class IndependentMKRWindow(tk.Toplevel):
     """Separate GUI controls and background process owned by МКР only."""
 
@@ -230,6 +245,7 @@ class IndependentMKRWindow(tk.Toplevel):
                 columns=reader.fieldnames
             if not columns:
                 raise ValueError("История пуста или не имеет заголовка")
+            rows=_committed_history_rows(rows,summary.get("accepted_steps"))
             if summary.get("method")!="MKR_STRONG_FINITE_DIFFERENCES":
                 raise ValueError("Папка содержит результаты другого метода")
             win=tk.Toplevel(self)
