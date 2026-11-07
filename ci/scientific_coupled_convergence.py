@@ -24,10 +24,14 @@ from cylinder_reference_case import prepare_reference_case
 from scientific_real_coupled_case import build_case
 
 STUDIES = ("KL_GRID","TE1_GRID","TE1_TIME","TE1_RANK")
+PILOT_IDS = ("KL_GRID_5x5","TE1_GRID_4x4","TE1_TIME_N2",
+             "TE1_RANK_MVI_R1")
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def catalog():
+def catalog(scope="full"):
+    if scope not in ("full","pilot"):
+        raise ValueError("SCIENTIFIC_SCOPE_INVALID")
     entries = []
     def add(study,variant,theory,gradient,on,kind,method,nx,ns,
             *,rank=1,steps=1,dt=.01,patch=False):
@@ -48,7 +52,8 @@ def catalog():
             "CUF_TE1","Gz",True,"STATIC",method,5,5,
             rank=max(1,rank),patch=True)
     assert len(entries)==13 and len({e["id"] for e in entries})==13
-    return entries
+    return ([e for e in entries if e["id"] in PILOT_IDS]
+            if scope=="pilot" else entries)
 
 
 def case_from_entry(entry,folder):
@@ -232,12 +237,13 @@ def run(entry,folder):
         raise
 
 
-def compare(root,out):
+def compare(root,out,scope="full"):
+    """Compare only requested campaign entries; missing ones remain failures."""
     root,out=Path(root),Path(out)
     out.mkdir(parents=True,exist_ok=True)
     rows=[]
-    for entry in catalog():
-        candidates=list(root.rglob("CONVERGENCE_EVIDENCE.json"))
+    candidates=list(root.rglob("CONVERGENCE_EVIDENCE.json"))
+    for entry in catalog(scope):
         matches=[]
         for path in candidates:
             try:
@@ -303,22 +309,24 @@ def compare(root,out):
 def main():
     parser=argparse.ArgumentParser()
     commands=parser.add_subparsers(dest="command",required=True)
-    commands.add_parser("matrix")
+    listing=commands.add_parser("matrix")
+    listing.add_argument("--scope",choices=("pilot","full"),default="pilot")
     p=commands.add_parser("run")
     p.add_argument("--id",required=True)
     p.add_argument("--output",type=Path,required=True)
     p=commands.add_parser("compare")
     p.add_argument("--root",type=Path,required=True)
     p.add_argument("--output",type=Path,required=True)
+    p.add_argument("--scope",choices=("pilot","full"),default="pilot")
     a=parser.parse_args()
     if a.command=="matrix":
-        print(json.dumps({"include":catalog()},separators=(",",":")))
+        print(json.dumps({"include":catalog(a.scope)},separators=(",",":")))
     elif a.command=="run":
-        found=[x for x in catalog() if x["id"]==a.id]
+        found=[x for x in catalog("full") if x["id"]==a.id]
         if len(found)!=1:raise ValueError("SCIENTIFIC_CASE_NOT_FOUND")
         run(found[0],a.output)
     else:
-        compare(a.root,a.output)
+        compare(a.root,a.output,scope=a.scope)
 
 
 if __name__=="__main__":
