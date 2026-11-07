@@ -18,9 +18,9 @@ from cylinder_gauss2_mvi import (
     _normalize, _directions, _constrained_directions, _reduced_newton,
 )
 from cylinder_variational_fdm import StaticFDMSettings, state_scales
-from cylinder_gauss2_variational_fdm import (_physical_assembled,
-                                             _require_fixed_supports,
-                                             _stage_loads)
+from cylinder_gauss2_mvi_physics import (_physical_assembled,
+                                       _require_fixed_supports,
+                                       _stage_loads)
 
 
 def _end_electric_mvi(problem, q, v, t, guess, rank, *, scales,
