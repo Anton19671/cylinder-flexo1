@@ -1,0 +1,107 @@
+name: Real CUF TE1 flexoelectric MVI ranks 1-8 versus FDM
+run-name: "REAL TE1 Gz flexoelectric rank1-8 - ${{ github.sha }}"
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/scientific-coupled-rank-1-8.yml"
+      - "ci/scientific_coupled_rank_1_8.py"
+      - "tests/test_scientific_coupled_rank_1_8.py"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    outputs:
+      matrix: ${{ steps.gen.outputs.cases }}
+    env:
+      PYTHONPATH: ".:ci:interface:mechanics:numerics:physics:flexoelectric"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install numpy scipy pytest
+      - name: Validate every rank, full electric order and matching continuum CASE
+        run: python -m pytest -q tests/test_scientific_coupled_rank_1_8.py
+      - name: Emit exact full physical matrix
+        id: gen
+        shell: bash
+        run: echo "cases=$(python ci/scientific_coupled_rank_1_8.py matrix)" >> "$GITHUB_OUTPUT"
+  physical:
+    needs: preflight
+    name: "REAL ${{ matrix.case.id }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        case: ${{ fromJSON(needs.preflight.outputs.matrix).include }}
+    env:
+      PYTHONPATH: ".:ci:interface:mechanics:numerics:physics:flexoelectric"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+      MPLBACKEND: "Agg"
+      RANK_CASE_ID: ${{ matrix.case.id }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements.txt
+      - name: Solve REAL fixed-rank variational equations on matching 8x8 grid
+        shell: bash
+        run: |
+          mkdir -p rank_logs
+          set -o pipefail
+          python -u ci/scientific_coupled_rank_1_8.py run \
+            --id "$RANK_CASE_ID" --output "rank_cases/$RANK_CASE_ID" \
+            2>&1 | tee "rank_logs/$RANK_CASE_ID.log"
+      - name: Preserve all physical NPZ fields, true CASE and failure journal
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: "SCI_RANK8_${{ matrix.case.id }}"
+          path: |
+            rank_cases/
+            rank_logs/
+          retention-days: 60
+          if-no-files-found: warn
+  compare:
+    needs: [preflight,physical]
+    if: always() && needs.preflight.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONPATH: ".:ci:interface:mechanics:numerics:physics:flexoelectric"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install numpy scipy
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: SCI_RANK8_*
+          path: rank_archive
+          merge-multiple: true
+      - name: Compare all real mechanical, stress, potential and electric fields
+        run: python -u ci/scientific_coupled_rank_1_8.py compare --root rank_archive --output rank_comparison
+      - name: Keep full field/rank comparison and failure classification
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SCI_RANK8_FIELD_COMPARISON
+          path: rank_comparison/
+          retention-days: 60
+          if-no-files-found: warn
