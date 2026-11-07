@@ -90,3 +90,35 @@ reference solve succeeded.
 not proof for ranks 2–8. Do not quote numerical values for a rank until
 its own accepted NPZ has been independently inspected.
 
+## Verified MVI-2 and MVI-3 on the same 8×8 real physical case
+
+Source archives: `SCI_RANK8_TE1_NONAX_8X8_MVI_R2` and
+`SCI_RANK8_TE1_NONAX_8X8_MVI_R3` in
+[GitHub Actions 42360094375](https://github.com/Anton19671/cylinder-flexo1/actions/runs/42360094375).
+They share exactly the FDM physical signature
+`e9ed508a761b06ad9b0319437ed57aec90e19cc2433a759550e14028c18a856f`
+and revision `923172e35649558ae8615159ad573816c6edfc00`.
+Both final NPZ SHA256 values match the stored scientific evidence.
+Both results are **CONVERGED_PROJECTED**, not fully stationary.
+
+All columns below are **relative L2 field differences vs the same
+FDM NPZ, percent**; none is an external exact-solution error.
+
+| Physical array | MVI-1 | MVI-2 | MVI-3 |
+|---|---:|---:|---:|
+| Mechanical thickness coefficients | 0.1398730558 | 0.01466070782 | 1.038736811e-7 |
+| Outer radial displacement | 0.1373195584 | 0.008035276977 | 1.062119682e-7 |
+| Thickness stress (six components) | 0.8400661871 | 0.1077488355 | 1.494626916e-7 |
+| Thickness hyperstress | 0.4458477324 | 0.0361898534 | 1.45493112e-7 |
+| Electric potential coefficients | 3.712601918 | 3.70886584 | 0.07050071832 |
+| Volume electric induction (three components) | 7.201149671 | 7.077566731 | 0.1915453721 |
+| Outer normal electric induction | 13.41158673 | 13.34791122 | 0.2539926578 |
+
+The mechanical fields at rank 3 agree exceptionally closely with FDM,
+but the electric induction still differs by 0.254% on the outer face.
+At rank 2 mechanical fields improve much faster than electric
+induction. The latter cannot be certified by monitoring displacement
+alone. These are finite-rank, identical-weak-kernel and identical-grid
+**comparisons**, not independent discretization or continuum accuracy
+validation. Rank 4–8 numerical findings must be appended only after
+actual GitHub artifacts are available and inspected.
