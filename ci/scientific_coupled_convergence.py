@@ -56,7 +56,9 @@ def case_from_entry(entry,folder):
     grid=case["fdm_grid" if entry["method"]=="FDM" else "mvi_grid"]
     grid["nx"],grid["ns"]=entry["nx"],entry["ns"]
     # Use the same discrete spatial operator family throughout each study.
-    grid["operator_scheme"]="SBP21_PERIODIC_ODD" if entry["ns"]%2 else "LEGACY_REFERENCE"
+    # Keep one spatial operator family across mesh levels: otherwise
+    # grid refinement would be confounded with changing discretization.
+    grid["operator_scheme"]="LEGACY_REFERENCE"
     if entry["method"]=="MVI":
         case["rank"]=entry["rank"]
         case["reference_mvi"]={"max_sweeps":45}
