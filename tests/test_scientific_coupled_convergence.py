@@ -119,3 +119,96 @@ def test_pretend_one_case_does_not_certify_entire_convergence_series(tmp_path):
         encoding="utf-8")
     with pytest.raises(RuntimeError,match="FAILED_OR_MISSING"):
         compare(location,tmp_path/"summary",scope="pilot")
+
+
+def _accepted_mvi_summary(*,full=False):
+    status="CONVERGED_FULL" if full else "CONVERGED_PROJECTED"
+    certificate={
+        "solution_status":status,
+        "accepted":True,"projected_accepted":True,
+        "boundary_constraint_satisfied":True,
+        "profile_reconstruction_satisfied":True,
+        "projected_equilibrium_satisfied":True,
+        "full_equilibrium_satisfied":full,
+    }
+    return {
+        "status":status,"converged":True,"accepted_steps":1,
+        "steps":[{
+            "converged":True,"status":status,
+            "full_equilibrium_satisfied":full,
+            "mvi_certificate":certificate,
+        }],
+    }
+
+
+def test_mvi_rank_limited_stable_solution_is_not_falsely_failed_or_certified():
+    from scientific_coupled_convergence import classify_accepted_steps
+    entry=next(e for e in catalog("pilot") if e["id"]=="TE1_RANK_MVI_R1")
+    qualification=classify_accepted_steps(
+        _accepted_mvi_summary(full=False),entry)
+    assert qualification["solution_class"]=="RANK_CONSTRAINED_ONLY"
+    assert qualification["full_space_stationarity_confirmed"] is False
+    assert qualification["fixed_rank_stationarity_confirmed"] is True
+    assert qualification["spatial_rank_limit_detected"] is True
+
+
+def test_mvi_full_solution_gets_distinct_explicit_stationarity_class():
+    from scientific_coupled_convergence import classify_accepted_steps
+    entry=next(e for e in catalog("pilot") if e["id"]=="TE1_RANK_MVI_R1")
+    qualification=classify_accepted_steps(
+        _accepted_mvi_summary(full=True),entry)
+    assert qualification["solution_class"]=="FULL_SPACE_STATIONARY"
+    assert qualification["full_space_stationarity_confirmed"] is True
+
+
+def test_mvi_rank_limited_cannot_masquerade_as_full_or_bad_certificate():
+    from scientific_coupled_convergence import classify_accepted_steps
+    entry=next(e for e in catalog("pilot") if e["id"]=="TE1_RANK_MVI_R1")
+    bad=_accepted_mvi_summary(full=False)
+    bad["steps"][0]["mvi_certificate"]["full_equilibrium_satisfied"]=True
+    with pytest.raises(ValueError,match="CERTIFICATE_INCONSISTENT"):
+        classify_accepted_steps(bad,entry)
+    bad=_accepted_mvi_summary(full=False)
+    bad["steps"][0]["mvi_certificate"]["projected_accepted"]=False
+    with pytest.raises(ValueError,match="CERTIFICATE_INCONSISTENT"):
+        classify_accepted_steps(bad,entry)
+    bad=_accepted_mvi_summary(full=False)
+    bad["steps"][0]["status"]="CONVERGED_FULL"
+    with pytest.raises(ValueError,match="CERTIFICATE_INCONSISTENT"):
+        classify_accepted_steps(bad,entry)
+
+
+def test_mvi_failed_step_not_allowed_even_if_status_looks_accepted():
+    from scientific_coupled_convergence import classify_accepted_steps
+    entry=next(e for e in catalog("pilot") if e["id"]=="TE1_RANK_MVI_R1")
+    bad=_accepted_mvi_summary(full=False)
+    bad["steps"][0]["converged"]=False
+    with pytest.raises(ValueError,match="STEPS_NOT_ACCEPTED"):
+        classify_accepted_steps(bad,entry)
+
+
+def test_comparison_marks_rank_constrained_study_without_publishing_it_as_full(tmp_path):
+    from scientific_coupled_convergence import compare,physical_identity
+    location=tmp_path/"cases"
+    location.mkdir()
+    for entry in catalog("pilot"):
+        folder=location/entry["id"]
+        folder.mkdir()
+        case=case_from_entry(entry,folder)
+        rank_limited=entry["id"]=="TE1_RANK_MVI_R1"
+        record=dict(
+            case_id=entry["id"],status="ACCEPTED",
+            study=entry["study"],method=entry["method"],
+            physics_sha256=physical_identity(case),
+            solution_class=("RANK_CONSTRAINED_ONLY" if rank_limited
+                            else "FULL_SPACE_STATIONARY"),
+            full_space_stationarity_confirmed=not rank_limited,
+            observations=dict(w_mid_probe_m=1.))
+        (folder/"CONVERGENCE_EVIDENCE.json").write_text(
+            json.dumps(record),encoding="utf-8")
+    report=compare(location,tmp_path/"summary",scope="pilot")
+    assert report["all_accepted"] is True
+    assert report["all_static_cases_full_space_stationary"] is False
+    assert report["rank_constrained_cases"]==["TE1_RANK_MVI_R1"]
+    assert report["series"]["TE1_RANK"]["rank_constrained_case_ids"]==[
+        "TE1_RANK_MVI_R1"]

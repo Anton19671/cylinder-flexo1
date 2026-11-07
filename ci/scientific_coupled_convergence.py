@@ -126,18 +126,60 @@ def _radial_index(theory):
             else 2)
 
 
+def classify_accepted_steps(summary,entry):
+    """Interpret accepted fixed-rank MVI as rank-limited, never full-space.
+
+    For STATIC MVI, CONVERGED_PROJECTED is an accepted *rank-constrained*
+    solution. Its ability to represent the true full-space problem remains
+    unverified and must not be reported as CONVERGED_FULL.
+    """
+    steps=summary.get("steps",[])
+    n=entry["steps"]
+    if (summary.get("converged") is not True or
+        summary.get("accepted_steps")!=n or len(steps)!=n or
+        any(step.get("converged") is not True for step in steps)):
+        raise ValueError("SCIENTIFIC_CONVERGENCE_STEPS_NOT_ACCEPTED")
+    actual_status=summary.get("status")
+    if entry["method"]=="MVI" and entry["kind"]=="STATIC":
+        if actual_status not in ("CONVERGED_FULL","CONVERGED_PROJECTED"):
+            raise ValueError("SCIENTIFIC_MVI_UNRECOGNIZED_ACCEPTED_STATUS")
+        cert=steps[-1].get("mvi_certificate",{})
+        is_full=actual_status=="CONVERGED_FULL"
+        if (steps[-1].get("status")!=actual_status or
+            cert.get("solution_status")!=actual_status or
+            cert.get("accepted") is not True or
+            cert.get("projected_accepted") is not True or
+            cert.get("boundary_constraint_satisfied") is not True or
+            cert.get("profile_reconstruction_satisfied") is not True or
+            cert.get("projected_equilibrium_satisfied") is not True or
+            cert.get("full_equilibrium_satisfied") is not is_full or
+            steps[-1].get("full_equilibrium_satisfied") is not is_full):
+            raise ValueError("SCIENTIFIC_MVI_CERTIFICATE_INCONSISTENT")
+        return {
+            "solution_class":("FULL_SPACE_STATIONARY" if is_full
+                              else "RANK_CONSTRAINED_ONLY"),
+            "full_space_stationarity_confirmed":is_full,
+            "fixed_rank_stationarity_confirmed":True,
+            "spatial_rank_limit_detected":not is_full,
+        }
+    if actual_status!="CONVERGED":
+        raise ValueError("SCIENTIFIC_FULL_SPACE_SOLVE_NOT_CONVERGED")
+    return {
+        "solution_class":("DYNAMIC_STEP_ACCEPTED" if entry["kind"]=="DYNAMIC"
+                          else "FULL_SPACE_STATIONARY"),
+        # A dynamic MVI step is a time-advance acceptance, not an external
+        # full-space rank certification; do not infer such a claim.
+        "full_space_stationarity_confirmed":(
+            True if entry["kind"]=="STATIC" else None),
+        "fixed_rank_stationarity_confirmed":None,
+        "spatial_rank_limit_detected":None,
+    }
+
+
 def verify(case,entry,folder):
     out=folder/"RESULTS"
     summary=json.loads((out/"FINAL_RUN_SUMMARY.json").read_text(encoding="utf-8"))
-    expected_status=("CONVERGED_FULL"
-        if entry["kind"]=="STATIC" and entry["method"]=="MVI"
-        else "CONVERGED")
-    if (summary.get("status")!=expected_status or
-        summary.get("converged") is not True or
-        summary.get("accepted_steps")!=entry["steps"] or
-        len(summary.get("steps",[]))!=entry["steps"] or
-        any(not step.get("converged") for step in summary["steps"])):
-        raise ValueError("SCIENTIFIC_CONVERGENCE_STEPS_NOT_ACCEPTED")
+    qualification=classify_accepted_steps(summary,entry)
     if summary["theory"]!=entry["theory"] or summary["method"]!=entry["method"]:
         raise ValueError("SCIENTIFIC_CONVERGENCE_IDENTITY_MISMATCH")
     if (summary["gradient_model"]!=entry["gradient"] or
@@ -195,7 +237,8 @@ def verify(case,entry,folder):
                 a["velocity"][_radial_index(entry["theory"])],
                 length/2,np.pi,length)
     return dict(accepted=True,state_file=final,state_sha256=digest(file),
-                observations=observed,scientific_accuracy_certified=False)
+                observations=observed,**qualification,
+                scientific_accuracy_certified=False)
 
 
 def run(entry,folder):
@@ -265,6 +308,8 @@ def compare(root,out,scope="full"):
     for row in rows:
         groups.setdefault(row["study"],[]).append(row)
     report={"records":rows,"series":{},"all_accepted":False,
+            "all_static_cases_full_space_stationary":False,
+            "rank_constrained_cases":[],
             "external_accuracy_certified":False,
             "independent_coupled_fdm_mvi_certified":False}
     for study,group in groups.items():
@@ -285,12 +330,25 @@ def compare(root,out,scope="full"):
         report["series"][study]={
             "accepted_count":len(accepted),
             "requested_count":len(group),
+            "rank_constrained_case_ids":[
+                x["case_id"] for x in accepted
+                if x.get("solution_class")=="RANK_CONSTRAINED_ONLY"],
             "same_continuum_physics":len(signatures)<=1,
             "adjacent_changes_not_error_bounds":comparisons}
     report["all_accepted"]=all(row["status"]=="ACCEPTED" for row in rows)
+    report["rank_constrained_cases"]=[
+        row["case_id"] for row in rows
+        if row.get("solution_class")=="RANK_CONSTRAINED_ONLY"]
+    static_rows=[row for row in rows
+                 if row.get("solution_class") in (
+                     "FULL_SPACE_STATIONARY","RANK_CONSTRAINED_ONLY")]
+    report["all_static_cases_full_space_stationary"]=bool(static_rows) and all(
+        row.get("full_space_stationarity_confirmed") is True
+        for row in static_rows) and report["all_accepted"]
     (out/"SCIENTIFIC_COMPARISON.json").write_text(
         json.dumps(report,indent=2)+"\n",encoding="utf-8")
-    cols=["study","case_id","status","method","grid","rank","dt_s","steps",
+    cols=["study","case_id","status","solution_class",
+          "full_space_stationarity_confirmed","method","grid","rank","dt_s","steps",
           "physics_sha256","w_mid_probe_m","w_mid_max_abs_m",
           "w_outer_probe_m","potential_c0_probe_v",
           "face_outer_induction_probe_c_per_m2","sigma_xx_mid_probe_pa",

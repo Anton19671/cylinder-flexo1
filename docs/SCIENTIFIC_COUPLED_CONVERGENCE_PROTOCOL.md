@@ -45,3 +45,28 @@ N+1 electric coefficient fields. The earlier real pilot incorrectly
 carried `potential_order=1` from the TE1 example into TE2/TE4 cases;
 corrected CASE generator and tests must pass before the previous TE2/4
 pass result can be used as evidence of full CUF electrical order.
+
+
+## Scientific distinction for rank-constrained MVI
+
+The real TE1 static rank-one patch case in GitHub Actions run
+42355615451 generated an accepted fixed-rank physical state with the
+explicit solver status **CONVERGED_PROJECTED**, not
+**CONVERGED_FULL**. The comparison harness initially rejected it
+because it expected only the latter. This is a classification error
+in the *study harness*, not proof that the MVI production integrator
+failed.
+
+The corrected study preserves the rank-one physical solution and its
+X/Y factors, marks the record as **RANK_CONSTRAINED_ONLY**, and reports
+\`full_space_stationarity_confirmed=false\`. It never claims that
+MVI-1 solves the full-space physical problem. Only
+\`CONVERGED_FULL\` with a consistent numerical certificate is
+classified **FULL_SPACE_STATIONARY**.
+
+The overall comparison distinguishes all requested solver steps
+accepted from all static cases fully stationary. In particular, a
+green run containing an accepted rank-limited MVI case **does not**
+establish physical rank convergence, accuracy, or independent
+spatial validation. Higher ranks and external benchmarks remain
+required.
