@@ -1,4 +1,4 @@
-"""Exclusive CUF TE4 MVI runner: its own CASE, validation and physical files.
+"""Independent MVI runner for seven shell theories, its own physical files.
 
 No MKR, shared variational dispatcher, or legacy solver is imported.
 Only --run invokes a physical shell calculation; --validate-only does not.
@@ -62,6 +62,36 @@ def _save_npz_atomic(destination: Path, **arrays):
     finally:
         temporary.unlink(missing_ok=True)
 
+
+
+def _validate_rank_factors_for_accepted_endpoint(mechanical, x_profiles, y_profiles):
+    """Reject falsely saved MVI fields that disagree with their own factors.
+
+    The final physical state must be reconstructed by the accepted rank-R
+    factors. Using a relative whole-field norm also catches incompatibility
+    at very small displacement magnitudes, which an absolute-only tolerance
+    would miss. This does not claim spatial or external reference accuracy.
+    """
+    state=np.asarray(mechanical,dtype=float)
+    x=np.asarray(x_profiles,dtype=float)
+    y=np.asarray(y_profiles,dtype=float)
+    if (state.ndim!=3 or x.ndim!=3 or y.ndim!=3 or
+        x.shape[0]!=state.shape[0] or y.shape[0]!=state.shape[0] or
+        x.shape[1]!=y.shape[1] or
+        (x.shape[2],y.shape[2])!=state.shape[1:]):
+        raise RuntimeError("MVI_ACCEPTED_FACTOR_SHAPE_MISMATCH")
+    if any(not np.isfinite(z).all() for z in (state,x,y)):
+        raise RuntimeError("MVI_ACCEPTED_FACTOR_NONFINITE")
+    represented=np.einsum("krx,krs->kxs",x,y,optimize=True)
+    if not np.isfinite(represented).all():
+        raise RuntimeError("MVI_ACCEPTED_FACTOR_PRODUCT_NONFINITE")
+    field_norm=float(np.linalg.norm(state.ravel()))
+    difference_norm=float(np.linalg.norm((represented-state).ravel()))
+    if (not np.isfinite(field_norm) or
+        not np.isfinite(difference_norm) or
+        difference_norm>2.e-8*max(field_norm,1.e-30)):
+        raise RuntimeError("MVI_ACCEPTED_FACTORS_RECONSTRUCTION_MISMATCH")
+    return difference_norm
 
 def run(path: Path, *, validate_only: bool):
     physics,rank,scheme,dt_s,steps,output,document=load_case(path)
@@ -165,6 +195,11 @@ def run(path: Path, *, validate_only: bool):
                          "maximum_abs_w0_m":float(np.max(np.abs(
                              mechanical[radial])))}
                     ))
+                # The archived X/Y factor file represents the END stage,
+                # not an arbitrary unrelated finite tensor. Validate before
+                # committing ANY stage or its history to the result folder.
+                _validate_rank_factors_for_accepted_endpoint(
+                    pending[-1][2],X,Y)
                 for filename,stage_time,mechanical,velocity,acceleration,row in pending:
                     _save_npz_atomic(filename,time_s=stage_time,
                             mechanical=mechanical,velocity=velocity,

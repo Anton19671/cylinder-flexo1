@@ -58,6 +58,10 @@ def test_runner_persists_accepted_history_and_fails_closed_without_physics(
                 nx,ns=self.physics.nx,self.physics.ns
                 X=np.zeros((self.n,rank,nx))
                 Y=np.zeros((self.n,rank,ns))
+                # A valid fake result must match its archived rank-one
+                # factors, just as the real independent solver must.
+                X[4,0,5]=new[4,5,3]
+                Y[4,0,3]=1.
                 return final,(X,Y),((k,"Y"),(k,"X"))
             return final
     if method=="MKR":

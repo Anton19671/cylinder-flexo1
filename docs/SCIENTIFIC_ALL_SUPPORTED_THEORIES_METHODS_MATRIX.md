@@ -33,3 +33,15 @@ validate nonlinear flexoelectric dynamics in independent methods.
 The workflow only validates inputs and dispatch, never advances a
 physical time or load step. The scientific physical evidence campaigns
 and external reference comparisons remain separate.
+
+
+The seven-theory independent MVI runner now rejects a saved `X/Y`
+factor pair unless reconstructing the accepted END displacement field
+agrees to a tight, scale-aware norm tolerance. This closes a gap where
+correct-shaped, finite factors could disagree with the stored physical
+field yet still have the solver status `CONVERGED`. The associated
+189-case mocked stage-dispatch matrix checks Bathe's two stages,
+Newmark's end stage, Gauss IRK4's two internal stages plus endpoint,
+method-specific NPZ, time and case metadata, and MVI factor reconstruction.
+All numerical step outputs in these tests are manufactured stubs, not
+physical solutions or validation against external benchmarks.
