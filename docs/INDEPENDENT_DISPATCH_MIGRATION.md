@@ -85,3 +85,29 @@ axial difference was not. Native MVI SBP/Fourier operators and the
 entire coupled legacy physics are unchanged. This step does not
 claim that centered angular differences are a full implementation of
 source §40's compatible face gradients. No physical case was run.
+
+## 2026-11-07: exact-zero trap in independent fixed-rank MVI
+
+Both seven-theory MVI and separate CUF TE4 MVI historically used
+arbitrary nonzero axial partners and zero angular partners. A localized
+load orthogonal to these initial partners can make both projected
+X/Y subproblems inactive despite a nonzero full two-dimensional
+loading. The normalization of an all-zero partner can then destroy
+the previously nonzero axial partner, creating a falsely accepted
+zero field. This case is demonstrated by a small manufactured
+matrix example independent of any shell time stepping.
+
+The new method-owned activation constructs leading axial SVD directions
+from the current admissible two-dimensional driving work, with fixed
+rank and with angular partners initially zero. A zero previous field is
+reactivated for a nonzero new load; both Newmark/Bathe and individual
+Gauss stages use their own MVI operator. An unchanged zero field is
+explicitly rejected when it does not satisfy all free equations.
+No MKR assembler or physics subroutine is imported, and no 3D grid
+is introduced. Algebraic seed tests for all seven theories and
+ranks 1/2/4/8 (plus TE4) are in
+`tests/test_independent_mvi_load_activation.py`.
+
+This removes a proven false-zero path. It is not evidence of fixed-rank
+sufficiency, complete nonlinear coupled G3D physics, or validated
+physical dynamic behavior. No real shell calculation was launched.

@@ -344,6 +344,27 @@ class IndependentVariationalModel:
             X[k]=B[:,:self.rank].T
         return X,Y
 
+    def _seed_from_admissible_drive(self, drive):
+        """Excite admissible X factors using the current two-dimensional work.
+
+        Does not solve a spatial equation, change rank, or call MKR.
+        The circumferential partners remain zero initially.
+        """
+        rhs=np.asarray(drive,float)
+        c=self.case
+        if rhs.shape!=(self.n,c.nx,c.ns) or not np.isfinite(rhs).all():
+            raise ValueError("MVI_SEED_REQUIRES_FINITE_ADMISSIBLE_DRIVE")
+        X,Y=self._first_factors()
+        for k,B in enumerate(self.basis):
+            work=B.T@rhs[k]
+            if not np.any(work):
+                continue
+            U,_,_=np.linalg.svd(work,full_matrices=False)
+            if U.shape[1]<self.rank:
+                raise RuntimeError("MVI_DRIVE_RANK_EXCEEDS_ADMISSIBLE_AXIAL_SPACE")
+            X[k]=(B@U[:,:self.rank]).T
+        return X,Y
+
     @staticmethod
     def field(X,Y):
         return np.einsum("krx,krs->kxs",X,Y,optimize=True)
@@ -401,12 +422,14 @@ class IndependentVariationalModel:
 
     def _effective_step(self,predict,time_s,kappa,previous=None,
                         *,max_sweeps=30,rtol=1.e-7):
-        if previous is None:
-            X,Y=self._first_factors()
-        else:
-            X,Y=(np.asarray(v,float).copy() for v in previous)
         rhs=self.area[None]*self.force*np.sin(
             2*pi*self.case.frequency_hz*time_s)+kappa*self.mass_action(predict)
+        if previous is None:
+            X,Y=self._seed_from_admissible_drive(rhs)
+        else:
+            X,Y=(np.asarray(v,float).copy() for v in previous)
+            if not np.any(self.field(X,Y)) and np.any(self.pack(rhs)):
+                X,Y=self._seed_from_admissible_drive(rhs)
         def effective(field):
             return self.stiffness_action(field)+kappa*self.mass_action(field)
         progress=[]
@@ -434,6 +457,11 @@ class IndependentVariationalModel:
             after=self.field(X,Y)
             if np.linalg.norm(after-before)<=2.e-7*max(
                     np.linalg.norm(after),1.e-30):
+                # Zero factors must not masquerade as an accepted
+                # solution under a nonzero admissible physical drive.
+                if (not np.any(after) and
+                        np.any(self.pack(rhs-effective(after)))):
+                    raise RuntimeError("MVI_ZERO_FIELD_WITH_NONZERO_EQUATIONS")
                 return after,(X,Y),tuple(progress)
         raise RuntimeError("MVI_XY_CYCLES_NOT_COMPLETED")
 
@@ -498,9 +526,16 @@ class IndependentVariationalModel:
         force=[self.area[None]*self.force*np.sin(
             2*pi*self.case.frequency_hz*(t+dt_s*nodes[i]))
             for i in range(2)]
-        factor=[self._first_factors() if previous is None else
-                tuple(np.asarray(z,float).copy() for z in previous)
-                for _ in range(2)]
+        factor=[]
+        for i in range(2):
+            drive=force[i]-self.stiffness_action(base[i])
+            if previous is None:
+                factor.append(self._seed_from_admissible_drive(drive))
+            else:
+                pair=tuple(np.asarray(z,float).copy() for z in previous)
+                if not np.any(self.field(*pair)) and np.any(self.pack(drive)):
+                    pair=self._seed_from_admissible_drive(drive)
+                factor.append(pair)
         shape=(self.n,self.case.nx,self.case.ns)
         def fields():
             return [self.field(*pair) for pair in factor]
@@ -557,6 +592,13 @@ class IndependentVariationalModel:
             raise RuntimeError("MVI_GAUSS_XY_NOT_COMPLETED")
         Q=fields()
         acceleration=acc(Q)
+        if not any(np.any(stage) for stage in Q):
+            for i in range(2):
+                balance=(self.mass_action(acceleration[i])+
+                         self.stiffness_action(Q[i])-force[i])
+                if np.any(self.pack(balance)):
+                    raise RuntimeError(
+                        "MVI_GAUSS_ZERO_FIELD_WITH_NONZERO_EQUATIONS")
         V=[v+dt_s*sum(A[i,j]*acceleration[j] for j in range(2))
            for i in range(2)]
         endpoint=q+dt_s*v+dt_s**2*sum(

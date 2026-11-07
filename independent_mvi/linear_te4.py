@@ -200,6 +200,23 @@ class VariationalTE4:
         x[:,:,1:-1]=np.broadcast_to(ortho,(15,)+ortho.shape)
         return x,y
 
+    def _seed_from_admissible_drive(self, drive):
+        """Independent CUF TE4 excitation of axial X partners."""
+        rhs=np.asarray(drive,float)
+        c=self.case
+        if rhs.shape!=(15,c.nx,c.ns) or not np.isfinite(rhs).all():
+            raise ValueError("MVI_TE4_BAD_SEED_DRIVE")
+        x,y=self._initial()
+        for component in range(15):
+            work=rhs[component,1:-1,:]
+            if not np.any(work):
+                continue
+            U,_,_=np.linalg.svd(work,full_matrices=False)
+            if U.shape[1]<self.rank:
+                raise RuntimeError("MVI_TE4_SEED_EXCEEDS_FREE_AXIAL_SPACE")
+            x[component,:,1:-1]=U[:,:self.rank].T
+        return x,y
+
     @staticmethod
     def _field(x,y):
         return np.einsum("crx,crs->cxs",x,y,optimize=True)
@@ -242,14 +259,17 @@ class VariationalTE4:
                          max_sweeps=35,relative_change=2.e-7,
                          krylov_rtol=1.e-7,max_krylov_matvec=1800):
         c=self.case
-        if previous is None:x,y=self._initial()
+        rhs=self.weak_load(time_s)+coefficient*self.weak_mass(pred)
+        if previous is None:
+            x,y=self._seed_from_admissible_drive(rhs)
         else:
             x,y=tuple(np.asarray(a,float).copy() for a in previous)
+            if not np.any(self._field(x,y)) and np.any(rhs[:,1:-1,:]):
+                x,y=self._seed_from_admissible_drive(rhs)
         if (x.shape!=(15,self.rank,c.nx) or
                 y.shape!=(15,self.rank,c.ns) or
                 np.any(x[:,:,[0,-1]])):
             raise ValueError("MVI previous separated profiles invalid")
-        rhs=self.weak_load(time_s)+coefficient*self.weak_mass(pred)
         size=15*c.nx*c.ns
 
         def stiffness(q):
@@ -296,6 +316,9 @@ class VariationalTE4:
         if not accepted:
             raise RuntimeError("MVI_XY_ALTERNATION_NOT_CONVERGED")
         state=self._field(x,y)
+        if (not np.any(state) and
+                np.any((rhs-stiffness(state))[:,1:-1,:])):
+            raise RuntimeError("MVI_TE4_ZERO_FIELD_WITH_NONZERO_EQUATIONS")
         if np.any(state[:,[0,-1],:]):
             raise RuntimeError("MVI_CLAMPED_DISPLACEMENT_FAILED")
         return state,(x,y),tuple(loops)
@@ -423,18 +446,25 @@ class VariationalTE4:
         A2=A@A
         invA2=np.linalg.inv(A2)
         weights=np.array([.5,.5])
-        if previous_profiles is None:
-            factors=[self._initial(),self._initial()]
-        else:
-            factors=[tuple(z.copy() for z in previous_profiles)
-                     for _ in range(2)]
+        initial=[q+dt_s*nodes[i]*v for i in range(2)]
+        fstage=[self.weak_load(time_s+dt_s*nodes[i]) for i in range(2)]
+        factors=[]
+        for i in range(2):
+            drive=fstage[i]-self.weak_stiffness(initial[i])
+            if previous_profiles is None:
+                factors.append(self._seed_from_admissible_drive(drive))
+            else:
+                pair=tuple(np.asarray(z,float).copy()
+                           for z in previous_profiles)
+                if not np.any(self._field(*pair)) and np.any(
+                        drive[:,1:-1,:]):
+                    pair=self._seed_from_admissible_drive(drive)
+                factors.append(pair)
         if any(x.shape!=(15,self.rank,c.nx) or
                y.shape!=(15,self.rank,c.ns) or
                np.any(x[:,:,[0,-1]])
                for x,y in factors):
             raise ValueError("MVI_IRK4_BAD_INITIAL_PROFILE_DIMENSIONS")
-        initial=[q+dt_s*nodes[i]*v for i in range(2)]
-        fstage=[self.weak_load(time_s+dt_s*nodes[i]) for i in range(2)]
 
         def stage_fields():
             return [self._field(x,y) for x,y in factors]
@@ -506,6 +536,11 @@ class VariationalTE4:
         if not converged:
             raise RuntimeError("MVI_IRK4_COUPLED_XY_NOT_CONVERGED")
         Q=stage_fields()
+        if not any(np.any(stage) for stage in Q):
+            if any(np.any(equations[:,1:-1,:])
+                   for equations in stage_equations(Q)):
+                raise RuntimeError(
+                    "MVI_TE4_GAUSS_ZERO_FIELD_WITH_NONZERO_EQUATIONS")
         acceleration=stage_accelerations(Q)
         V=[v+dt_s*sum(A[i,j]*acceleration[j] for j in range(2))
            for i in range(2)]
