@@ -135,3 +135,27 @@ def test_independent_pressure_face_enum_must_fail_closed(method):
     cls=StrongModelCase if method=="MKR" else VariationalModelCase
     with pytest.raises(ValueError,match="UNSUPPORTED_REFERENCE_FACE"):
         cls(pressure_face="SILENT_FOLLOWER")
+
+
+@pytest.mark.parametrize("method",("MKR","MVI"))
+@pytest.mark.parametrize("theory",MODELS)
+def test_outer_radial_history_projection_uses_all_cuf_coefficients(method,theory):
+    """No solution is run: CUF F_k(+h/2)=1; output lives on 2D surface."""
+    from independent_mkr import run_models as mkr_export
+    from independent_mvi import run_models as mvi_export
+    recover=(mkr_export._outer_radial_field if method=="MKR"
+             else mvi_export._outer_radial_field)
+    terms=int(theory[-1])+1 if theory.startswith("CUF_TE") else 1
+    count=3*terms if theory.startswith("CUF_TE") else (
+        3 if theory=="KL" else 5)
+    state=np.zeros((count,7,9),dtype=float)
+    surface=np.linspace(0.1,1.0,63).reshape(7,9)
+    start=2*terms if theory.startswith("CUF_TE") else 2
+    for k in range(terms):
+        state[start+k]=(k+1)*surface
+    outer=recover(state,theory)
+    expected=(terms*(terms+1)/2)*surface
+    assert outer.shape==(7,9)
+    np.testing.assert_allclose(outer,expected,rtol=0,atol=1.e-14)
+    if terms>1:
+        assert not np.array_equal(outer,state[start])

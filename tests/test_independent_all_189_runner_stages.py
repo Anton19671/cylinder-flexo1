@@ -89,6 +89,9 @@ def test_all_189_runner_stage_contracts_without_numerical_solver(
     assert accepted["accepted_steps"]==accepted["requested_steps"]==1
     assert accepted["theory"]==row["theory"]
     assert accepted["integrator"]==row["integrator"]
+    assert accepted["spatial_grid"]=="AXIAL_CIRCUMFERENTIAL_2D"
+    assert accepted["thickness_scheme"]=="ANALYTIC_KINEMATICS_GAUSS12_NO_Z_GRID"
+    assert accepted["physics_scope"]=="LINEAR_MACRO_HOOKE_ELECTRIC_OFF_GRADIENT_OFF"
     assert accepted["solver_module"]==(
         "independent_mkr.linear_models" if row["method"]=="MKR" else
         "independent_mvi.linear_models")
@@ -106,6 +109,11 @@ def test_all_189_runner_stage_contracts_without_numerical_solver(
         newline="",encoding="utf-8") as handle:
         history=list(csv.DictReader(handle))
     assert [item["stage"] for item in history]==list(names)
+    for record in history:
+        # The manufactured states excite only w_0, so both face and w_0
+        # columns agree here. Higher CUF coefficients are checked separately.
+        assert float(record["central_outer_w_m"])==float(record["central_w0_m"])
+        assert float(record["maximum_abs_outer_w_m"])==float(record["maximum_abs_w0_m"])
     expected_times=(dt,) if len(names)==1 else (
         ((2-sqrt(2))*dt,dt) if len(names)==2
         else ((.5-sqrt(3)/6)*dt,(.5+sqrt(3)/6)*dt,dt))

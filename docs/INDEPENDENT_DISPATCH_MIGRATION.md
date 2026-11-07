@@ -35,3 +35,41 @@ no dangerous ad hoc YAML conversion is introduced.
 42 distinct theory × method × time algorithms, dry-run only;
 for selected calls, mocked runners assert no opposite-method call,
 no reference solver and rejection of unknown schemas.
+
+## Explicit 2D CUF contract and corrected outer-face export
+
+Source: `Krysko_Zhong_TE1_TE4_PARALLEL_ENDS_CORRECTED_20261024.docx`,
+sections 13, 36, 39, 40 and 46. The G3D designation describes the **three
+physical directions of strain gradients** in the constitutive law. It does
+**not** require a 3D discretization: spatial fields are coefficients on
+`(x,theta)`; through-thickness dependence is analytical (CUF or classical
+kinematics) with 12-point Gauss integration. A 3D field can be reconstructed
+at selected `z` stations for output, without a spatial `nz` grid.
+
+The **two independent linear runners** now record
+`spatial_grid=AXIAL_CIRCUMFERENTIAL_2D`,
+`thickness_scheme=ANALYTIC_KINEMATICS_GAUSS12_NO_Z_GRID`, and an explicit
+linear macro Hooke/electric-off/gradient-off scope in validation and run
+summaries. These attributes are duplicated by design, not dispatched via
+another method's module.
+
+For CUF TE1–TE4 the physical radial displacement on the outer surface
+`z=+h/2` is `w_out(x,theta)=sum_k w_k(x,theta)`, whereas `w_0` is the
+middle-surface radial coefficient. Both MKR and MVI independently export
+`central_outer_w_m` and `maximum_abs_outer_w_m` **in addition** to the
+historical `central_w0_m` and `maximum_abs_w0_m` CSV columns. For KL,
+FSDT and Reddy the two fields coincide. The separate reference-face
+pressure convention and all existing solver equations are unchanged.
+
+This is an **export and architectural safety correction, not a claim of
+full Krysko–Zhong implementation**. In particular, the native linear MKR
+still needs the compatible face-gradient/flux construction and complete
+higher-order natural-boundary certification from source section 40; it is
+not a verified G3D strong solver. G3D/Gz, nonlinear Green–Lagrange and
+fully coupled flexoelectric research remain in legacy reference routes,
+which **are not two independent spatial discretizations**. Do not silently
+fall back to a legacy solver when an independent CASE requests unsupported
+physics. The AST isolation tests scan all native method modules (including
+GUI and input adapters) for cross-method and shared numerical imports.
+
+No physical shell calculation was run to prepare these changes.

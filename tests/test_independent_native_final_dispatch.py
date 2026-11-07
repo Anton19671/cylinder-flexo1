@@ -145,9 +145,15 @@ def test_native_solver_does_not_import_other_method_on_dispatch(
             else root/"independent_mvi")
     enemy="independent_mvi" if method=="MKR" else "independent_mkr"
     disallowed=(
-        enemy,"cylinder_variational_fdm","cylinder_variational_mvi",
-        "cylinder_variational_dynamic","cylinder_reference_case")
-    for filename in ("linear_models.py","run_models.py"):
+        enemy,"mechanics","numerics","flexoelectric","physics",
+        "mkr","mvi","cylinder_variational_fdm",
+        "cylinder_variational_mvi","cylinder_variational_dynamic",
+        "cylinder_reference_case")
+    # Cover every independent executable, GUI and reference input adapter,
+    # not only the newest seven-theory numerical modules.
+    for filename in ("linear_models.py","run_models.py",
+                     "linear_te4.py","run_case.py",
+                     "reference_bridge.py","gui.py"):
         root_node=ast.parse((chosen/filename).read_text(encoding="utf-8"))
         imported=[
             node.module for node in ast.walk(root_node)
@@ -158,3 +164,20 @@ def test_native_solver_does_not_import_other_method_on_dispatch(
         ]
         for name in imported:
             assert not name.startswith(disallowed),(filename,name)
+
+
+@pytest.mark.parametrize("method",("MKR","MVI"))
+def test_native_cuf_preflight_has_2d_surface_not_3d_mesh(method,tmp_path):
+    """CASE-only validation: spatial axes x/theta; thickness via quadrature."""
+    case=independent_template("CUF_TE4","NEWMARK",method)
+    if method=="MVI":
+        case["rank"]=4
+    assert "nz" not in case["physics"]
+    path=tmp_path/f"{method}_te4.json"
+    path.write_text(json.dumps(case),encoding="utf-8")
+    summary=validate_final_case(path)
+    assert summary["validated_only"] is True
+    assert summary["physical_steps_computed"]==0
+    assert summary["spatial_grid"]=="AXIAL_CIRCUMFERENTIAL_2D"
+    assert summary["thickness_scheme"]=="ANALYTIC_KINEMATICS_GAUSS12_NO_Z_GRID"
+    assert summary["physics_scope"]=="LINEAR_MACRO_HOOKE_ELECTRIC_OFF_GRADIENT_OFF"

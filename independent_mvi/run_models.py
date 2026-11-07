@@ -21,6 +21,27 @@ METHOD="MVI_XY_VARIATIONAL_ITERATIONS"
 INTEGRATORS=("BATHE","NEWMARK","GAUSS_IRK4")
 
 
+SPATIAL_GRID="AXIAL_CIRCUMFERENTIAL_2D"
+THICKNESS_SCHEME="ANALYTIC_KINEMATICS_GAUSS12_NO_Z_GRID"
+PHYSICS_SCOPE="LINEAR_MACRO_HOOKE_ELECTRIC_OFF_GRADIENT_OFF"
+
+
+def _outer_radial_field(mechanical, theory):
+    """Recover w(x,theta,z=+h/2), without a third spatial grid.
+
+    For the normalized CUF thickness basis F_k(+h/2)=1. The leading
+    radial coefficient w_0 is NOT generally the physical outer-face
+    displacement for TE1-TE4. Classical shell models have only w_0.
+    This operation is local to the MVI export path.
+    """
+    if theory in ("KL","FSDT","REDDY"):
+        return mechanical[2]
+    if theory not in ("CUF_TE1","CUF_TE2","CUF_TE3","CUF_TE4"):
+        raise ValueError("MVI_UNSUPPORTED_OUTER_FACE_THEORY")
+    order=int(theory[-1])+1
+    return np.sum(mechanical[2*order:3*order],axis=0)
+
+
 def load_case(path: Path):
     document=json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(document,dict) or set(document)!={
@@ -100,7 +121,10 @@ def run(path: Path, *, validate_only: bool):
             "method":METHOD,"schema":SCHEMA,"rank":rank,
             "integrator":scheme,"validated_only":True,
             "steps":steps,"dt_s":dt_s,"output_dir":str(output),
-            "physics":asdict(physics)
+            "physics":asdict(physics),
+            "spatial_grid":SPATIAL_GRID,
+            "thickness_scheme":THICKNESS_SCHEME,
+            "physics_scope":PHYSICS_SCOPE
         }
 
     # Instantiate ONLY the independent MVI. A separate, genuinely rank
@@ -124,6 +148,9 @@ def run(path: Path, *, validate_only: bool):
         "applied_reference_area_factor":(
             1.+physics.thickness_m/(2.*physics.radius_m)
             if physics.pressure_face=="OUTER" else 1.),
+        "spatial_grid":SPATIAL_GRID,
+        "thickness_scheme":THICKNESS_SCHEME,
+        "physics_scope":PHYSICS_SCOPE,
         "status":"IN_PROGRESS","accepted_steps":0,
         "requested_steps":steps,"dt_s":dt_s,"time_s":0.,
         "solver_module":"independent_mvi.linear_models"
@@ -138,7 +165,9 @@ def run(path: Path, *, validate_only: bool):
             2*(int(physics.theory[-1])+1))
     pause_signal=Path(path).with_suffix(".pause")
     history=output/"MVI_OWN_PHYSICAL_HISTORY.csv"
-    fields=("step","stage","time_s","central_w0_m","maximum_abs_w0_m")
+    fields=("step","stage","time_s","central_w0_m",
+            "maximum_abs_w0_m","central_outer_w_m",
+            "maximum_abs_outer_w_m")
     failed_step=None
     committed_steps=0
     with history.open("x",newline="",encoding="utf-8") as stream:
@@ -189,6 +218,7 @@ def run(path: Path, *, validate_only: bool):
                     if any(z.shape!=shape or not np.isfinite(z).all()
                            for z in (mechanical,velocity,acceleration)):
                         raise RuntimeError("MVI_NONFINITE_OR_WRONG_SHAPE_STAGE")
+                    outer=_outer_radial_field(mechanical,physics.theory)
                     pending.append((
                         output/f"MVI_R{rank}_STEP_{k:04d}_{stage}.npz",
                         time_s,mechanical,velocity,acceleration,
@@ -196,7 +226,11 @@ def run(path: Path, *, validate_only: bool):
                          "central_w0_m":float(mechanical[
                              radial,physics.nx//2,physics.ns//2]),
                          "maximum_abs_w0_m":float(np.max(np.abs(
-                             mechanical[radial])))}
+                             mechanical[radial]))),
+                         "central_outer_w_m":float(outer[
+                             physics.nx//2,physics.ns//2]),
+                         "maximum_abs_outer_w_m":float(
+                             np.max(np.abs(outer)))}
                     ))
                 # The archived X/Y factor file represents the END stage,
                 # not an arbitrary unrelated finite tensor. Validate before
