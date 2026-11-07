@@ -124,6 +124,7 @@ class IndependentMKRWindow(tk.Toplevel):
         actions=ttk.Frame(self)
         actions.pack(fill="x",padx=12,pady=(9,7))
         ttk.Button(actions,text="Шаблон",command=self.template).pack(side="left",padx=3)
+        ttk.Button(actions,text="СТАТИКА",command=self.open_static).pack(side="left",padx=3)
         ttk.Button(actions,text="Загрузить CASE",command=self.load_own_case).pack(side="left",padx=3)
         ttk.Button(actions,text="Проверить",command=self.validate).pack(side="left",padx=3)
         ttk.Button(actions,text="Сохранить CASE",command=self.save).pack(side="left",padx=3)
@@ -150,6 +151,11 @@ class IndependentMKRWindow(tk.Toplevel):
         self.log.insert("end",str(message)+"\n")
         self.log.see("end")
         self.log.configure(state="disabled")
+
+    def open_static(self):
+        """Open only this method's independent static solver window."""
+        from independent_mkr.static_gui import open_window
+        return open_window(self)
 
     def choose_root(self):
         initial=Path(self.root_dir.get()).expanduser()

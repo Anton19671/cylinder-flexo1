@@ -164,3 +164,21 @@ No `--run` invocation appears in this workflow.
 This verification checks CASE schemas, method selection, unsupported
 physics rejection, spatial grid shape and output routing. It is not
 a physical solution or numerical accuracy demonstration.
+
+## GUI: independent STATIC is available from each own method panel
+
+The independent MKR/MVI dynamic windows now expose a `СТАТИКА`
+button that opens the **same method's** separate static window.
+`independent_mkr/static_gui.py` dispatches solely to
+`independent_mkr.run_static`; `independent_mvi/static_gui.py`
+dispatches solely to `independent_mvi.run_static`. Neither calls
+the other method or the shared legacy variational backend.
+
+Each static UI validates/edit/saves a distinct stationary JSON
+schema, supports seven theories (MVI ranks 1–8), standalone output
+folder selection, result viewing and STOP. PAUSE is deliberately not
+shown for stationary solves because their Krylov/X-Y loops do not
+implement safe pause checkpoints. Dynamic interfaces remain unchanged.
+These UI controls **never start the physical solver automatically**.
+Actual execution requires the explicit `РАССЧИТАТЬ` button.
+The static UI smoke test is headless and algebra-only.
