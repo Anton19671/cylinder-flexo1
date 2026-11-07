@@ -66,3 +66,34 @@ def test_mvi_subproblem_rejects_full_nodal_newton_invocation():
         kind="STATIC"
     with pytest.raises(ValueError,match="MVI_OWN_HALFSTEP_REQUIRES_XY_DIRECTIONS"):
         mvi_solve_static_subspace(FakeProblem(),None,None,directions=None)
+
+
+def test_coupled_dynamic_mvi_uses_own_frozen_halfstep_newton_only():
+    import cylinder_variational_dynamic as dynamic
+    from cylinder_mvi_dynamic_subspace import (
+        MVIDynamicHalfstepResult,mvi_solve_dynamic_subspace)
+    p=ROOT/"numerics"/"cylinder_mvi_dynamic_subspace.py"
+    source=p.read_text(encoding="utf-8")
+    tree=ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node,ast.ImportFrom):
+            assert (node.module or "") not in (
+                "cylinder_variational_fdm","cylinder_variational_dynamic",
+                "independent_mkr","cylinder_direct_strong_fdm")
+        elif isinstance(node,ast.Import):
+            assert all(not item.name.startswith((
+                "cylinder_variational_fdm","independent_mkr"))
+                for item in node.names)
+    assert "mvi_solve_dynamic_subspace(" in source
+    assert "solve_dynamic_fdm(" not in source
+    assert dynamic.solve_dynamic_mvi.__code__.co_names.count(
+        "mvi_solve_dynamic_subspace")==1
+
+    class FakeDynamicProblem:
+        kind="DYNAMIC"
+    with pytest.raises(ValueError,match="MVI_OWN_DYNAMIC_REQUIRES_XY_DIRECTIONS"):
+        mvi_solve_dynamic_subspace(
+            FakeDynamicProblem(),None,None,
+            q_predictor=None,velocity_predictor=None,time_s=0.,
+            dt_s=.001,beta=.25,gamma=.5,density_kg_m3=1000.,
+            directions=None)

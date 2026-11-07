@@ -233,3 +233,34 @@ validation now allows even circumferential node counts in MKR only.
 This remains experimental linear **electric/gradient OFF** physics;
 complete source §40 G3D/Gz and edge boundary accuracy remain open.
 Algebraic tests are included but no physical calculation was run.
+
+## 2026-11-07 coupled reference MVI: static and dynamic Newton isolation
+
+The **coupled reference** X/Y branch had an architectural intersection
+with the old FDM Newton: static MVI imported the entire FDM subspace
+solver, and dynamic MVI called a function also used by FDM.
+Both are now separated at the **numerical halfstep** level:
+
+- `numerics/cylinder_mvi_subspace_newton.py` owns the static
+  mechanical/electric X/Y-constrained Newton operator and settings.
+- `numerics/cylinder_mvi_dynamic_subspace.py` owns the dynamic
+  constrained Newmark tangent and reduced solve. Both new modules
+  explicitly reject missing X/Y trial directions. Neither imports
+  the FDM spatial solver or its Newton code.
+- The legacy dynamic FDM continues through its existing own
+  `solve_dynamic_subspace`, while coupled MVI calls
+  `mvi_solve_dynamic_subspace` on its frozen separated directions.
+- Old JSON/parameter settings are converted to method-owned MVI
+  settings by values only; no FDM numerical routine is called.
+
+**Important limitation:** the coupled `CylinderFunctional` and
+continuum boundary/physical assembly remain common across the
+reference routes. They have not been reimplemented as two
+independent full nonlinear G3D/Gz spatial assemblies. The method
+isolation above is numerical at X/Y halfstep level, not proof of
+full physical independence. The old FDM/MVI-dispatch code in
+higher time-integration adapters needs separate auditing.
+
+No physical shell simulations or time steps were launched.
+Tests inspect source and reject full-grid method fallback without
+assembling any numerical shell state.

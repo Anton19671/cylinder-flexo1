@@ -14,6 +14,7 @@ from cylinder_variational_mvi import (
 from cylinder_mvi_cold_start import seed_inactive_mvi_partners
 from cylinder_mvi_acceptance import certify_mvi_solution
 from cylinder_mvi_continuation import continue_accepted_mvi_profiles
+from cylinder_mvi_dynamic_subspace import mvi_solve_dynamic_subspace
 
 
 @dataclass(frozen=True)
@@ -353,7 +354,7 @@ def solve_dynamic_mvi(problem, mechanical, electrical=None, *, q_predictor,
             directions=separated_profile_directions(x,y,axis)
             def report(row):
                 if on_iteration is not None:on_iteration({**row,"event":"halfstep","sweep":sweep,"direction":axis})
-            result=solve_dynamic_subspace(problem,qm,pm,q_predictor=q_predictor,
+            result=mvi_solve_dynamic_subspace(problem,qm,pm,q_predictor=q_predictor,
                 velocity_predictor=velocity_predictor,time_s=time_s,dt_s=dt_s,beta=beta,
                 gamma=gamma,density_kg_m3=density_kg_m3,dead_load=dead_load,
                 free_charge=free_charge,settings=settings,directions=directions,on_iteration=report,
