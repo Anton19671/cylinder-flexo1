@@ -62,3 +62,32 @@ are not universal error figures for the seven shell theories.
 - Fully certified free-face higher-order tractions, electrical boundary
   fields, thickness stresses, dimensional calibration, and external
   WQEM/FEM/analytic comparisons.
+
+
+## Full-field FDM/MVI comparison (same 5x5 non-axisymmetric TE1 case)
+
+From the preserved real physical NPZ fields in GitHub Actions run
+[42355615451](https://github.com/Anton19671/cylinder-flexo1/actions/runs/42355615451),
+revision `d0db6f02ffbbf084b84707a51943f8d966559f4e`.
+Both numerical states share continuum passport
+`e9ed508a761b06ad9b0319437ed57aec90e19cc2433a759550e14028c18a856f`.
+The following are `norm(MVI-1 - FDM) / norm(FDM)` of the **entire**
+accepted arrays, not only centre-point values or external errors:
+
+| Same-grid physical array | Relative L2 difference |
+|---|---:|
+| Mechanical thickness coefficients | 0.11049% |
+| Electrical potential coefficients | 2.35680% |
+| Outer-face radial displacement | 0.02952% |
+| Outer-face normal electric induction | 7.02510% |
+| Thickness-distributed stress tensor (six components) | 0.86981% |
+| Thickness-distributed strain-gradient hyperstress | 0.16839% |
+
+The MVI-1 case was `CONVERGED_PROJECTED` and did **not** establish
+full-space stationarity. Thus these differences measure rank-one
+approximation limitations relative to the FDM field; they are **not**
+physical accuracy errors relative to an independent solution.
+A new SHA256-verified GitHub Actions comparator reports the same
+quantities automatically for every available MVI rank and rejects
+mismatched CASE physics, mismatched grids, missing field arrays,
+nonfinite fields or modified NPZ artifacts.
