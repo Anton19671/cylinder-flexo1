@@ -17,7 +17,7 @@ from cylinder_paths import activate
 activate()
 import independent_mkr.run_models as strong_runner
 import independent_mvi.run_models as weak_runner
-from scientific_complete_method_matrix import independent_catalog,independent_template
+from ci.scientific_complete_method_matrix import independent_catalog,independent_template
 
 
 @pytest.mark.parametrize("row",independent_catalog(),ids=lambda x:x["id"])

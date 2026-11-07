@@ -11,10 +11,10 @@ from cylinder_paths import activate
 activate()
 
 from cylinder_reference_case import prepare_reference_case
-from scientific_coupled_rank_1_8 import (
+from ci.scientific_coupled_rank_1_8 import (
     catalog,build_case,compare,STUDY,NX,NS,RANKS,
 )
-from scientific_coupled_convergence import physical_identity
+from ci.scientific_coupled_convergence import physical_identity
 
 
 def test_eight_distinct_fixed_rank_cases_and_one_matched_fdm_case():

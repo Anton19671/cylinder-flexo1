@@ -21,7 +21,7 @@ from cylinder_paths import activate
 activate()
 from cylinder_final_stage11a_dispatcher import run_final_case
 from cylinder_reference_case import prepare_reference_case
-from scientific_real_coupled_case import build_case
+from ci.scientific_real_coupled_case import build_case
 
 STUDIES = ("KL_GRID","TE1_GRID","TE1_TIME","TE1_RANK")
 PILOT_IDS = ("KL_GRID_5x5","KL_GRID_7x7",

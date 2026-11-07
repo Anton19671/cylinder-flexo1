@@ -10,10 +10,10 @@ import pytest
 from cylinder_paths import activate
 activate()
 from cylinder_reference_case import prepare_reference_case
-from scientific_coupled_dynamic_rank import (
+from ci.scientific_coupled_dynamic_rank import (
     catalog,build_case,compare,accepted_time_states,NX,NS,DT,STEPS,
 )
-from scientific_coupled_convergence import physical_identity,digest
+from ci.scientific_coupled_convergence import physical_identity,digest
 
 
 def test_dynamic_mvi_1_to_8_plus_fdm_and_bounded_pilot():

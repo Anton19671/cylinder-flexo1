@@ -7,8 +7,8 @@ import pytest
 
 from cylinder_paths import activate
 activate()
-from scientific_coupled_convergence import catalog,case_from_entry,digest,physical_identity
-from scientific_coupled_field_compare import metric,matching_fields,compare_rank_fields
+from ci.scientific_coupled_convergence import catalog,case_from_entry,digest,physical_identity
+from ci.scientific_coupled_field_compare import metric,matching_fields,compare_rank_fields
 
 
 def _fields(relative_adjustment=0.):

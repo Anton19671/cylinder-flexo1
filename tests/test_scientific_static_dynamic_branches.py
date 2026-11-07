@@ -28,7 +28,7 @@ from cylinder_functional_assembly import CylinderFunctional, surface_sbp21
 from cylinder_reference_case import prepare_reference_case
 from flexo_gradient_g3d import G3DMaterial
 from flexo_scale_policy import micro_material_from_case
-from scientific_real_coupled_case import build_case as build_canonical_micro_case
+from ci.scientific_real_coupled_case import build_case as build_canonical_micro_case
 
 
 THEORIES=("KL","FSDT","REDDY","CUF_TE1","CUF_TE2","CUF_TE3","CUF_TE4")

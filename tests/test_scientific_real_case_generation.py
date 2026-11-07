@@ -4,7 +4,7 @@ import pytest
 from cylinder_paths import activate
 activate()
 from cylinder_reference_case import prepare_reference_case
-from scientific_real_coupled_case import (catalog,build_case,
+from ci.scientific_real_coupled_case import (catalog,build_case,
     expected_accepted_summary,_physical_radial_response)
 import numpy as np
 

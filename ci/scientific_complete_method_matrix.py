@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 from cylinder_paths import activate
 activate()
-from scientific_real_coupled_case import (
+from ci.scientific_real_coupled_case import (
     THEORIES, catalog as micro_catalog, build_case as build_micro_case)
 from independent_mkr.run_models import SCHEMA as MKR_SCHEMA
 from independent_mvi.run_models import SCHEMA as MVI_SCHEMA

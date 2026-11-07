@@ -22,11 +22,11 @@ activate()
 
 from cylinder_final_stage11a_dispatcher import run_final_case
 from cylinder_reference_case import prepare_reference_case
-from scientific_coupled_convergence import (
+from ci.scientific_coupled_convergence import (
     catalog as base_catalog,case_from_entry,physical_identity,
     digest,verify,
 )
-from scientific_coupled_field_compare import (
+from ci.scientific_coupled_field_compare import (
     matching_fields,_trusted_archived_entry,
 )
 import numpy as np

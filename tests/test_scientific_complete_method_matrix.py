@@ -7,7 +7,7 @@ activate()
 from cylinder_reference_case import prepare_reference_case
 from independent_mkr.run_models import load_case as load_mkr
 from independent_mvi.run_models import load_case as load_mvi
-from scientific_complete_method_matrix import (
+from ci.scientific_complete_method_matrix import (
     THEORIES,INTEGRATORS,catalog,macro_catalog,macro_case,
     independent_catalog,independent_template,export)
 
@@ -88,7 +88,7 @@ def test_independent_mkr_and_mvi_share_continuum_but_not_case_schema(
 
 
 def test_micro_does_not_route_to_independent_elastic_only_solver(tmp_path):
-    from scientific_real_coupled_case import build_case
+    from ci.scientific_real_coupled_case import build_case
     source=build_case(dict(
         theory="CUF_TE4",gradient="G3D",on=True,
         kind="DYNAMIC",method="FDM"),tmp_path/"unused")

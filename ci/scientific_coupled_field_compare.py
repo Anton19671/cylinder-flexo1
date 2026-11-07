@@ -15,7 +15,7 @@ import numpy as np
 
 from cylinder_paths import activate
 activate()
-from scientific_coupled_convergence import catalog, digest, physical_identity
+from ci.scientific_coupled_convergence import catalog, digest, physical_identity
 
 
 REQUIRED_FIELDS=(

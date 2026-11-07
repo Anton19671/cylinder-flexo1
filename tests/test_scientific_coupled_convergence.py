@@ -13,7 +13,7 @@ import pytest
 from cylinder_paths import activate
 activate()
 from cylinder_reference_case import prepare_reference_case
-from scientific_coupled_convergence import (
+from ci.scientific_coupled_convergence import (
     STUDIES, PILOT_IDS, catalog, case_from_entry,
     physical_identity, _probe, compare,
 )
@@ -142,7 +142,7 @@ def _accepted_mvi_summary(*,full=False):
 
 
 def test_mvi_rank_limited_stable_solution_is_not_falsely_failed_or_certified():
-    from scientific_coupled_convergence import classify_accepted_steps
+    from ci.scientific_coupled_convergence import classify_accepted_steps
     entry=next(e for e in catalog("pilot") if e["id"]=="TE1_RANK_MVI_R1")
     qualification=classify_accepted_steps(
         _accepted_mvi_summary(full=False),entry)
@@ -153,7 +153,7 @@ def test_mvi_rank_limited_stable_solution_is_not_falsely_failed_or_certified():
 
 
 def test_mvi_full_solution_gets_distinct_explicit_stationarity_class():
-    from scientific_coupled_convergence import classify_accepted_steps
+    from ci.scientific_coupled_convergence import classify_accepted_steps
     entry=next(e for e in catalog("pilot") if e["id"]=="TE1_RANK_MVI_R1")
     qualification=classify_accepted_steps(
         _accepted_mvi_summary(full=True),entry)
@@ -162,7 +162,7 @@ def test_mvi_full_solution_gets_distinct_explicit_stationarity_class():
 
 
 def test_mvi_rank_limited_cannot_masquerade_as_full_or_bad_certificate():
-    from scientific_coupled_convergence import classify_accepted_steps
+    from ci.scientific_coupled_convergence import classify_accepted_steps
     entry=next(e for e in catalog("pilot") if e["id"]=="TE1_RANK_MVI_R1")
     bad=_accepted_mvi_summary(full=False)
     bad["steps"][0]["mvi_certificate"]["full_equilibrium_satisfied"]=True
@@ -179,7 +179,7 @@ def test_mvi_rank_limited_cannot_masquerade_as_full_or_bad_certificate():
 
 
 def test_mvi_failed_step_not_allowed_even_if_status_looks_accepted():
-    from scientific_coupled_convergence import classify_accepted_steps
+    from ci.scientific_coupled_convergence import classify_accepted_steps
     entry=next(e for e in catalog("pilot") if e["id"]=="TE1_RANK_MVI_R1")
     bad=_accepted_mvi_summary(full=False)
     bad["steps"][0]["converged"]=False
@@ -188,7 +188,7 @@ def test_mvi_failed_step_not_allowed_even_if_status_looks_accepted():
 
 
 def test_comparison_marks_rank_constrained_study_without_publishing_it_as_full(tmp_path):
-    from scientific_coupled_convergence import compare,physical_identity
+    from ci.scientific_coupled_convergence import compare,physical_identity
     location=tmp_path/"cases"
     location.mkdir()
     for entry in catalog("pilot"):

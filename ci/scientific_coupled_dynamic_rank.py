@@ -23,9 +23,9 @@ activate()
 
 from cylinder_reference_case import prepare_reference_case
 from cylinder_final_stage11a_dispatcher import run_final_case
-from scientific_coupled_convergence import case_from_entry, physical_identity, digest, verify
-from scientific_coupled_field_compare import matching_fields, metric
-from scientific_coupled_rank_1_8 import catalog as static_rank_catalog
+from ci.scientific_coupled_convergence import case_from_entry, physical_identity, digest, verify
+from ci.scientific_coupled_field_compare import matching_fields, metric
+from ci.scientific_coupled_rank_1_8 import catalog as static_rank_catalog
 
 STUDY="TE1_NONAX_DYNAMIC_8X8"
 DT=.01
