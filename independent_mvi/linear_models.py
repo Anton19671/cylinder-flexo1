@@ -420,6 +420,26 @@ class IndependentVariationalModel:
             raise ValueError("MVI_FACTOR_COORDINATE_SIZE")
         return X,Y
 
+    def _all_free_surface_equations_hold(self,source,action,tolerance):
+        """Check every admissible 2D weak equation, not only the X/Y slices.
+
+        Source and action are method-owned weighted weak surface fields.
+        This check never calls MKR or solves a full-grid linear system.
+        The tolerance is the existing solver tolerance; it is not a
+        separate fabricated scientific-accuracy threshold.
+        """
+        if (not np.isfinite(tolerance) or
+                not 0<tolerance<1):
+            raise ValueError("MVI_FULL_SURFACE_ACCURACY_INVALID")
+        expected=self.pack(source)
+        actual=self.pack(action)
+        if not (np.isfinite(expected).all() and
+                np.isfinite(actual).all()):
+            raise RuntimeError("MVI_FULL_SURFACE_NONFINITE_EQUATIONS")
+        scale=max(float(np.linalg.norm(expected)),
+                  float(np.linalg.norm(actual)),1.e-30)
+        return bool(np.linalg.norm(expected-actual)<=tolerance*scale)
+
     def _effective_step(self,predict,time_s,kappa,previous=None,
                         *,max_sweeps=30,rtol=1.e-7):
         rhs=self.area[None]*self.force*np.sin(
@@ -459,9 +479,10 @@ class IndependentVariationalModel:
                     np.linalg.norm(after),1.e-30):
                 # Zero factors must not masquerade as an accepted
                 # solution under a nonzero admissible physical drive.
-                if (not np.any(after) and
-                        np.any(self.pack(rhs-effective(after)))):
-                    raise RuntimeError("MVI_ZERO_FIELD_WITH_NONZERO_EQUATIONS")
+                if not self._all_free_surface_equations_hold(
+                        rhs,effective(after),rtol):
+                    raise RuntimeError(
+                        "MVI_RANK_NOT_SUFFICIENT_FOR_FULL_2D_EQUATIONS")
                 return after,(X,Y),tuple(progress)
         raise RuntimeError("MVI_XY_CYCLES_NOT_COMPLETED")
 
@@ -519,8 +540,10 @@ class IndependentVariationalModel:
             after=self.field(X,Y)
             if np.linalg.norm(after-before)<=2.e-7*max(
                     np.linalg.norm(after),1.e-30):
-                if not np.any(after) and np.any(self.pack(rhs)):
-                    raise RuntimeError("MVI_STATIC_FALSE_ZERO_FIELD")
+                if not self._all_free_surface_equations_hold(
+                        rhs,self.stiffness_action(after),rtol):
+                    raise RuntimeError(
+                        "MVI_STATIC_RANK_NOT_SUFFICIENT_FOR_FULL_2D_EQUATIONS")
                 return after,(X,Y),tuple(history)
         raise RuntimeError("MVI_STATIC_XY_NOT_COMPLETED")
 
@@ -651,13 +674,13 @@ class IndependentVariationalModel:
             raise RuntimeError("MVI_GAUSS_XY_NOT_COMPLETED")
         Q=fields()
         acceleration=acc(Q)
-        if not any(np.any(stage) for stage in Q):
-            for i in range(2):
-                balance=(self.mass_action(acceleration[i])+
-                         self.stiffness_action(Q[i])-force[i])
-                if np.any(self.pack(balance)):
-                    raise RuntimeError(
-                        "MVI_GAUSS_ZERO_FIELD_WITH_NONZERO_EQUATIONS")
+        for i in range(2):
+            stage_action=(self.mass_action(acceleration[i])+
+                          self.stiffness_action(Q[i]))
+            if not self._all_free_surface_equations_hold(
+                    force[i],stage_action,1.e-7):
+                raise RuntimeError(
+                    "MVI_GAUSS_RANK_NOT_SUFFICIENT_FOR_FULL_2D_EQUATIONS")
         V=[v+dt_s*sum(A[i,j]*acceleration[j] for j in range(2))
            for i in range(2)]
         endpoint=q+dt_s*v+dt_s**2*sum(

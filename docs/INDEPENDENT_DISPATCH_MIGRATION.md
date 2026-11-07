@@ -182,3 +182,38 @@ implement safe pause checkpoints. Dynamic interfaces remain unchanged.
 These UI controls **never start the physical solver automatically**.
 Actual execution requires the explicit `РАССЧИТАТЬ` button.
 The static UI smoke test is headless and algebra-only.
+
+## 2026-11-07: full 2D equation verification for fixed-rank MVI
+
+The source §39 explicitly requires that stopping a rank-fixed X/Y
+alternation does not by itself certify the original 2D problem.
+The previous MVI code accepted the numerical field whenever its change
+between two sweeps became sufficiently small. This condition alone
+can accept a stationary rank-R approximation that does not satisfy
+all admissible surface equations.
+
+The **own variational** weak-form action is now checked against the
+applied load over the **entire constrained two-dimensional DOF space**
+using the same already-present Krylov accuracy parameter. This test
+is performed before acceptance in standalone independent seven-theory
+STATIC, Newmark/Bathe effective solves, and both Gauss-IRK4 stages.
+The independent CUF TE4 engine has its own check for all 15 free
+mechanical fields and both Gauss stages. Prescribed axial DOFs do not
+count as free equations. The check neither calls an MKR operator nor
+uses a full-grid inverse as a substitute for X/Y iteration.
+
+**Fixed rank remains fixed.** If the approximation cannot meet the
+full free-space equations, the method raises an explicit insufficient-
+rank diagnostic instead of saving a misleading CONVERGED physical
+field. Increase R in a distinct user-controlled CASE rather than
+silently changing a requested R or interpolating another solver.
+This is an algorithmic acceptance safeguard, not proof of scientific
+accuracy, spatial resolution, correct G3D boundary terms, or
+coupled electromechanical physics. The original §40 angular face
+scheme is still unfinished in independent MKR.
+
+The new checks in
+`tests/test_independent_mvi_global_surface_check.py` use tiny
+manufactured arrays and bypass all physical time marching or shell
+solves; they verify the rank-insufficient rejection and the exact
+free-space acceptance contract independently of a spatial benchmark.

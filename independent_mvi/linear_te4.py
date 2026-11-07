@@ -255,6 +255,23 @@ class VariationalTE4:
                     t[component*n:(component+1)*n,idx]=row.ravel()
         return t
 
+    @staticmethod
+    def _all_free_surface_equations_hold(source,action,tolerance):
+        """Verify all 15 free 2D TE4 equations, not only rank-R partners."""
+        left=np.asarray(source,float)
+        right=np.asarray(action,float)
+        if (left.shape!=right.shape or left.ndim!=3 or
+                left.shape[0]!=15 or left.shape[1]<3 or
+                not np.isfinite(tolerance) or not 0<tolerance<1):
+            raise ValueError("MVI_TE4_FULL_SURFACE_CHECK_INVALID")
+        a=left[:,1:-1,:].ravel()
+        b=right[:,1:-1,:].ravel()
+        if not np.isfinite(a).all() or not np.isfinite(b).all():
+            raise RuntimeError("MVI_TE4_FULL_SURFACE_NONFINITE")
+        scale=max(float(np.linalg.norm(a)),
+                  float(np.linalg.norm(b)),1.e-30)
+        return bool(np.linalg.norm(a-b)<=tolerance*scale)
+
     def _linear_endpoint(self,pred,time_s,coefficient,previous=None,
                          max_sweeps=35,relative_change=2.e-7,
                          krylov_rtol=1.e-7,max_krylov_matvec=1800):
@@ -316,9 +333,10 @@ class VariationalTE4:
         if not accepted:
             raise RuntimeError("MVI_XY_ALTERNATION_NOT_CONVERGED")
         state=self._field(x,y)
-        if (not np.any(state) and
-                np.any((rhs-stiffness(state))[:,1:-1,:])):
-            raise RuntimeError("MVI_TE4_ZERO_FIELD_WITH_NONZERO_EQUATIONS")
+        if not self._all_free_surface_equations_hold(
+                rhs,stiffness(state),krylov_rtol):
+            raise RuntimeError(
+                "MVI_TE4_RANK_NOT_SUFFICIENT_FOR_FULL_2D_EQUATIONS")
         if np.any(state[:,[0,-1],:]):
             raise RuntimeError("MVI_CLAMPED_DISPLACEMENT_FAILED")
         return state,(x,y),tuple(loops)
@@ -536,12 +554,13 @@ class VariationalTE4:
         if not converged:
             raise RuntimeError("MVI_IRK4_COUPLED_XY_NOT_CONVERGED")
         Q=stage_fields()
-        if not any(np.any(stage) for stage in Q):
-            if any(np.any(equations[:,1:-1,:])
-                   for equations in stage_equations(Q)):
-                raise RuntimeError(
-                    "MVI_TE4_GAUSS_ZERO_FIELD_WITH_NONZERO_EQUATIONS")
         acceleration=stage_accelerations(Q)
+        for i in range(2):
+            stage_action=self.weak_mass(acceleration[i])+self.weak_stiffness(Q[i])
+            if not self._all_free_surface_equations_hold(
+                    fstage[i],stage_action,krylov_rtol):
+                raise RuntimeError(
+                    "MVI_TE4_GAUSS_RANK_NOT_SUFFICIENT_FOR_FULL_2D_EQUATIONS")
         V=[v+dt_s*sum(A[i,j]*acceleration[j] for j in range(2))
            for i in range(2)]
         endpoint=q+dt_s*v+dt_s**2*sum(
