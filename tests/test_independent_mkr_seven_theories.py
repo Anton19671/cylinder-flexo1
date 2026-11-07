@@ -72,3 +72,20 @@ def test_new_MKR_strong_operators_are_separate_from_shared_weak_assembler():
             imports.append(node.module or "")
     disallowed=("cylinder_","independent_mvi","cuf_g3d","flexo_")
     assert not any(name.startswith(disallowed) for name in imports)
+
+
+def test_cuf_inertia_does_not_silently_remove_high_angular_velocity_mode():
+    """Algebraic kinetic-energy nondegeneracy, without a physical solve.
+
+    In particular, a future face-flux reformulation must not replace
+    physical nodal inertia with cell-average-only velocity inertia.
+    The current native prototype requires an odd periodic node count.
+    """
+    case=StrongModelCase(theory="CUF_TE4",nx=11,ns=9)
+    model=IndependentStrongModel(case)
+    wave=(-1.)**np.arange(case.ns)
+    q=np.zeros((model.n,case.nx,case.ns))
+    # The CUF radial zeroth thickness coefficient has pointwise inertia.
+    q[10,1:-1,:]=wave[None,:]
+    mass_energy=float(np.sum(q*model.mass_action(q)))
+    assert mass_energy>0.
