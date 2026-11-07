@@ -79,6 +79,46 @@ def independent_template(theory,integrator,method):
 
 
 
+def independent_static_catalog():
+    """Seven-theory, method-owned LINEAR MACRO stationary CASE-only routes."""
+    rows=[]
+    for theory in THEORIES:
+        for method,rank in (("MKR",None),)+tuple(
+                ("MVI",r) for r in range(1,9)):
+            ident=f"INDEPENDENT_STATIC_{method}_{theory}"
+            if rank is not None:
+                ident+=f"_R{rank}"
+            rows.append(dict(
+                id=ident,family="INDEPENDENT_STATIC_LINEAR_MACRO",
+                theory=theory,geometry_model="LINEAR",kind="STATIC",
+                method=method,integrator=None,rank=rank,
+                gradient_model=None,flexoelectric_enabled=False,
+                validation_level="CASE_PREFLIGHT_ONLY"))
+    return rows
+
+
+def independent_static_template(theory,method,rank=None):
+    """Re-use an established physical passport, never dynamic computation."""
+    if theory not in THEORIES or method not in ("MKR","MVI"):
+        raise ValueError("INDEPENDENT_STATIC_TEMPLATE_UNKNOWN")
+    if method=="MKR" and rank is not None:
+        raise ValueError("INDEPENDENT_STATIC_MKR_HAS_NO_RANK")
+    if method=="MVI" and (
+            type(rank) is not int or not 1<=rank<=8):
+        raise ValueError("INDEPENDENT_STATIC_MVI_RANK_INVALID")
+    source=independent_template(theory,"NEWMARK",method)
+    doc={
+        "schema":f"INDEPENDENT_{method}_STATIC_SEVEN_MODELS_V1",
+        "physics":source["physics"].copy(),
+        "static":{"load_factor":1.0},
+        "output_dir":f"output/independent_static/{method.lower()}/{theory.lower()}"
+    }
+    if method=="MVI":
+        doc["rank"]=rank
+        doc["static"]["max_sweeps"]=60
+    return doc
+
+
 def coupled_optional_time_catalog():
     """Real CASE routes beyond the Newmark pilot, not claims of real solves.
 
@@ -137,9 +177,11 @@ def catalog():
         validation_level="CASE_PREFLIGHT_ONLY")
         for e in micro_catalog(full=True)]
     optional=coupled_optional_time_catalog()
-    rows=micro+optional+macro_catalog()+independent_catalog()
-    if (len(micro),len(optional),len(macro_catalog()),len(independent_catalog()))!=(
-            112,84,84,189) or len({r["id"] for r in rows})!=469:
+    static=independent_static_catalog()
+    rows=micro+optional+macro_catalog()+independent_catalog()+static
+    if (len(micro),len(optional),len(macro_catalog()),
+            len(independent_catalog()),len(static))!=(
+            112,84,84,189,63) or len({r["id"] for r in rows})!=532:
         raise ValueError("SCIENTIFIC_METHOD_INVENTORY_INCOMPLETE")
     return rows
 
@@ -154,7 +196,8 @@ def export(folder):
                          "MICRO_BATHE_CASE":56,
                          "MICRO_GAUSS_MVI_EXPLICIT_CASE":28,
                          "MACRO_REFERENCE":84,
-                         "INDEPENDENT_LINEAR_MACRO":189},
+                         "INDEPENDENT_LINEAR_MACRO":189,
+                         "INDEPENDENT_STATIC_LINEAR_MACRO":63},
         "validation_level":"CASE_PREFLIGHT_ONLY",
         "physical_solutions_computed":False,
         "scientific_accuracy_certified":False,
@@ -166,6 +209,7 @@ def export(folder):
             "Coupled Gauss2 IRK4 has an opt-in MVI CASE API only",
             "Coupled Gauss full FDM has a numerical step adapter, not a complete public case dispatch",
             "Independent MKR/MVI Bathe/Newmark/Gauss are linear elastic without electrical coupling",
+            "Independent MKR/MVI STATIC has its own method-specific stationary solver, no time integrator",
             "A CASE preflight is not a completed physical calculation"
         ],
         "cases":entries,
