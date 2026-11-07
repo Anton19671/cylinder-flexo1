@@ -21,12 +21,19 @@ def _load_case(case_json):
         raise FinalCaseError(f"Cannot read CASE: {path}: {exc}") from exc
     if not isinstance(case,dict):
         raise FinalCaseError("CASE must be a JSON object")
-    if str(case.get("solver_backend","")).upper()!=BACKEND:
+    if "schema" in case:
+        from cylinder_independent_dispatch import independent_method
+        # Strict native method routing; unsupported schema fails closed.
+        independent_method(case)
+    elif str(case.get("solver_backend","")).upper()!=BACKEND:
         raise FinalCaseError(
-            "Only VARIATIONAL_REFERENCE is supported; legacy CASE is not converted")
+            "Explicit VARIATIONAL_REFERENCE or native independent schema required; no fallback")
     return path,case
 def validate_final_case(case_json,*,dry_run=True):
     path,case=_load_case(case_json)
+    if "schema" in case:
+        from cylinder_independent_dispatch import validate_independent_case
+        return validate_independent_case(path)
     if str(case.get("calculation_kind","")).upper()=="MODAL":
         from cylinder_modal_reference import prepare_modal_case
         return dict(valid=True,solver_backend=BACKEND,case=str(path),
@@ -39,12 +46,17 @@ def validate_final_case(case_json,*,dry_run=True):
         gradient_model=f.material.gradient_model_label,material_model="HOOKE")
 def run_final_case(case_json):
     path,case=_load_case(case_json)
+    if "schema" in case:
+        from cylinder_independent_dispatch import run_independent_case
+        return run_independent_case(path)
     if str(case.get("calculation_kind","")).upper()=="MODAL":
         from cylinder_modal_reference import run_modal_case
         return run_modal_case(case,path)
     return run_reference_case(case,path)
 def run_mvi_rank_series(case_json,ranks=range(1,9)):
     path,case=_load_case(case_json)
+    if "schema" in case:
+        raise FinalCaseError("INDEPENDENT_RANK_SERIES_REQUIRES_OWN_EXPLICIT_CASES")
     if str(case.get("method","")).upper()!="MVI":
         raise FinalCaseError("MVI rank series requires method=MVI")
     return run_reference_mvi_series(case,path,ranks=ranks)
