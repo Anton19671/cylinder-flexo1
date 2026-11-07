@@ -15,11 +15,18 @@ from independent_mkr.linear_models import (
 def _own_discrete_work(model, trial, virtual, tensor, terms):
     """Independent scalar construction: derivative of MKR's discrete energy."""
     wx=model.quadrature_x[None,:,None]
-    a=[model._differentiate(virtual,j) for j in range(terms)]
-    b=[model._differentiate(trial,j) for j in range(terms)]
-    return sum(float(np.sum(wx*a[i]*np.einsum(
-        "ab,bxs->axs",tensor[i,j],b[j],optimize=True)))
-        for i in range(terms) for j in range(terms))
+    placements=(("NODE",1.),) if terms==3 else (
+        ("NODE",.5),("FACE",.5))
+    total=0.
+    for location,weight in placements:
+        a=[model._differentiate(virtual,j,placement=location)
+           for j in range(terms)]
+        b=[model._differentiate(trial,j,placement=location)
+           for j in range(terms)]
+        total+=weight*sum(float(np.sum(wx*a[i]*np.einsum(
+            "ab,bxs->axs",tensor[i,j],b[j],optimize=True)))
+            for i in range(terms) for j in range(terms))
+    return total
 
 
 @pytest.mark.parametrize("theory",MODELS)

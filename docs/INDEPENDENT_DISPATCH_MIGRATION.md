@@ -217,3 +217,19 @@ The new checks in
 manufactured arrays and bypass all physical time marching or shell
 solves; they verify the rank-insufficient rejection and the exact
 free-space acceptance contract independently of a spatial benchmark.
+
+## 2026-11-07 MKR periodic primal/dual update
+
+Independent linear MKR stiffness now samples one original
+thickness-integrated elastic energy on both nodal and periodic
+angular-face grids and uses paired transpose maps for every mixed
+mechanical derivative. The direct node curvature and face gradient
+remove the two distinct even-grid alternating blind spots.
+The inertia remains explicitly nodal; no accidental zero-inertia
+face averaging can reappear. This is a method-owned strong/energy
+finite difference, not the MVI SBP/Fourier weak assembly. The input
+validation now allows even circumferential node counts in MKR only.
+
+This remains experimental linear **electric/gradient OFF** physics;
+complete source §40 G3D/Gz and edge boundary accuracy remain open.
+Algebraic tests are included but no physical calculation was run.

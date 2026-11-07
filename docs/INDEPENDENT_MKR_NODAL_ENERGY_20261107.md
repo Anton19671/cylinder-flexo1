@@ -56,3 +56,34 @@ all kinetic fields to angular cell centers is not resurrected.
 
 This is a **limited proven algebraic correction**, not certification
 of the complete scientific algorithm.
+
+## Follow-up: 2026-11-07 primal/dual angular stiffness with nodal inertia
+
+The former centered angular derivative squared still did not satisfy
+source §40. The independent **linear** MKR now has (a) a periodic
+node-to-face first difference `G`, (b) its exact transpose used to
+accumulate face work to the primary nodal equations, (c) the direct
+three-point periodic nodal curvature `L`, and (d) face interpolation
+`C` and face curvature `C@L`. The stiffness is the first variation
+of a **balanced primal/dual angular quadrature** of the same integrated
+Hooke energy: 0.5 nodal and 0.5 face contributions. Each has its
+own transpose, including the mixed x/angular terms. This is an
+explicit, fixed and second-order-consistent linear discretization;
+no new 3D mesh or new physical constitutive term was introduced.
+
+Unlike the previously rejected all-face attempt, the mass is
+**entirely nodal** and untouched. For the even-grid alternating
+field, `Cq=0` but `Gq!=0` and `Lq!=0`; the complementary primal
+and dual stiffness samples retain both kinds of mechanical mode.
+The method-specific node-to-face gradient/adjoint is completely
+separate from MVI's SBP/Fourier operators. A new algebra-only test
+checks the even-grid checkerboard, direct curvature, identity of the
+balanced discrete energy with its own nodal action, and nonzero
+kinetic work for all seven linear theories. Even circumferential
+sizes are now accepted by MKR input validation, but the independent
+MVI grid restriction is unchanged.
+
+**Not certified:** this balanced linear approximation does not
+establish the full nonlinear G3D/Gz flexoelectric face-flux operator,
+nor complete high-order natural end conditions. Physical spatial,
+rank and time convergence are still to be checked by the user.
