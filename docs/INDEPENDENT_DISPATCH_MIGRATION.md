@@ -62,10 +62,11 @@ FSDT and Reddy the two fields coincide. The separate reference-face
 pressure convention and all existing solver equations are unchanged.
 
 This is an **export and architectural safety correction, not a claim of
-full Krysko–Zhong implementation**. In particular, the native linear MKR
-still needs the compatible face-gradient/flux construction and complete
-higher-order natural-boundary certification from source section 40; it is
-not a verified G3D strong solver. G3D/Gz, nonlinear Green–Lagrange and
+full Krysko–Zhong implementation**. In particular, the native linear MKR now uses its own conservative
+collocated-cell finite differences and face-adjoint flux accumulation
+described in `docs/INDEPENDENT_MKR_FACE_FLUX_20261107.md`. Its full
+higher-order natural-boundary closure, mesh convergence and coupled
+G3D physics are **not** certified, and it is not a verified G3D solver. G3D/Gz, nonlinear Green–Lagrange and
 fully coupled flexoelectric research remain in legacy reference routes,
 which **are not two independent spatial discretizations**. Do not silently
 fall back to a legacy solver when an independent CASE requests unsupported

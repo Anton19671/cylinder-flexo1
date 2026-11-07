@@ -84,6 +84,48 @@ def _finite_difference_s(n,radius):
     return d
 
 
+def _mkr_compatible_cell_operators(nx,ns,length,radius):
+    """Independent conservative FD/SBP-free cell flux geometry.
+
+    q lives at surface nodes (x_i,s_j), gradients at physical cells
+    (x_{i+1/2},s_{j+1/2}).  Opposite cell fluxes are accumulated back
+    to nodal equilibrium by transpose face maps.  The periodic first
+    angular gradient is a one-cell difference, not Dcentral@Dcentral.
+    Derivative pairs are aligned at the SAME cell quadrature location.
+
+    Through-thickness coordinates never become independent spatial DOFs.
+    """
+    hx=length/(nx-1)
+    hs=2*pi*radius/ns
+
+    cx=np.zeros((nx-1,nx))
+    gx=np.zeros_like(cx)
+    dxx=np.zeros((nx,nx))
+    for i in range(nx-1):
+        cx[i,i:i+2]=(.5,.5)
+        gx[i,i:i+2]=(-1./hx,1./hx)
+    for i in range(1,nx-1):
+        dxx[i,i-1:i+2]=(1./hx**2,-2./hx**2,1./hx**2)
+    # Second-order one-sided nodal curvature before cell interpolation.
+    dxx[0,:4]=(2./hx**2,-5./hx**2,4./hx**2,-1./hx**2)
+    dxx[-1,-4:]=(-1./hx**2,4./hx**2,-5./hx**2,2./hx**2)
+
+    cs=np.zeros((ns,ns))
+    gs=np.zeros((ns,ns))
+    dss=np.zeros((ns,ns))
+    for j in range(ns):
+        jp=(j+1)%ns
+        jm=(j-1)%ns
+        cs[j,j]+=.5
+        cs[j,jp]+=.5
+        gs[j,j]-=1./hs
+        gs[j,jp]+=1./hs
+        dss[j,j]-=2./hs**2
+        dss[j,jp]+=1./hs**2
+        dss[j,jm]+=1./hs**2
+    return (cx,gx,cx@dxx),(cs,gs,cs@dss)
+
+
 def _reddy_warps(z,R,h):
     """Independent curvature-corrected Reddy axial and tangent warping."""
     ax=-4*z**3/(3*h*h)
@@ -203,8 +245,10 @@ class IndependentStrongModel:
         self.n=_ncomponents(case.theory)
         self.dx=_finite_difference_x(case.nx,case.length_m)
         self.ds=_finite_difference_s(case.ns,case.radius_m)
-        self.deriv_x=(np.eye(case.nx),self.dx,self.dx@self.dx)
-        self.deriv_s=(np.eye(case.ns),self.ds,self.ds@self.ds)
+        # Distinct strong MKR face-flux scheme: x/angle cell quadratures
+        # and their nodal conservative divergence; no MVI weak assembler.
+        self.deriv_x,self.deriv_s=_mkr_compatible_cell_operators(
+            case.nx,case.ns,case.length_m,case.radius_m)
         self.stiffness=np.zeros((6,6,self.n,self.n))
         self.mass=np.zeros((3,3,self.n,self.n))
         self._integrate_thickness()
@@ -285,14 +329,22 @@ class IndependentStrongModel:
                          self.deriv_s[b],optimize=True)
 
     def _strong_form(self,q,tensor,terms):
+        """Conservative strong nodal balance from paired cell face fluxes.
+
+        This is the first discrete variation of the MKR-owned cell energy
+        divided by the uniform nodal dual area.  All strain components
+        and their mixed derivatives are collocated on the same cells.
+        Face adjoints avoid the central-two-step angular null mode.
+        The MVI SBP/Fourier weak operator is NEVER called or imported.
+        """
         q=np.asarray(q,float)
-        field=[self._differentiate(q,k) for k in range(terms)]
+        fields=[self._differentiate(q,k) for k in range(terms)]
         result=np.zeros_like(q)
-        for i in range(terms):
-            flux=sum(np.einsum("ab,bxs->axs",tensor[i,j],field[j],
-                              optimize=True) for j in range(terms))
-            sign=(-1)**sum(ORDERS[i])
-            result+=sign*self._differentiate(flux,i)
+        for i,(ax,ang) in enumerate(ORDERS[:terms]):
+            flux=sum(np.einsum("ab,bxs->axs",tensor[i,j],fields[j],
+                               optimize=True) for j in range(terms))
+            result+=np.einsum("ji,cjk,kl->cil",self.deriv_x[ax],flux,
+                              self.deriv_s[ang],optimize=True)
         return result
 
     def stiffness_action(self,q):
