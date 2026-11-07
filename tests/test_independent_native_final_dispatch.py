@@ -112,3 +112,49 @@ def test_native_rank_sweep_rejected_instead_of_reference_fallback(tmp_path):
     path.write_text(json.dumps(case))
     with pytest.raises(FinalCaseError,match="OWN_EXPLICIT_CASES"):
         run_mvi_rank_series(path)
+
+
+
+def test_public_independent_dispatch_has_no_eager_shared_variational_import():
+    """Guard independence without doing any solver calculations."""
+    import ast
+    import inspect
+    import cylinder_final_stage11a_dispatcher as dispatch
+    source=inspect.getsource(dispatch)
+    tree=ast.parse(source)
+    top_imports=(
+        [node.module for node in tree.body
+         if isinstance(node,ast.ImportFrom)]
+        + [alias.name for node in tree.body
+           if isinstance(node,ast.Import) for alias in node.names])
+    assert not any(name.startswith((
+        "cylinder_reference_case","cylinder_variational_fdm",
+        "cylinder_variational_mvi","cylinder_variational_dynamic"))
+        for name in top_imports)
+
+
+@pytest.mark.parametrize("method",("MKR","MVI"))
+def test_native_solver_does_not_import_other_method_on_dispatch(
+        method,tmp_path
+):
+    """Explicit source-level runtime path separation, no fictitious accuracy."""
+    import ast
+    from pathlib import Path
+    root=Path(__file__).resolve().parents[1]
+    chosen=(root/"independent_mkr" if method=="MKR"
+            else root/"independent_mvi")
+    enemy="independent_mvi" if method=="MKR" else "independent_mkr"
+    disallowed=(
+        enemy,"cylinder_variational_fdm","cylinder_variational_mvi",
+        "cylinder_variational_dynamic","cylinder_reference_case")
+    for filename in ("linear_models.py","run_models.py"):
+        root_node=ast.parse((chosen/filename).read_text(encoding="utf-8"))
+        imported=[
+            node.module for node in ast.walk(root_node)
+            if isinstance(node,ast.ImportFrom)
+        ]+[
+            item.name for node in ast.walk(root_node)
+            if isinstance(node,ast.Import) for item in node.names
+        ]
+        for name in imported:
+            assert not name.startswith(disallowed),(filename,name)
