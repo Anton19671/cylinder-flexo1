@@ -66,3 +66,23 @@ physical solve. Reusing the MVI discrete operator is forbidden.
 
 No physical simulation or time stepping was performed for this
 audit. The rejected version was not accepted as validated.
+
+## Follow-up: independent nodal MKR end-adjoint correction
+
+Commit dated 2026-11-07 introduces a **separate, limited change**:
+`independent_mkr/linear_models.py` now obtains its nodal action by
+exact variation of **its own** centered-FD, trapezoidally integrated
+thickness-reduced energy. For higher axial derivatives the previous
+formal `+ Dxx(flux)` did not equal the discrete energy adjoint near
+the clamped ends; the correction uses `Dxx.T W_x flux`, with all
+cross derivative-order terms assembled by the same dual pairing.
+The physical kinetic-energy and nodal mass terms remain at the
+primary nodes, not at circumferential cell averages. The independent
+MVI kernels are not imported or changed.
+
+**Still unproven**: this is NOT the complete compatible face-gradient
+MKR of source §40. The centered angular difference is still present
+and may underresolve high-frequency circumferential modes; odd angular
+node counts are still required. No loaded shell result or end-closure
+convergence test has been run. See the follow-up proof document
+`docs/INDEPENDENT_MKR_NODAL_ENERGY_20261107.md`.

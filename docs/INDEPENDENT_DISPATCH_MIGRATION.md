@@ -73,3 +73,15 @@ physics. The AST isolation tests scan all native method modules (including
 GUI and input adapters) for cross-method and shared numerical imports.
 
 No physical shell calculation was run to prepare these changes.
+
+## 2026-11-07 MKR end-adjoint correction (strictly limited)
+
+The independent MKR linear nodal strong balance now uses the discrete
+first variation of its OWN centered finite-difference surface energy.
+At axial endpoints, derivative transpose plus trapezoid weights
+ensures that the linear bending contributions are self-adjoint on the
+prescribed displacement/slope spaces; the former unpaired second
+axial difference was not. Native MVI SBP/Fourier operators and the
+entire coupled legacy physics are unchanged. This step does not
+claim that centered angular differences are a full implementation of
+source §40's compatible face gradients. No physical case was run.
