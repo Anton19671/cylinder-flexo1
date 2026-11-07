@@ -151,7 +151,7 @@ def run(path: Path, *, validate_only: bool):
         "spatial_grid":SPATIAL_GRID,
         "thickness_scheme":THICKNESS_SCHEME,
         "physics_scope":PHYSICS_SCOPE,
-        "status":"IN_PROGRESS","accepted_steps":0,
+        "status":"IN_PROGRESS","converged":False,"accepted_steps":0,
         "requested_steps":steps,"dt_s":dt_s,"time_s":0.,
         "solver_module":"independent_mvi.linear_models"
     }
@@ -255,6 +255,7 @@ def run(path: Path, *, validate_only: bool):
                 committed_csv_position=stream.tell()
                 print(f"MVI ACCEPTED {k}/{steps} t={k*dt_s:.9g} s",flush=True)
             summary["status"]="CONVERGED"
+            summary["converged"]=True
             save_summary()
             print(f"MVI COMPLETED {steps}/{steps}",flush=True)
         except Exception as exc:
@@ -268,7 +269,7 @@ def run(path: Path, *, validate_only: bool):
                 stream.flush()
             summary["accepted_steps"]=committed_steps
             summary["time_s"]=committed_steps*dt_s
-            summary.update(status="FAILED",failed_step=failed_step,
+            summary.update(status="FAILED",converged=False,failed_step=failed_step,
                            error_type=type(exc).__name__,detail=str(exc))
             save_summary()
             print(f"MVI FAILED step={failed_step} error={type(exc).__name__}: {exc}",

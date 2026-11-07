@@ -362,6 +362,18 @@ class IndependentStrongModel:
             lambda q:self.stiffness_action(q)+kappa*self.mass_action(q),
             force+kappa*self.mass_action(predict))
 
+    def solve_static(self, load_factor=1.):
+        """Static solution with this MKR-owned strong nodal FD operator only."""
+        if isinstance(load_factor,(bool,np.bool_)):
+            raise ValueError("MKR_STATIC_LOAD_FACTOR_INVALID")
+        factor=float(load_factor)
+        if not np.isfinite(factor) or factor<0:
+            raise ValueError("MKR_STATIC_LOAD_FACTOR_INVALID")
+        if factor==0.:
+            return np.zeros((self.n,self.case.nx,self.case.ns))
+        return self._solve_linear(self.stiffness_action,
+                                  factor*self.force)
+
     def step_newmark(self,q,v,a,time_s,dt_s=.002):
         if not np.isfinite(dt_s) or dt_s<=0:
             raise ValueError("MKR_MODEL_INVALID_TIME_STEP")

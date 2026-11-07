@@ -14,7 +14,13 @@ from pathlib import Path
 SCHEMAS={
     "INDEPENDENT_MKR_SEVEN_MODELS_V1":"INDEPENDENT_MKR",
     "INDEPENDENT_MVI_SEVEN_MODELS_V1":"INDEPENDENT_MVI",
+    "INDEPENDENT_MKR_STATIC_SEVEN_MODELS_V1":"INDEPENDENT_MKR",
+    "INDEPENDENT_MVI_STATIC_SEVEN_MODELS_V1":"INDEPENDENT_MVI",
 }
+STATIC_SCHEMAS=frozenset((
+    "INDEPENDENT_MKR_STATIC_SEVEN_MODELS_V1",
+    "INDEPENDENT_MVI_STATIC_SEVEN_MODELS_V1",
+))
 
 
 def independent_method(case):
@@ -38,11 +44,18 @@ def _load_native(path):
     return path,case,independent_method(case)
 
 
-def _own_runner(method):
+def _own_runner(method,schema=None):
+    """Select only the explicitly named method and calculation kind."""
     if method=="INDEPENDENT_MKR":
+        if schema in STATIC_SCHEMAS:
+            from independent_mkr import run_static
+            return run_static
         from independent_mkr import run_models
         return run_models
     if method=="INDEPENDENT_MVI":
+        if schema in STATIC_SCHEMAS:
+            from independent_mvi import run_static
+            return run_static
         from independent_mvi import run_models
         return run_models
     raise ValueError("INDEPENDENT_UNKNOWN_METHOD_NO_FALLBACK")
@@ -50,13 +63,14 @@ def _own_runner(method):
 
 def validate_independent_case(case_file):
     path,case,method=_load_native(case_file)
-    own=_own_runner(method)
+    own=_own_runner(method,case["schema"])
     result=own.run(path,validate_only=True)
     if result.get("validated_only") is not True:
         raise RuntimeError("INDEPENDENT_CASE_VALIDATION_MUST_NOT_SOLVE")
     if result["schema"]!=case["schema"]:
         raise RuntimeError("INDEPENDENT_CASE_METHOD_SCHEMA_MISMATCH")
-    return dict(result,solver_backend=method,calculation_kind="DYNAMIC",
+    return dict(result,solver_backend=method,calculation_kind=(
+                    "STATIC" if case["schema"] in STATIC_SCHEMAS else "DYNAMIC"),
                 theory=result["physics"]["theory"],case=str(path),
                 valid=True,physical_steps_computed=0,
                 no_reference_fallback=True)
@@ -66,7 +80,7 @@ def run_independent_case(case_file):
     path,case,method=_load_native(case_file)
     # The only branch that advances any numerical step. One user-requested
     # method-specific implementation is selected from the validated schema.
-    own=_own_runner(method)
+    own=_own_runner(method,case["schema"])
     own.load_case(path)
     result=own.run(path,validate_only=False)
     if result.get("method")!=own.METHOD:

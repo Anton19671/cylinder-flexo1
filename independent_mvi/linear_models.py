@@ -465,6 +465,65 @@ class IndependentVariationalModel:
                 return after,(X,Y),tuple(progress)
         raise RuntimeError("MVI_XY_CYCLES_NOT_COMPLETED")
 
+    def solve_static(self,load_factor=1.,*,previous=None,
+                     max_sweeps=60,rtol=1.e-7):
+        """Independent stationary X/Y variational solve; never calls MKR.
+
+        Rank is fixed and independent of the CUF thickness degree.
+        Zero physical field under nonzero load cannot be accepted.
+        The linear spatial energy is this method's own SBP/Fourier
+        weak action, not the independent MKR difference matrices.
+        """
+        if isinstance(load_factor,(bool,np.bool_)):
+            raise ValueError("MVI_STATIC_LOAD_FACTOR_INVALID")
+        factor=float(load_factor)
+        if not np.isfinite(factor) or factor<0:
+            raise ValueError("MVI_STATIC_LOAD_FACTOR_INVALID")
+        if type(max_sweeps) is not int or not 1<=max_sweeps<=200:
+            raise ValueError("MVI_STATIC_SWEEP_LIMIT_INVALID")
+        rhs=self.area[None]*self.force*factor
+        if previous is None:
+            X,Y=self._seed_from_admissible_drive(rhs)
+        else:
+            X,Y=(np.asarray(p,float).copy() for p in previous)
+            if (X.shape!=(self.n,self.rank,self.case.nx) or
+                    Y.shape!=(self.n,self.rank,self.case.ns) or
+                    not np.isfinite(X).all() or
+                    not np.isfinite(Y).all()):
+                raise ValueError("MVI_STATIC_WRONG_PREVIOUS_FACTORS")
+            if not np.any(self.field(X,Y)) and np.any(self.pack(rhs)):
+                X,Y=self._seed_from_admissible_drive(rhs)
+        history=[]
+        for sweep in range(max_sweeps):
+            before=self.field(X,Y)
+            for freeze,active in (("X","Y"),("Y","X")):
+                X,Y=self._normalize(X,Y,freeze)
+                T,widths=self._directions(X,Y,active)
+                rhs_half=T.T@(rhs-self.stiffness_action(
+                    self.field(X,Y))).ravel()
+                if not np.any(rhs_half):
+                    continue
+                n=rhs_half.size
+                operator=LinearOperator((n,n),matvec=lambda d:T.T@(
+                    self.stiffness_action((T@d).reshape(
+                        self.n,self.case.nx,self.case.ns))).ravel(),
+                    dtype=float)
+                delta,code=gmres(
+                    operator,rhs_half,rtol=rtol,atol=0.,
+                    restart=min(80,n),maxiter=35,
+                    callback_type="pr_norm")
+                if code!=0 or not np.isfinite(delta).all():
+                    raise RuntimeError("MVI_STATIC_OWN_XY_SOLVE_FAILED")
+                X,Y=self._update_factors(X,Y,delta,widths,active)
+                history.append((sweep+1,active))
+            after=self.field(X,Y)
+            if np.linalg.norm(after-before)<=2.e-7*max(
+                    np.linalg.norm(after),1.e-30):
+                if not np.any(after) and np.any(self.pack(rhs)):
+                    raise RuntimeError("MVI_STATIC_FALSE_ZERO_FIELD")
+                return after,(X,Y),tuple(history)
+        raise RuntimeError("MVI_STATIC_XY_NOT_COMPLETED")
+
     def step_newmark(self,q,v,a,t,dt_s=.002,previous=None):
         if not np.isfinite(dt_s) or dt_s<=0:
             raise ValueError("MVI_TIME_STEP_INVALID")
