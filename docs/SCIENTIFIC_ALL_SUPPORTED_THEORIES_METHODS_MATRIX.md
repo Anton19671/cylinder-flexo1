@@ -60,3 +60,32 @@ own required `CONVERGED` acceptance rules. A successful fixed-rank
 calculation is not automatically full-space accuracy.
 
 No physical calculations are launched by this patch or the added tests.
+
+
+## Expanded real dynamic CASE routing: 469 audited combinations
+
+The earlier 385-case list omitted two explicitly available coupled
+temporal routes. This was an **audit-coverage omission**, not proof that
+Bathe or Gauss IRK4 was missing from the source code:
+
+- 56 additional coupled MICRO **BATHE** CASEs:
+  seven shell theories, both gradient models, electric ON/OFF,
+  and FDM/MVI, with a dedicated `run_bathe_case` dispatcher.
+- 28 additional coupled MICRO **GAUSS2_IRK4** preflights:
+  the same seven theories, two gradients, electric ON/OFF,
+  **MVI-only**, with an explicit `prepare_gauss2_mvi_case` route.
+  They must not be counted as automatically accepted physical solves.
+
+The complete preflight manifest now has **469 distinct route entries**:
+112 MICRO reference static/Newmark, 56 coupled Bathe,
+28 coupled Gauss MVI, 84 MACRO reference static/Newmark,
+189 separate experimental LINEAR MACRO MKR/MVI integrations.
+
+The coupled Gauss **FDM numerical step adapter exists** in
+`numerics/cylinder_gauss2_variational_fdm.py`, but unlike MVI it lacks
+a public end-to-end case dispatch with durable full time history;
+its combinations are **not** listed as fully routable. Macro Bathe
+and Macro Gauss, modal and other independent method capabilities
+still require separately scoped enumeration. Thus 469 is an explicit
+audited subset, **not** proof of literally every conceivable model.
+A passed preflight is not an accepted physical integration history.

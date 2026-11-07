@@ -78,6 +78,54 @@ def independent_template(theory,integrator,method):
     return content
 
 
+
+def coupled_optional_time_catalog():
+    """Real CASE routes beyond the Newmark pilot, not claims of real solves.
+
+    BATHE is a public variational FDM/MVI CASE dispatch. GAUSS2_IRK4 is
+    a distinct opt-in MVI-only CASE API; do not mislabel the standalone
+    numerical FDM adapter as an exposed finished CASE runner.
+    """
+    rows=[]
+    for item in micro_catalog(full=True):
+        if item["kind"]!="DYNAMIC":
+            continue
+        for mode in ("BATHE", "GAUSS2_IRK4"):
+            if mode=="GAUSS2_IRK4" and item["method"]!="MVI":
+                continue
+            rows.append(dict(
+                id=f"MICRO_{mode}_"+item["id"],
+                family=("MICRO_BATHE_CASE" if mode=="BATHE"
+                        else "MICRO_GAUSS_MVI_EXPLICIT_CASE"),
+                theory=item["theory"],geometry_model="GREEN_LAGRANGE",
+                kind="DYNAMIC",method=item["method"],integrator=mode,
+                rank=1 if item["method"]=="MVI" else None,
+                gradient_model=item["gradient"],
+                flexoelectric_enabled=item["on"],
+                validation_level="CASE_PREFLIGHT_ONLY",
+            ))
+    if len(rows)!=84:
+        raise ValueError("COUPLED_OPTIONAL_TIME_CASES_INCOMPLETE")
+    return rows
+
+
+def coupled_optional_time_case(row,folder):
+    if row["family"] not in (
+        "MICRO_BATHE_CASE","MICRO_GAUSS_MVI_EXPLICIT_CASE"):
+        raise ValueError("OPTIONAL_COUPLED_TIME_NOT_SUPPORTED")
+    entry=dict(theory=row["theory"],gradient=row["gradient_model"],
+               on=row["flexoelectric_enabled"],kind="DYNAMIC",
+               method=row["method"])
+    case=build_micro_case(entry,Path(folder))
+    if row["integrator"]=="BATHE":
+        case["dynamics"]["integrator"]="BATHE"
+    # IRK4 requires a genuine Newmark-compatible physical CASE, then
+    # explicit prepare_gauss2_mvi_case, without inventing integrator key.
+    elif row["integrator"]!="GAUSS2_IRK4" or row["method"]!="MVI":
+        raise ValueError("OPTIONAL_COUPLED_TIME_METHOD_MISMATCH")
+    return case
+
+
 def catalog():
     micro=[dict(
         id="MICRO_"+e["id"],family="MICRO_REFERENCE",
@@ -88,9 +136,10 @@ def catalog():
         rank=1 if e["method"]=="MVI" else None,
         validation_level="CASE_PREFLIGHT_ONLY")
         for e in micro_catalog(full=True)]
-    rows=micro+macro_catalog()+independent_catalog()
-    if (len(micro),len(macro_catalog()),len(independent_catalog()))!=(
-            112,84,189) or len({r["id"] for r in rows})!=385:
+    optional=coupled_optional_time_catalog()
+    rows=micro+optional+macro_catalog()+independent_catalog()
+    if (len(micro),len(optional),len(macro_catalog()),len(independent_catalog()))!=(
+            112,84,84,189) or len({r["id"] for r in rows})!=469:
         raise ValueError("SCIENTIFIC_METHOD_INVENTORY_INCOMPLETE")
     return rows
 
@@ -101,12 +150,24 @@ def export(folder):
     entries=catalog()
     data={
         "count":len(entries),
-        "family_counts":{"MICRO_REFERENCE":112,"MACRO_REFERENCE":84,
+        "family_counts":{"MICRO_REFERENCE":112,
+                         "MICRO_BATHE_CASE":56,
+                         "MICRO_GAUSS_MVI_EXPLICIT_CASE":28,
+                         "MACRO_REFERENCE":84,
                          "INDEPENDENT_LINEAR_MACRO":189},
         "validation_level":"CASE_PREFLIGHT_ONLY",
         "physical_solutions_computed":False,
         "scientific_accuracy_certified":False,
         "coupled_fdm_mvi_spatial_independence_certified":False,
+        "coupled_gauss_fdm_public_case_dispatch_available":False,
+        "constraints":[
+            "MICRO G3D/Gz requires GREEN_LAGRANGE in this backend",
+            "Coupled Bathe uses dedicated DYNAMIC FDM/MVI CASE route",
+            "Coupled Gauss2 IRK4 has an opt-in MVI CASE API only",
+            "Coupled Gauss full FDM has a numerical step adapter, not a complete public case dispatch",
+            "Independent MKR/MVI Bathe/Newmark/Gauss are linear elastic without electrical coupling",
+            "A CASE preflight is not a completed physical calculation"
+        ],
         "cases":entries,
     }
     (folder/"SCIENTIFIC_ALL_MODEL_METHOD_CASES.json").write_text(

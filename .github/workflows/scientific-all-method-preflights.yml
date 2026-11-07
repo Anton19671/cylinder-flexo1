@@ -1,4 +1,4 @@
-name: All seven theories 385 supported CASE route checks
+name: Seven theories expanded 469-route physical dispatch preflights
 on:
   workflow_dispatch:
   push:
@@ -6,8 +6,11 @@ on:
     paths:
       - ".github/workflows/scientific-all-method-preflights.yml"
       - "ci/scientific_complete_method_matrix.py"
+      - "interface/cylinder_gauss2_case.py"
+      - "interface/cylinder_bathe_case.py"
       - "ci/scientific_real_coupled_case.py"
       - "tests/test_scientific_complete_method_matrix.py"
+      - "tests/test_scientific_global_physics_invariants.py"
       - "tests/test_independent_all_189_runner_stages.py"
       - "tests/test_scientific_static_dynamic_branches.py"
       - "independent_mvi/run_models.py"
@@ -34,7 +37,7 @@ jobs:
           python-version: "3.11"
       - run: python -m pip install numpy scipy pytest
       - name: Validate all supported CASE routes and scientific material branches
-        run: python -m pytest -q tests/test_scientific_complete_method_matrix.py tests/test_scientific_static_dynamic_branches.py tests/test_independent_all_189_runner_stages.py tests/test_independent_durable_steps.py
+        run: python -m pytest -q tests/test_scientific_complete_method_matrix.py tests/test_scientific_static_dynamic_branches.py tests/test_scientific_global_physics_invariants.py tests/test_independent_all_189_runner_stages.py tests/test_independent_durable_steps.py
       - name: Export CSV and JSON of all routes as CASE only
         run: python ci/scientific_complete_method_matrix.py --output all_methods_inventory
       - name: Preserve scientific inventory regardless of failed test
