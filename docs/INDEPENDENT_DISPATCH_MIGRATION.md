@@ -111,3 +111,40 @@ ranks 1/2/4/8 (plus TE4) are in
 This removes a proven false-zero path. It is not evidence of fixed-rank
 sufficiency, complete nonlinear coupled G3D physics, or validated
 physical dynamic behavior. No real shell calculation was launched.
+
+## 2026-11-07: independent STATIC MKR and MVI, complete routing and inventory
+
+For experimental LINEAR MACRO HOOKE, electric and gradient physics OFF,
+seven theories now have their own stationary (non-time-stepping) solvers:
+
+- `independent_mkr/run_static.py` drives only its method's own
+  `IndependentStrongModel.solve_static`: nodal strong finite differences.
+- `independent_mvi/run_static.py` drives only its rank-fixed
+  `IndependentVariationalModel.solve_static`: SBP/Fourier weak form,
+  alternating X/Y subproblems.
+- Unique `INDEPENDENT_*_STATIC_SEVEN_MODELS_V1` JSON schemas and
+  explicit own-method dispatch reject accidentally reused DYNAMIC
+  time parameters, opposite-method files and nonlinear MICRO physics.
+- Separate output files include original CASE, status, physical
+  2D coefficient field, radial middle/outer fields, and in MVI the
+  original rank-fixed X/Y factors.
+- Both the dynamic and static native runners mark successful
+  completed work with `converged=true`. The public console exit
+  contract now recognizes these independently completed cases.
+
+The scientific CASE-only catalog contains **532 distinct routes**:
+the former 469 plus 63 static combinations (7 theories × MKR or MVI
+ranks 1 through 8). This is a **catalog of possible preflights**,
+not a numerical accuracy or physical convergence certificate.
+
+Physical G3D/Gz, nonlinear geometry, reciprocal flexoelectric
+coupling and complete higher-order boundary operators remain
+**unimplemented in these independent packages**. Existing coupled
+reference methods must not be relabeled as independent.
+
+The new `tests/test_independent_static_dispatch.py` uses mock
+stationary model instances to verify public routing, result
+commit, method exclusivity and rejection of wrong SCHEMA without
+a single actual physical calculation. New CI only compiles,
+preflights and runs such algebraic/source tests; no loaded
+shell simulation was executed in this work.

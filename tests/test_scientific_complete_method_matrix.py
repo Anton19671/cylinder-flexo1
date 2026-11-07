@@ -1,4 +1,4 @@
-"""385 CASE route checks and independent method isolation; no solves."""
+"""532 CASE route checks and independent method isolation; no solves."""
 import json
 import numpy as np
 import pytest
@@ -10,19 +10,21 @@ from independent_mvi.run_models import load_case as load_mvi
 from ci.scientific_complete_method_matrix import (
     THEORIES,INTEGRATORS,catalog,macro_catalog,macro_case,
     independent_catalog,independent_template,
+    independent_static_catalog,independent_static_template,
     coupled_optional_time_catalog,coupled_optional_time_case,export)
 
 
-def test_inventory_385_unique_without_physical_success_claims(tmp_path):
+def test_inventory_532_unique_without_physical_success_claims(tmp_path):
     data=export(tmp_path/"matrix")
-    assert len(catalog())==469
+    assert len(catalog())==532
     assert data["family_counts"]=={
         "MICRO_REFERENCE":112,"MICRO_BATHE_CASE":56,
         "MICRO_GAUSS_MVI_EXPLICIT_CASE":28,
-        "MACRO_REFERENCE":84,"INDEPENDENT_LINEAR_MACRO":189}
+        "MACRO_REFERENCE":84,"INDEPENDENT_LINEAR_MACRO":189,
+        "INDEPENDENT_STATIC_LINEAR_MACRO":63}
     assert not data["physical_solutions_computed"]
     assert not data["scientific_accuracy_certified"]
-    assert len({r["id"] for r in data["cases"]})==469
+    assert len({r["id"] for r in data["cases"]})==532
     assert {r["theory"] for r in data["cases"]}==set(THEORIES)
     assert all(r["validation_level"]=="CASE_PREFLIGHT_ONLY"
                for r in data["cases"])
@@ -175,3 +177,22 @@ def test_84_bathe_gauss_g3d_gz_micro_case_and_dispatch_preflights(item,tmp_path)
     assert prepared.electrical is None if not item["flexoelectric_enabled"] else (
         prepared.electrical.shape==(expected_p+1,nx,4))
     assert not folder.exists()
+
+
+@pytest.mark.parametrize("item",independent_static_catalog(),
+                         ids=lambda x:x["id"])
+def test_63_independent_static_own_case_preflights(item,tmp_path):
+    from independent_mkr import run_static as mk
+    from independent_mvi import run_static as mv
+    doc=independent_static_template(
+        item["theory"],item["method"],item["rank"])
+    assert "time" not in doc and "dynamics" not in doc
+    assert doc["physics"]["theory"]==item["theory"]
+    path=tmp_path/"static.json"
+    path.write_text(json.dumps(doc))
+    chosen=mk if item["method"]=="MKR" else mv
+    result=chosen.run(path,validate_only=True)
+    assert result["validated_only"] is True
+    assert result["calculation_kind"]=="STATIC"
+    assert not result["scientific_accuracy_certified"]
+    assert not (tmp_path/"output").exists()

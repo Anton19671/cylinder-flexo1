@@ -1,4 +1,4 @@
-name: Seven theories expanded 469-route physical dispatch preflights
+name: Seven theories expanded 532-route physical dispatch preflights
 on:
   workflow_dispatch:
   push:
@@ -19,6 +19,9 @@ on:
       - "independent_mvi/run_models.py"
       - "interface/cylinder_reference_case.py"
       - "independent_mkr/run_models.py"
+      - "independent_mkr/run_static.py"
+      - "independent_mvi/run_static.py"
+      - "tests/test_independent_static_dispatch.py"
       - "independent_mvi/run_models.py"
 permissions:
   contents: read
@@ -40,7 +43,7 @@ jobs:
           python-version: "3.11"
       - run: python -m pip install numpy scipy pytest
       - name: Validate all supported CASE routes and scientific material branches
-        run: python -m pytest -q tests/test_scientific_complete_method_matrix.py tests/test_scientific_static_dynamic_branches.py tests/test_scientific_global_physics_invariants.py tests/test_independent_all_189_runner_stages.py tests/test_independent_durable_steps.py
+        run: python -m pytest -q tests/test_scientific_complete_method_matrix.py tests/test_scientific_static_dynamic_branches.py tests/test_scientific_global_physics_invariants.py tests/test_independent_all_189_runner_stages.py tests/test_independent_durable_steps.py tests/test_independent_static_dispatch.py
       - name: Export CSV and JSON of all routes as CASE only
         run: python ci/scientific_complete_method_matrix.py --output all_methods_inventory
       - name: Preserve scientific inventory regardless of failed test
