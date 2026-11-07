@@ -32,6 +32,7 @@ class VariationalModelCase:
     pressure_pa: float = 100000.
     frequency_hz: float = 25.
     pressure_kind: str = "UNIFORM"
+    pressure_face: str = "OUTER"
     x_interval_m: tuple[float,float] = (.3,1.6)
     theta_interval_rad: tuple[float,float] = (.45,3.1)
     x_edge_m: float = .35
@@ -51,6 +52,8 @@ class VariationalModelCase:
             raise ValueError("INDEPENDENT_MVI_INVALID_PHYSICS")
         if self.pressure_kind not in ("UNIFORM","PATCH"):
             raise ValueError("INDEPENDENT_MVI_UNSUPPORTED_LOAD")
+        if self.pressure_face not in ("OUTER","MIDDLE"):
+            raise ValueError("INDEPENDENT_MVI_UNSUPPORTED_REFERENCE_FACE")
         if (not 0<=self.x_interval_m[0]<self.x_interval_m[1]<=self.length_m
                 or not 0<=self.theta_interval_rad[0]<
                 self.theta_interval_rad[1]<=2*pi):
@@ -272,17 +275,20 @@ class IndependentVariationalModel:
             angular=front((hi-lo)/2-np.abs(d),c.theta_edge_rad)
             window=np.outer(axial,angular)
         q=np.zeros((self.n,c.nx,c.ns))
-        # Krysko-Zhong Eq. (83)-(85): pressure on the OUTER reference face.
-        # +pressure_pa is inward; H_out is the cylindrical face-area factor.
-        outer_face_area=1.+c.thickness_m/(2.*c.radius_m)
-        face_force=-c.pressure_pa*outer_face_area*window
+        # Preserve the actual nominal reference load face. For CUF:
+        # F_k(h/2)=1 on OUTER, F_k(0)=delta_{k0} on MIDDLE.
+        # These are distinct physical loads, never interchangeable.
+        face_factor=(1.+c.thickness_m/(2.*c.radius_m)
+                     if c.pressure_face=="OUTER" else 1.)
+        face_force=-c.pressure_pa*face_factor*window
         if c.theory in ("KL","FSDT","REDDY"):
-            # Classical shell W(z)=w0, hence only one radial amplitude.
             q[2]=face_force
         else:
-            # CUF F_k(z)=(2z/h)^k and F_k(h/2)=1 for every k.
             order=int(c.theory[-1])+1
-            q[2*order:3*order]=face_force[None,:,:]
+            if c.pressure_face=="OUTER":
+                q[2*order:3*order]=face_force[None,:,:]
+            else:
+                q[2*order]=face_force
         return q
 
     def _differentiate(self,q,order):

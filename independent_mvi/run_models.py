@@ -117,10 +117,13 @@ def run(path: Path, *, validate_only: bool):
         "constitutive_model":("PLANE_STRESS_SHELL" if
                               physics.theory in ("KL","FSDT","REDDY")
                               else "THREE_DIMENSIONAL_CUF"),
-        "load_surface":"OUTER_REFERENCE_FACE",
+        "load_surface":physics.pressure_face+"_REFERENCE_FACE",
         "load_sign":"POSITIVE_PRESSURE_INWARD",
         "pressure_pa":physics.pressure_pa,
         "outer_reference_area_factor":1.+physics.thickness_m/(2.*physics.radius_m),
+        "applied_reference_area_factor":(
+            1.+physics.thickness_m/(2.*physics.radius_m)
+            if physics.pressure_face=="OUTER" else 1.),
         "status":"IN_PROGRESS","accepted_steps":0,
         "requested_steps":steps,"dt_s":dt_s,"time_s":0.,
         "solver_module":"independent_mvi.linear_models"

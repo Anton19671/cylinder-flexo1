@@ -55,6 +55,13 @@ def from_reference_case(case):
         raise ValueError("MVI_BRIDGE_REQUIRES_SI_UNITS")
     if (source.get("micro") or {}).get("enable_flexoelectric"):
         raise ValueError("MVI_BRIDGE_FLEXO_NOT_SUPPORTED")
+    # The independent classical shells statically eliminate epsilon_zz
+    # (plane stress); the coupled reference weak kernel retains 3D Hooke
+    # with its own kinematic epsilon_zz. For nu != 0 the constitutive
+    # energy is provably different, so conversion must fail closed.
+    if (str(source.get("theory","")).upper() in ("KL","FSDT","REDDY") and
+            (source.get("material") or {}).get("nu0")!=0):
+        raise ValueError("MVI_BRIDGE_CLASSICAL_CONSTITUTIVE_MISMATCH")
 
     theory=str(source.get("theory","")).upper()
     if theory=="CUF":
@@ -106,7 +113,7 @@ def from_reference_case(case):
     load=source.get("load_definition")
     if (not isinstance(load,dict) or
         load.get("type")!="UNIFORM_RADIAL_FACE" or
-        load.get("face")!="MIDDLE" or
+        load.get("face") not in ("MIDDLE","OUTER") or
         load.get("direction")!="RADIAL_INWARD" or
         load.get("kinematics","DEAD_REFERENCE")!="DEAD_REFERENCE" or
         set(load)-{"type","face","direction","q","kinematics"}):
@@ -135,6 +142,7 @@ def from_reference_case(case):
         "pressure_pa":_positive(load.get("q"),"pressure"),
         "frequency_hz":_positive(law.get("frequency_hz"),"frequency"),
         "pressure_kind":"UNIFORM",
+        "pressure_face":load["face"],
     }
     VariationalModelCase(**physics)  # input validation only
     rank=source.get("rank")

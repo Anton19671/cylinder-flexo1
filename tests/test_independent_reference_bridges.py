@@ -24,6 +24,10 @@ SOURCE=ROOT/"config/verification/kl_cc_bathe/BATHE_MVI1.json"
 def _source(method,theory="KL"):
     value=json.loads(SOURCE.read_text(encoding="utf-8"))
     value["method"]=method
+    if theory in ("KL","FSDT","REDDY"):
+        # At nu=0 the linear classical plane-stress and 3D material
+        # coefficient laws agree. At nu!=0 the bridge rejects conversion.
+        value["material"]["nu0"]=0.
     value["theory"]="CUF" if theory.startswith("CUF_") else theory
     if theory.startswith("CUF_"):
         value["cuf_model"]=theory[4:]
@@ -55,6 +59,7 @@ def test_reference_to_independent_preserves_physics(method,adapter,inspect,loade
     assert result["physics"]["density_kg_m3"]==7800.
     assert result["physics"]["frequency_hz"]==25.
     assert result["physics"]["pressure_pa"]==100000.
+    assert result["physics"]["pressure_face"]=="MIDDLE"
     assert result["time"]=={"integrator":"BATHE","dt_s":.002,"steps":2}
     assert result["schema"].startswith("INDEPENDENT_")
     assert inspect(result).theory==theory
@@ -140,3 +145,32 @@ def test_time_method_explicit_mapping(method,adapter):
     assert adapter(source)["time"]["integrator"]=="GAUSS_IRK4"
     source["dynamics"]["integrator"]="NEWMARK"
     assert adapter(source)["time"]["integrator"]=="NEWMARK"
+
+
+
+@pytest.mark.parametrize("method,adapter",[
+    ("FDM",into_mkr),("MVI",into_mvi)
+])
+@pytest.mark.parametrize("theory",("KL","FSDT","REDDY"))
+def test_reference_classical_3d_is_not_silently_mapped_to_plane_stress(
+    method,adapter,theory
+):
+    old=_source(method,theory)
+    old["material"]["nu0"]=.3
+    with pytest.raises(ValueError,match="CLASSICAL_CONSTITUTIVE_MISMATCH"):
+        adapter(old)
+
+
+@pytest.mark.parametrize("method,adapter",[
+    ("FDM",into_mkr),("MVI",into_mvi)
+])
+@pytest.mark.parametrize("theory",("KL","FSDT","REDDY","CUF_TE4"))
+def test_reference_pressure_face_is_retained_at_conversion(
+    method,adapter,theory
+):
+    source=_source(method,theory)
+    source["load_definition"]["face"]="OUTER"
+    converted=adapter(source)
+    assert converted["physics"]["pressure_face"]=="OUTER"
+    source["load_definition"]["face"]="MIDDLE"
+    assert adapter(source)["physics"]["pressure_face"]=="MIDDLE"

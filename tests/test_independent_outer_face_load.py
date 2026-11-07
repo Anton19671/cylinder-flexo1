@@ -97,3 +97,41 @@ def test_inner_face_parity_differs_from_outer_face_projection(method,theory):
         np.broadcast_to(solver.force[2*count],(count,case.nx,case.ns)),
         rtol=0,atol=0)
     assert np.all(solver.force[2*count:3*count]<0)
+
+
+
+@pytest.mark.parametrize("method",("MKR","MVI"))
+@pytest.mark.parametrize("theory",MODELS)
+@pytest.mark.parametrize("load_kind",("UNIFORM","PATCH"))
+def test_middle_surface_pressure_is_distinct_and_work_conjugate(
+        method,theory,load_kind
+):
+    """Middle pressure must NOT receive outer-area factor or CUF higher coefficients."""
+    cls=StrongModelCase if method=="MKR" else VariationalModelCase
+    case=cls(theory=theory,pressure_kind=load_kind,pressure_face="MIDDLE",
+             pressure_pa=1400.,radius_m=.9,thickness_m=.07)
+    solver=(IndependentStrongModel(case) if method=="MKR"
+            else IndependentVariationalModel(case,rank=1))
+    expected=-case.pressure_pa*_prescribed_window(case)
+    if theory.startswith("CUF_TE"):
+        count=int(theory[-1])+1
+        np.testing.assert_allclose(solver.force[2*count],expected,rtol=0,atol=1.e-10)
+        np.testing.assert_array_equal(
+            solver.force[2*count+1:3*count],
+            np.zeros((count-1,case.nx,case.ns)))
+    else:
+        np.testing.assert_allclose(solver.force[2],expected,rtol=0,atol=1.e-10)
+    virtual=np.random.default_rng(7).normal(size=solver.force.shape)
+    weights=(np.ones((case.nx,case.ns)) if method=="MKR" else solver.area)
+    physical=(virtual[2*count] if theory.startswith("CUF_TE")
+              else virtual[2])
+    work=float(np.sum(weights[None]*solver.force*virtual))
+    reference=float(np.sum(weights*expected*physical))
+    np.testing.assert_allclose(work,reference,rtol=1.e-13,atol=1.e-10)
+
+
+@pytest.mark.parametrize("method",("MKR","MVI"))
+def test_independent_pressure_face_enum_must_fail_closed(method):
+    cls=StrongModelCase if method=="MKR" else VariationalModelCase
+    with pytest.raises(ValueError,match="UNSUPPORTED_REFERENCE_FACE"):
+        cls(pressure_face="SILENT_FOLLOWER")
