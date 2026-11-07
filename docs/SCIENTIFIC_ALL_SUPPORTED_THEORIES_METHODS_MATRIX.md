@@ -1,0 +1,35 @@
+# Comprehensive cylinder model/method combinations (no physical solves)
+
+This test inventory proves CASE schema validation and dispatch only. It
+does not certify a physical shell solution, convergence, or an externally
+independent model.
+
+| Branch | Physics | Theories | Methods and ranks | Time | Count |
+|---|---|---|---|---|---:|
+| MICRO reference | GREEN_LAGRANGE, G3D/Gz, flexo ON/OFF | Seven | FDM and MVI-1 | STATIC, DYNAMIC Newmark | 112 |
+| MACRO reference | LINEAR, VON_KARMAN, GREEN_LAGRANGE; elastic | Seven | FDM and MVI-1 | STATIC, DYNAMIC Newmark | 84 |
+| Independent linear experimental | LINEAR MACRO HOOKE | Seven | own MKR and own MVI ranks 1..8 | BATHE, NEWMARK, GAUSS_IRK4 | 189 |
+| Total | | | | | 385 |
+
+The earlier MICRO branch test used TE1 electrical thickness order for
+higher CUF models. Now it imports exactly the physical pilot CASE
+generator: TE2 has 3 electric coefficient fields, TE3 has 4, TE4 has 5.
+KL is tested with a nondegenerate 5x4 grid and mid-surface reference
+pressure; other models use outer reference pressure.
+
+The 28 direct coupled first-variation/inertia tests also now use TE-N
+electrical coefficient counts. The independent linear experimental
+routes use their own distinct case readers, and wrong-method CASE
+schemas fail instead of silently selecting the other method. Static
+and dynamic MACRO LINEAR/VK/GL are tested only through the original
+variational reference backend.
+
+385 is NOT every imaginable material, load, boundary, damping,
+geometry or time scheme. Coupled MICRO Bathe and Gauss IRK4 are not
+part of the reference Newmark CASE route and are not claimed complete.
+Neither the independent linear MKR/MVI packages nor these checks
+validate nonlinear flexoelectric dynamics in independent methods.
+
+The workflow only validates inputs and dispatch, never advances a
+physical time or load step. The scientific physical evidence campaigns
+and external reference comparisons remain separate.

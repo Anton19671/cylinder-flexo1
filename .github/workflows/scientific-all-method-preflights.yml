@@ -1,0 +1,45 @@
+name: All seven theories 385 supported CASE route checks
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/scientific-all-method-preflights.yml"
+      - "ci/scientific_complete_method_matrix.py"
+      - "ci/scientific_real_coupled_case.py"
+      - "tests/test_scientific_complete_method_matrix.py"
+      - "tests/test_scientific_static_dynamic_branches.py"
+      - "interface/cylinder_reference_case.py"
+      - "independent_mkr/run_models.py"
+      - "independent_mvi/run_models.py"
+permissions:
+  contents: read
+jobs:
+  all-combinations:
+    name: All supported MICRO MACRO and independent method CASE routes, no solves
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PYTHONPATH: ".:ci:interface:mechanics:numerics:physics:flexoelectric"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install numpy scipy pytest
+      - name: Validate all supported CASE routes and scientific material branches
+        run: python -m pytest -q tests/test_scientific_complete_method_matrix.py tests/test_scientific_static_dynamic_branches.py
+      - name: Export CSV and JSON of all routes as CASE only
+        run: python ci/scientific_complete_method_matrix.py --output all_methods_inventory
+      - name: Preserve scientific inventory regardless of failed test
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SCIENTIFIC_ALL_SEVEN_THEORIES_METHODS_CASE_INVENTORY
+          path: all_methods_inventory/
+          retention-days: 60
+          if-no-files-found: warn
