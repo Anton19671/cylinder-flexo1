@@ -1,0 +1,33 @@
+{
+  "schema": "INDEPENDENT_MVI_STATIC_SEVEN_MODELS_V1",
+  "physics": {
+    "theory": "CUF_TE2",
+    "length_m": 2,
+    "radius_m": 1,
+    "thickness_m": 0.05,
+    "young_pa": 210000000000,
+    "poisson": 0.3,
+    "density_kg_m3": 7800,
+    "nx": 15,
+    "ns": 9,
+    "pressure_pa": 100000,
+    "frequency_hz": 25,
+    "pressure_kind": "PATCH",
+    "x_interval_m": [
+      0.3,
+      1.6
+    ],
+    "theta_interval_rad": [
+      0.45,
+      3.1
+    ],
+    "x_edge_m": 0.35,
+    "theta_edge_rad": 0.6
+  },
+  "static": {
+    "load_factor": 1,
+    "max_sweeps": 60
+  },
+  "rank": 8,
+  "output_dir": "output/independent_static/mvi/cuf_te2/rank_8"
+}

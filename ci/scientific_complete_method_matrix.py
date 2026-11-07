@@ -111,7 +111,7 @@ def independent_static_template(theory,method,rank=None):
         "schema":f"INDEPENDENT_{method}_STATIC_SEVEN_MODELS_V1",
         "physics":source["physics"].copy(),
         "static":{"load_factor":1.0},
-        "output_dir":f"output/independent_static/{method.lower()}/{theory.lower()}"
+        "output_dir":("output/independent_static/" + method.lower() + "/" + theory.lower() + (f"/rank_{rank}" if method=="MVI" else ""))
     }
     if method=="MVI":
         doc["rank"]=rank
