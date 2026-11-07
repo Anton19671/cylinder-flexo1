@@ -264,3 +264,21 @@ higher time-integration adapters needs separate auditing.
 No physical shell simulations or time steps were launched.
 Tests inspect source and reject full-grid method fallback without
 assembling any numerical shell state.
+
+## Coupled MVI Gauss2 settings are now method-owned
+
+The two-stage Gauss MVI physical adapter formerly imported the
+FDM module solely for Newton parameter validation and state scaling.
+Those direct dependencies are removed: it now accepts the same
+existing immutable CASE parameter passport through
+`mvi_settings_from_options`, then uses
+`mvi_state_scales` from its own numerical package.
+
+The coupled material law and physical endpoint assembly have not
+been duplicated. Rank-fixed X/Y integration belongs to MVI's own
+`cylinder_gauss2_mvi` operators; it is not interchangeable with
+the FDM Gauss spatial assembly. AST architecture checks now cover
+the static Newton, dynamic Newmark halfstep, and Gauss MVI adapter.
+
+This is method-isolation work, not validation of all numerical
+G3D/Gz boundary conditions or physical time histories.

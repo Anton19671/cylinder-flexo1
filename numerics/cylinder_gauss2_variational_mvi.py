@@ -17,7 +17,9 @@ from cylinder_gauss2_mvi import (
     Gauss2MVISettings, solve_gauss2_mvi_step, _rank_factors, _profile_field,
     _normalize, _directions, _constrained_directions, _reduced_newton,
 )
-from cylinder_variational_fdm import StaticFDMSettings, state_scales
+from cylinder_mvi_subspace_newton import (
+    mvi_settings_from_options,mvi_state_scales,
+)
 from cylinder_gauss2_mvi_physics import (_physical_assembled,
                                        _require_fixed_supports,
                                        _stage_loads)
@@ -127,9 +129,7 @@ def solve_gauss2_variational_mvi_step(
         raise TypeError('DYNAMIC problem, Gauss2State/Settings and MVI settings required')
     if not callable(loads_at):
         raise TypeError('physical loads_at(t) callback required')
-    newton = StaticFDMSettings() if newton_settings is None else newton_settings
-    if not isinstance(newton,StaticFDMSettings):
-        raise TypeError('StaticFDMSettings required')
+    newton = mvi_settings_from_options(newton_settings)
     try:
         density,damping,viscosity=map(float,(
             density_kg_m3,mass_damping_rate_per_s,eta_s))
@@ -142,7 +142,7 @@ def solve_gauss2_variational_mvi_step(
     if bool(f.electrical_on)!=(initial.electrical is not None):
         raise ValueError('Gauss2 MVI electric switch/state mismatch')
     q0,p0 = initial.mechanical, initial.electrical
-    scale = state_scales(f,q0,p0,newton)
+    scale = mvi_state_scales(f,q0,p0,newton)
     combined_shape=(q0.shape[0]+(0 if p0 is None else p0.shape[0]),*q0.shape[1:])
     scale=scale.reshape(combined_shape)
     energy=float(f.material.young_pa*f.h*np.sum(f.W))

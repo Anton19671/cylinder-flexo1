@@ -97,3 +97,39 @@ def test_coupled_dynamic_mvi_uses_own_frozen_halfstep_newton_only():
             q_predictor=None,velocity_predictor=None,time_s=0.,
             dt_s=.001,beta=.25,gamma=.5,density_kg_m3=1000.,
             directions=None)
+
+
+def test_gauss2_coupled_mvi_adapter_never_imports_fdm_numerics():
+    p=ROOT/"numerics"/"cylinder_gauss2_variational_mvi.py"
+    source=p.read_text(encoding="utf-8")
+    tree=ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node,ast.ImportFrom):
+            assert (node.module or "") not in (
+                "cylinder_variational_fdm","cylinder_gauss2_variational_fdm",
+                "independent_mkr","cylinder_direct_strong_fdm")
+        elif isinstance(node,ast.Import):
+            assert all(not item.name.startswith((
+                "cylinder_variational_fdm","cylinder_gauss2_variational_fdm",
+                "independent_mkr")) for item in node.names)
+    assert "mvi_settings_from_options" in source
+    assert "mvi_state_scales" in source
+
+
+@pytest.mark.parametrize("filename",(
+    "cylinder_variational_mvi.py",
+    "cylinder_mvi_dynamic_subspace.py",
+    "cylinder_gauss2_variational_mvi.py",
+))
+def test_own_mvi_static_dynamic_gauss_never_import_fdm_solver(filename):
+    tree=ast.parse((ROOT/"numerics"/filename).read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node,ast.ImportFrom):
+            assert (node.module or "") not in (
+                "cylinder_variational_fdm",
+                "cylinder_direct_strong_fdm",
+                "independent_mkr")
+        elif isinstance(node,ast.Import):
+            assert all(not alias.name.startswith((
+                "cylinder_variational_fdm","independent_mkr"))
+                for alias in node.names)
