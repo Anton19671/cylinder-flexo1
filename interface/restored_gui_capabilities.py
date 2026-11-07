@@ -168,7 +168,11 @@ def case_capability(case: Dict[str, Any]) -> Capability:
                     "Проверочные собственные частоты: семь теорий, малая сетка.",False)
             reference=prepare_reference_case(case)
             return Capability(LIMITED,"REFERENCE_"+reference.calculation_kind+"_"+reference.method,
-                              "Проверочный вариационный расчёт на малой сетке; сходимость по сетке не подтверждена.",False)
+                              "Проверочная связанная вариационная постановка. МКР и МВИ "
+                              "используют общую пространственную сборку; их сравнение "
+                              "не является проверкой независимых пространственных методов. "
+                              "Полные граничные условия высшего порядка и физическая "
+                              "верификация не подтверждены.",False)
     except (ValueError,TypeError,KeyError) as exc:
         return Capability(UNAVAILABLE,"REFERENCE_CASE_INVALID",str(exc),False)
     scale = _upper(case.get("scale_model", "MACRO"))
