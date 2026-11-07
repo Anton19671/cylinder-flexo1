@@ -45,9 +45,10 @@ def test_scientific_summary_expectations_match_public_solver_labels(item,tmp_pat
     assert expected["gradient_model"]==item["gradient"]
     assert expected["active_strain_gradient_components"]==(
         18 if item["gradient"]=="G3D" else 6)
-    assert expected["status"]==(
-        "CONVERGED_FULL" if item["kind"]=="STATIC" and item["method"]=="MVI"
-        else "CONVERGED")
+    if item["kind"]=="STATIC" and item["method"]=="MVI":
+        assert "status" not in expected
+    else:
+        assert expected["status"]=="CONVERGED"
     assert expected["converged"] is True
     assert expected["accepted_steps"]==1
 
@@ -104,3 +105,81 @@ def test_flexoelectric_off_retains_gradient_but_no_electric_dofs(order,tmp_path)
     assert prepared.electrical is None
     assert prepared.problem.functional.material.ell_m>0
     assert prepared.problem.functional.material.gradient_model=="GZ"
+
+
+def _synthetic_one_step_summary(status, *, full):
+    """Fake public metadata only; it never invokes a physical solver."""
+    return {
+        "theory":"FSDT","method":"MVI","calculation_kind":"STATIC",
+        "gradient_model":"Gz","electrical_enabled":False,
+        "active_strain_gradient_components":6,
+        "converged":True,"accepted_steps":1,"status":status,
+        "steps":[{
+            "status":status,"converged":True,
+            "state_file":"REFERENCE_STEP_0001.npz",
+            "full_equilibrium_satisfied":full,
+            "mvi_certificate":{
+                "accepted":True,"projected_accepted":True,
+                "solution_status":status,
+                "projected_equilibrium_satisfied":True,
+                "full_equilibrium_satisfied":full,
+                "boundary_constraint_satisfied":True,
+                "profile_reconstruction_satisfied":True,
+            },
+        }],
+    }
+
+
+@pytest.mark.parametrize("status,full,expected_class",[
+    ("CONVERGED_PROJECTED",False,"RANK_CONSTRAINED_ONLY"),
+    ("CONVERGED_FULL",True,"FULL_SPACE_STATIONARY"),
+])
+def test_real_112_case_qualifier_accepts_only_consistent_static_mvi_certificate(
+    status,full,expected_class
+):
+    from ci.scientific_acceptance import classify_accepted_steps
+    accepted=classify_accepted_steps(
+        _synthetic_one_step_summary(status,full=full),
+        dict(method="MVI",kind="STATIC",steps=1))
+    assert accepted["solution_class"]==expected_class
+    assert accepted["full_space_stationarity_confirmed"] is full
+    assert accepted["fixed_rank_stationarity_confirmed"] is True
+
+
+@pytest.mark.parametrize("change",[
+    ("converged",False),
+    ("accepted_steps",0),
+    ("status","FAILED"),
+])
+def test_real_campaign_rejects_false_top_level_acceptance(change):
+    from ci.scientific_acceptance import classify_accepted_steps
+    bad=_synthetic_one_step_summary("CONVERGED_PROJECTED",full=False)
+    bad[change[0]]=change[1]
+    with pytest.raises(ValueError):
+        classify_accepted_steps(bad,dict(method="MVI",kind="STATIC",steps=1))
+
+
+@pytest.mark.parametrize("certificate_field,forged",[
+    ("accepted",False),
+    ("projected_accepted",False),
+    ("full_equilibrium_satisfied",True),
+    ("boundary_constraint_satisfied",False),
+    ("profile_reconstruction_satisfied",False),
+    ("projected_equilibrium_satisfied",False),
+])
+def test_real_campaign_rejects_inconsistent_finite_rank_certificate(
+    certificate_field,forged
+):
+    from ci.scientific_acceptance import classify_accepted_steps
+    bad=_synthetic_one_step_summary("CONVERGED_PROJECTED",full=False)
+    bad["steps"][0]["mvi_certificate"][certificate_field]=forged
+    with pytest.raises(ValueError,match="CERTIFICATE_INCONSISTENT"):
+        classify_accepted_steps(bad,dict(method="MVI",kind="STATIC",steps=1))
+
+
+def test_mvi_summary_expectations_do_not_force_full_space_stationarity(tmp_path):
+    spec=dict(theory="FSDT",gradient="Gz",on=False,
+              kind="STATIC",method="MVI")
+    case=build_case(spec,tmp_path/"unused")
+    metadata=expected_accepted_summary(case)
+    assert "status" not in metadata

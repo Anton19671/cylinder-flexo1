@@ -17,6 +17,7 @@ from cylinder_paths import activate
 activate()
 from cylinder_reference_case import prepare_reference_case
 from cylinder_final_stage11a_dispatcher import run_final_case
+from ci.scientific_acceptance import classify_accepted_steps
 
 ROOT=Path(__file__).resolve().parents[1]
 THEORIES=("KL","FSDT","REDDY","CUF_TE1","CUF_TE2","CUF_TE3","CUF_TE4")
@@ -126,8 +127,8 @@ def expected_accepted_summary(case):
         electrical_enabled=case["micro"]["enable_flexoelectric"],
         active_strain_gradient_components=18 if gradient=="G3D" else 6,
         converged=True,accepted_steps=1,
-        status=("CONVERGED_FULL" if kind=="STATIC" and method=="MVI"
-                else "CONVERGED"))
+        **({"status":"CONVERGED"} if not (
+            kind=="STATIC" and method=="MVI") else {}))
 
 
 def _physical_radial_response(case,mechanical):
@@ -158,9 +159,11 @@ def assert_physical_output(case,folder):
     for key,value in expected.items():
         if summary.get(key)!=value:
             raise AssertionError("PHYSICAL_SUMMARY_MISMATCH_"+key)
+    entry=dict(method=case["method"],kind=case["calculation_kind"],steps=1)
+    # Accept a projected solution as rank-constrained evidence only.
+    # Require a matching solver-issued certificate, not a status label.
+    qualification=classify_accepted_steps(summary,entry)
     steps=summary["steps"]
-    if len(steps)!=1 or not steps[0].get("converged"):
-        raise AssertionError("NO_COMPLETE_REAL_PHYSICAL_STEP")
     dynamic=case["calculation_kind"]=="DYNAMIC"
     expected_file=("REFERENCE_DYNAMIC_STEP_0001.npz" if dynamic
                    else "REFERENCE_STEP_0001.npz")
@@ -210,6 +213,7 @@ def assert_physical_output(case,folder):
             "radial_displacement_abs_max_m":radial_max_m,
             "physical_excitation_check":"NONZERO_RADIAL_RESPONSE",
             "physical_state_accepted":True,
+            **qualification,
             "external_physical_accuracy_verified":False,
             "coupled_spatial_methods_independent":False}
 

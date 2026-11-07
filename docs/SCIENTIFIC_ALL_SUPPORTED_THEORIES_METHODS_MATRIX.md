@@ -45,3 +45,18 @@ Newmark's end stage, Gauss IRK4's two internal stages plus endpoint,
 method-specific NPZ, time and case metadata, and MVI factor reconstruction.
 All numerical step outputs in these tests are manufactured stubs, not
 physical solutions or validation against external benchmarks.
+
+
+## Full-versus-rank-constrained MVI classification (112-case pilot)
+
+The real physical 112-case verifier now uses the same solver-certificate
+classification as the rank/refinement campaign. For static MVI it
+accepts `CONVERGED_PROJECTED` only with a fully consistent projected
+certificate, and explicitly persists `RANK_CONSTRAINED_ONLY` and
+`full_space_stationarity_confirmed=false`. It accepts
+`CONVERGED_FULL` only when the matching physical full-space
+certificate is true. Static FDM and dynamic schemes preserve their
+own required `CONVERGED` acceptance rules. A successful fixed-rank
+calculation is not automatically full-space accuracy.
+
+No physical calculations are launched by this patch or the added tests.
