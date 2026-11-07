@@ -156,7 +156,11 @@ def test_84_bathe_gauss_g3d_gz_micro_case_and_dispatch_preflights(item,tmp_path)
             if prepared.electrical is None:
                 assert charge is None
             else:
-                assert charge.shape==prepared.electrical.shape
+                # The electrical field may be coupled with prescribed
+                # electrode potential but with ZERO external free-charge
+                # loading. In that case loads_at correctly returns None.
+                assert charge is None or charge.shape==prepared.electrical.shape
+                assert prepared.electrical.shape==(expected_p+1,nx,4)
     else:
         assert case["dynamics"]["integrator"]=="BATHE"
         prepared=prepare_reference_case(case,base_dir=tmp_path)
