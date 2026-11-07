@@ -54,3 +54,14 @@ The small-grid GL results may carry the solver's diagnostic
 This is a physical-model caution, not a number to silently correct.
 Full higher-order free-face strong traction testing remains incomplete;
 a completed small-grid pilot cannot certify higher-order boundary work.
+
+## Electric thickness order required in actual CUF cases
+
+The first eight-case pilot used the TE1 template's `potential_order=1`
+for higher CUF theories. Consequently CUF TE2 and CUF TE4 were **not**
+full-`TE_N` electric-thickness demonstrations. The corrected real CASE
+generator now uses `potential_order=N` for electrical ON and CUF TE-N:
+TE1: 2, TE2: 3, TE3: 4 and TE4: 5 electric fields. For OFF no
+electric field is allocated; gradient elasticity remains active.
+The new physical pilot results must be checked again before full CUF
+flexoelectric claims can be made.

@@ -60,6 +60,10 @@ def build_case(spec,folder):
     c["method"]=method
     c["micro"]["gradient_model"]=spec["gradient"]
     c["micro"]["enable_flexoelectric"]=spec["on"]
+    # The corrected Krysko-Zhong CUF TE-N model has N+1 electric
+    # thickness coefficients, not the TE1 default from the template.
+    if spec["on"] and theory.startswith("CUF_TE"):
+        c["micro"]["potential_order"]=int(theory[-1])
     if not spec["on"]:
         c["micro"]["potential_order"]=0
         c["boundary_conditions"]["variational"]["electrical"]={}
@@ -147,6 +151,10 @@ def assert_physical_output(case,folder):
     summary=json.loads((output/"FINAL_RUN_SUMMARY.json").read_text(encoding="utf-8"))
     theory=("CUF_"+case["cuf_model"] if case["theory"]=="CUF" else case["theory"])
     expected=expected_accepted_summary(case)
+    if case["micro"]["enable_flexoelectric"]:
+        if case["theory"]=="CUF" and case["micro"]["potential_order"]!=int(
+                case["cuf_model"][-1]):
+            raise AssertionError("CUF_ELECTRICAL_THICKNESS_ORDER_INVALID")
     for key,value in expected.items():
         if summary.get(key)!=value:
             raise AssertionError("PHYSICAL_SUMMARY_MISMATCH_"+key)
@@ -176,6 +184,9 @@ def assert_physical_output(case,folder):
         on=case["micro"]["enable_flexoelectric"]
         if ("electrical" in saved.files)!=on:
             raise AssertionError("ELECTRICAL_STATE_SWITCH_INVALID")
+        if on and saved["electrical"].shape!=(
+                case["micro"]["potential_order"]+1,*expected_shape):
+            raise AssertionError("ELECTRICAL_THICKNESS_ORDER_MISMATCH")
         if dynamic:
             if not {"velocity","acceleration","time_s"}.issubset(saved.files):
                 raise AssertionError("DYNAMIC_STATE_MISSING")

@@ -74,3 +74,33 @@ def test_cuf_real_pilot_preserves_small_grid_and_radial_component_order(tmp_path
     trial[0,2,2]=1.e-3
     with pytest.raises(AssertionError,match="PHYSICAL_ZERO_RADIAL_RESPONSE"):
         _physical_radial_response(c,trial)
+
+@pytest.mark.parametrize("theory,order",[
+    ("CUF_TE1",1),("CUF_TE2",2),("CUF_TE3",3),("CUF_TE4",4)
+])
+@pytest.mark.parametrize("kind,method",[
+    ("STATIC","FDM"),("DYNAMIC","MVI")
+])
+def test_full_electric_thickness_order_is_exercised_not_template_default(
+    theory,order,kind,method,tmp_path
+):
+    entry=dict(theory=theory,gradient="G3D",on=True,
+               kind=kind,method=method)
+    case=build_case(entry,tmp_path/"no_outputs")
+    assert case["micro"]["potential_order"]==order
+    prepared=prepare_reference_case(case)
+    assert prepared.electrical.shape==(order+1,4,4)
+    assert prepared.problem.functional.electrical_on
+    assert not (tmp_path/"no_outputs").exists()
+
+
+@pytest.mark.parametrize("order",range(1,5))
+def test_flexoelectric_off_retains_gradient_but_no_electric_dofs(order,tmp_path):
+    entry=dict(theory=f"CUF_TE{order}",gradient="Gz",
+               on=False,kind="STATIC",method="FDM")
+    case=build_case(entry,tmp_path/"no_outputs")
+    assert case["micro"]["potential_order"]==0
+    prepared=prepare_reference_case(case)
+    assert prepared.electrical is None
+    assert prepared.problem.functional.material.ell_m>0
+    assert prepared.problem.functional.material.gradient_model=="GZ"

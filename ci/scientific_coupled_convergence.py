@@ -24,8 +24,10 @@ from cylinder_reference_case import prepare_reference_case
 from scientific_real_coupled_case import build_case
 
 STUDIES = ("KL_GRID","TE1_GRID","TE1_TIME","TE1_RANK")
-PILOT_IDS = ("KL_GRID_5x5","TE1_GRID_4x4","TE1_TIME_N2",
-             "TE1_RANK_MVI_R1")
+PILOT_IDS = ("KL_GRID_5x5","KL_GRID_7x7",
+             "TE1_GRID_4x4","TE1_GRID_5x5",
+             "TE1_TIME_N2","TE1_TIME_N4",
+             "TE1_RANK_FDM","TE1_RANK_MVI_R1")
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -60,7 +62,6 @@ def case_from_entry(entry,folder):
     case=build_case(entry,folder)
     grid=case["fdm_grid" if entry["method"]=="FDM" else "mvi_grid"]
     grid["nx"],grid["ns"]=entry["nx"],entry["ns"]
-    # Use the same discrete spatial operator family throughout each study.
     # Keep one spatial operator family across mesh levels: otherwise
     # grid refinement would be confounded with changing discretization.
     grid["operator_scheme"]="LEGACY_REFERENCE"
