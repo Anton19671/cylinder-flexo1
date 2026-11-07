@@ -43,3 +43,50 @@ uncompleted rank, shape mismatch, missing physical tensor or corrupt
 file makes the comparison non-certified. Rank-dependent differences
 need not decrease monotonically. Higher-order spatial and independent
 physical benchmarks are still required before publication.
+
+## Verified first actual physical comparison — MVI-1 versus FDM, 8×8
+
+Evidence source: [real rank-run 42360094375](https://github.com/Anton19671/cylinder-flexo1/actions/runs/42360094375).
+The confirmed completed result archives are
+`SCI_RANK8_TE1_NONAX_8X8_FDM` and
+`SCI_RANK8_TE1_NONAX_8X8_MVI_R1`.
+Both use exact Git commit
+`923172e35649558ae8615159ad573816c6edfc00`
+and continuum-physics passport SHA256
+`e9ed508a761b06ad9b0319437ed57aec90e19cc2433a759550e14028c18a856f`.
+
+| Entire stored physical array | Relative L2 difference, 100×norm(MVI-1 − FDM)/norm(FDM) |
+|---|---:|
+| Mechanical coefficient fields | 0.13987306 % |
+| Outer-face radial displacement | 0.13731956 % |
+| Through-thickness stress tensor (6 components) | 0.84006619 % |
+| Through-thickness hyperstress tensor | 0.44584773 % |
+| Electric potential coefficient fields | 3.71260192 % |
+| Through-thickness electric induction (3 components) | 7.20114967 % |
+| Outer-face normal electric induction | 13.41158673 % |
+
+FDM's central radial displacement is `0.00042674609500213147 m`
+and the largest radial displacement is `0.0004283413879903528 m`.
+MVI-1's central radial displacement is
+`0.00042657559391599874 m` and its largest radial displacement is
+`0.0004286183294354862 m`.
+
+**Actual physical state integrity**:
+- FDM NPZ SHA256:
+  `ce3045b4c6ab2b9c268e1ab6733f7885829ba40ddc5d261dfa1fc1b5f74391ab`
+- MVI-1 NPZ SHA256:
+  `1dd030ac09107222c95fda19be2e9bd75ea25e1b746a622dd66859bde0c19f7e`
+
+The MVI-1 record carries the solver's
+`RANK_CONSTRAINED_ONLY` qualification:
+`full_space_stationarity_confirmed=false`. Its difference from FDM,
+particularly for the outer-face electric induction, is **not** an
+externally established model error. The 8×8 grid is not spatially
+converged, and surface flux/second-gradient natural boundary
+conditions are not publication-certified merely because this small
+reference solve succeeded.
+
+**Status of this report:** partial physical comparison for rank 1,
+not proof for ranks 2–8. Do not quote numerical values for a rank until
+its own accepted NPZ has been independently inspected.
+
