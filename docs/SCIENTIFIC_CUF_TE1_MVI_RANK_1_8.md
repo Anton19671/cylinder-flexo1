@@ -122,3 +122,28 @@ alone. These are finite-rank, identical-weak-kernel and identical-grid
 **comparisons**, not independent discretization or continuum accuracy
 validation. Rank 4–8 numerical findings must be appended only after
 actual GitHub artifacts are available and inspected.
+
+## Verified MVI-4: increasing rank is not monotonic
+
+The real MVI-4 archive from run
+[42360094375](https://github.com/Anton19671/cylinder-flexo1/actions/runs/42360094375)
+matches the original FDM state by physics SHA256, Git SHA and saved NPZ
+hash. MVI-4 reports `CONVERGED_PROJECTED` and
+`RANK_CONSTRAINED_ONLY`, not full-space certification.
+
+| Complete physical field | MVI-3 vs FDM (%) | MVI-4 vs FDM (%) |
+|---|---:|---:|
+| Mechanical coefficients | 1.038736811e-7 | 3.759195996e-7 |
+| Outer radial displacement | 1.062119682e-7 | 3.094113350e-7 |
+| Stress tensor | 1.494626916e-7 | 1.254757885e-6 |
+| Hyperstress tensor | 1.454931120e-7 | 7.296485422e-7 |
+| Electric potential coefficients | 0.07050071832 | 0.1443538263 |
+| Volume electric induction | 0.1915453721 | 0.4436617305 |
+| Outer-face electric induction | 0.2539926578 | 0.5200632908 |
+
+These are relative L2 differences to **the same 8x8 FDM computed
+field**, not reference accuracy. Rank-4 electrical differences are
+larger than rank-3 ones despite successful rank-constrained stationarity.
+Do not impose monotonicity or extrapolate convergence from only ranks
+1–4. Real MVI-5..8 results are separate and must be inspected before
+making any claim about them.
