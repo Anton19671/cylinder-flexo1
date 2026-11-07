@@ -28,6 +28,7 @@ from cylinder_functional_assembly import CylinderFunctional, surface_sbp21
 from cylinder_reference_case import prepare_reference_case
 from flexo_gradient_g3d import G3DMaterial
 from flexo_scale_policy import micro_material_from_case
+from scientific_real_coupled_case import build_case as build_canonical_micro_case
 
 
 THEORIES=("KL","FSDT","REDDY","CUF_TE1","CUF_TE2","CUF_TE3","CUF_TE4")
@@ -68,7 +69,9 @@ def _physical_problem(theory,mode,on,kind):
 def _example_fields(f,on,seed):
     rng=np.random.default_rng(seed)
     q=rng.normal(0.,2.e-5,(f.n_mechanical,*SURFACE.shape))
-    p=rng.normal(0.,8.e-4,(2,*SURFACE.shape)) if on else None
+    electric_count=(int(f.theory[-1])+1
+                    if f.theory.startswith("CUF_TE") else 2)
+    p=rng.normal(0.,8.e-4,(electric_count,*SURFACE.shape)) if on else None
     dq=rng.normal(0.,7.e-4,q.shape)
     dp=rng.normal(0.,4.e-3,p.shape) if on else None
     v=rng.normal(0.,4.e-4,q.shape)
@@ -145,38 +148,11 @@ def test_static_energy_and_dynamic_inertia_damping_all_physics_branches(
 
 
 def _case(theory,mode,on,kind,method):
-    base="CASE_REFERENCE_CUF_G3D_STATIC.json" if kind=="STATIC" else (
-        "CASE_REFERENCE_CUF_G3D_MVI_DYNAMIC.json")
-    data=json.loads((ROOT/"config"/base).read_text(encoding="utf-8"))
-    data["method"]=method
-    data["calculation_kind"]=kind
-    if theory.startswith("CUF_"):
-        data["theory"]="CUF"
-        data["cuf_model"]=theory[-3:]
-    else:
-        data["theory"]=theory
-        data.pop("cuf_model",None)
-    data["quadrature"]["n_gauss"]=_integrated_points(theory)
-    data["micro"]["gradient_model"]=mode
-    data["micro"]["enable_flexoelectric"]=on
-    if not on:
-        data["micro"]["potential_order"]=0
-        data["boundary_conditions"]["variational"]["electrical"]={}
-    if method=="FDM":
-        data.pop("mvi_grid",None)
-        data.pop("rank",None)
-        data.pop("reference_mvi",None)
-        data["fdm_grid"]={"nx":4,"ns":4}
-    else:
-        data.pop("fdm_grid",None)
-        data["mvi_grid"]={"nx":4,"ns":4}
-        data["rank"]=1
-        data["reference_mvi"]={"max_sweeps":30}
-    if kind=="DYNAMIC":
-        data["dynamics"]["n_steps"]=1
-        data["dynamics"]["time_step_s"]=.01
-    data["output_dir"]="../SCIENTIFIC_BRANCH_PRECHECK_NO_WRITE"
-    return data
+    # Match the production physical pilot exactly, including TE-N
+    # potential_order=N and KL nondegenerate five-axial-node trial space.
+    return build_canonical_micro_case(
+        dict(theory=theory,gradient=mode,on=on,kind=kind,method=method),
+        ROOT/"SCIENTIFIC_BRANCH_PRECHECK_NO_WRITE")
 
 
 @pytest.mark.parametrize("theory",THEORIES)
@@ -197,6 +173,19 @@ def test_static_dynamic_case_branch_validation_without_result_writes(
     assert prepared.problem.functional.material.gradient_model==mode.upper()
     assert prepared.problem.functional.electrical_on is on
     assert (prepared.electrical is None) is (not on)
+    grid=cfg["fdm_grid" if method=="FDM" else "mvi_grid"]
+    nx_expected=5 if theory=="KL" else 4
+    assert (grid["nx"],grid["ns"])==(nx_expected,4)
+    assert cfg["load_definition"]["face"]==(
+        "MIDDLE" if theory=="KL" else "OUTER")
+    assert cfg["load_definition"]["kinematics"]=="DEAD_REFERENCE"
+    expected_order=(int(theory[-1]) if theory.startswith("CUF_TE")
+                    else 1) if on else 0
+    assert cfg["micro"]["potential_order"]==expected_order
+    if on:
+        assert prepared.electrical.shape==(expected_order+1,nx_expected,4)
+    else:
+        assert prepared.electrical is None
     assert prepared.problem.kind==kind
     if kind=="DYNAMIC":
         assert prepared.dynamics is not None

@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      PYTHONPATH: ".:interface:mechanics:numerics:physics:flexoelectric"
+      PYTHONPATH: ".:ci:interface:mechanics:numerics:physics:flexoelectric"
       OPENBLAS_NUM_THREADS: "1"
       OMP_NUM_THREADS: "1"
       MKL_NUM_THREADS: "1"
