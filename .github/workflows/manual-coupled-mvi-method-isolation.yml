@@ -1,0 +1,26 @@
+name: Manual coupled MVI method isolation - structural only
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  method-guards:
+    name: MVI static dynamic and Gauss numeric isolation, no physical solve
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      PYTHONPATH: ".:numerics:mechanics:flexoelectric:physics:interface"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install structural test dependencies
+        run: python -m pip install numpy scipy pytest
+      - name: Check only isolated MVI numeric code and API
+        run: |
+          python -m py_compile numerics/cylinder_mvi_subspace_newton.py numerics/cylinder_mvi_dynamic_subspace.py numerics/cylinder_variational_mvi.py numerics/cylinder_variational_dynamic.py numerics/cylinder_gauss2_variational_mvi.py
+          python -m pytest -q tests/test_coupled_mvi_own_newton_separation.py

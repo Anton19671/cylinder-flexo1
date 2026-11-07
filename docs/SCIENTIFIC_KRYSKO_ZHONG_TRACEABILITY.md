@@ -47,3 +47,15 @@ discrete microfree boundary conditions in the full nonlinear solver.
 Because the circumferential direction is physically periodic for a
 *closed cylinder*, there are no independent angular boundary corners in
 the benchmark. Open shell patches require separate corner/edge checks.
+
+
+## November 7, 2026: numerical MVI halfstep split
+
+See `docs/COUPLED_METHOD_READINESS_20261107.md` for a precise
+status matrix. Static X/Y Newton, dynamic Newmark/Bathe X/Y Newton,
+and Gauss2 MVI scaling/settings no longer import FDM numerical
+solvers. Shared continuum electromechanical physics still exists,
+and independent full high-order G3D/Gz edge closure has not been
+certified. This split must not be advertised as full method physics
+independence. Only a manual, structural verification workflow is
+provided; this change does not trigger physical computation.
