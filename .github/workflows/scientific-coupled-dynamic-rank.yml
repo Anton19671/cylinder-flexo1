@@ -1,0 +1,119 @@
+name: Real nonlinear flexoelectric CUF TE1 Newmark FDM vs MVI ranks
+run-name: "DYNAMIC CUF TE1 rank ${{ github.event.inputs.scope || 'pilot' }} - ${{ github.sha }}"
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/scientific-coupled-dynamic-rank.yml"
+      - "ci/scientific_coupled_dynamic_rank.py"
+      - "tests/test_scientific_coupled_dynamic_rank.py"
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: "pilot FDM + ranks 1-3; full FDM + ranks 1-8"
+        required: true
+        type: choice
+        options: [pilot, full]
+        default: pilot
+permissions:
+  contents: read
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PYTHONPATH: ".:ci:interface:mechanics:numerics:physics:flexoelectric"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    outputs:
+      matrix: ${{ steps.cases.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install numpy scipy pytest
+      - name: Verify all nine dynamic CASE definitions without solving
+        run: python -m pytest -q tests/test_scientific_coupled_dynamic_rank.py
+      - name: Generate matching dynamic CASE matrix
+        id: cases
+        env:
+          DYNAMIC_SCOPE: ${{ github.event.inputs.scope || 'pilot' }}
+        shell: bash
+        run: echo "matrix=$(python ci/scientific_coupled_dynamic_rank.py matrix --scope "$DYNAMIC_SCOPE")" >> "$GITHUB_OUTPUT"
+  physical:
+    needs: preflight
+    name: "REAL ${{ matrix.case.id }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        case: ${{ fromJSON(needs.preflight.outputs.matrix).include }}
+    env:
+      PYTHONPATH: ".:ci:interface:mechanics:numerics:physics:flexoelectric"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+      MPLBACKEND: "Agg"
+      RANK_CASE_ID: ${{ matrix.case.id }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements.txt
+      - name: Advance real coupled Newmark FDM or fixed-rank MVI steps
+        shell: bash
+        run: |
+          mkdir -p dynamic_logs
+          set -o pipefail
+          python -u ci/scientific_coupled_dynamic_rank.py run \
+            --id "$RANK_CASE_ID" --output "dynamic_cases/$RANK_CASE_ID" \
+            2>&1 | tee "dynamic_logs/$RANK_CASE_ID.log"
+      - name: Preserve exact time histories and failed-iterate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: "SCI_DYNAMIC_RANK_${{ matrix.case.id }}"
+          path: |
+            dynamic_cases/
+            dynamic_logs/
+          retention-days: 60
+          if-no-files-found: warn
+  compare:
+    needs: [preflight,physical]
+    if: always() && needs.preflight.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONPATH: ".:ci:interface:mechanics:numerics:physics:flexoelectric"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install numpy scipy
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: SCI_DYNAMIC_RANK_*
+          path: dynamic_archive
+          merge-multiple: true
+      - name: Check every actual Newmark state and compare identical times
+        env:
+          DYNAMIC_SCOPE: ${{ github.event.inputs.scope || 'pilot' }}
+        shell: bash
+        run: python -u ci/scientific_coupled_dynamic_rank.py compare --root dynamic_archive --output dynamic_comparison --scope "$DYNAMIC_SCOPE"
+      - name: Keep quantitative time-history table and failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SCI_DYNAMIC_RANK_COMPARISON
+          path: dynamic_comparison/
+          retention-days: 60
+          if-no-files-found: warn
