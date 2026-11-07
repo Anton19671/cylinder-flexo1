@@ -127,3 +127,33 @@ def test_success_booleans_present_in_both_dynamic_method_runners():
     import inspect
     assert 'summary["converged"]=True' in inspect.getsource(md.run)
     assert 'summary["converged"]=True' in inspect.getsource(vd.run)
+
+
+@pytest.mark.parametrize("method",("MKR","MVI"))
+@pytest.mark.parametrize("theory",THEORIES)
+@pytest.mark.parametrize("rank",(1,2,3,4,5,6,7,8))
+def test_complete_static_reproducible_file_matches_public_dispatch(
+        method,theory,rank):
+    """Pass the installed files through the public preflight; no solve."""
+    if method=="MKR" and rank!=1:
+        pytest.skip("MKR is not rank-parametrized")
+    root=__import__("pathlib").Path(__file__).resolve().parents[1]
+    filename=(f"MKR_{theory}.json" if method=="MKR"
+              else f"MVI_R{rank}_{theory}.json")
+    path=root/"config"/"verification"/"independent_static"/filename
+    assert path.is_file(),path
+    case=json.loads(path.read_text(encoding="utf-8"))
+    assert case["physics"]["theory"]==theory
+    assert case["schema"]==(
+        f"INDEPENDENT_{method}_STATIC_SEVEN_MODELS_V1")
+    assert "time" not in case and "dynamics" not in case
+    if method=="MVI":
+        assert case["rank"]==rank
+        assert case["output_dir"].endswith(f"/rank_{rank}")
+    report=validate_final_case(path)
+    assert report["validated_only"] is True
+    assert report["calculation_kind"]=="STATIC"
+    assert report["physical_steps_computed"]==0
+    assert report["solver_backend"]=="INDEPENDENT_"+method
+    assert report["physics_scope"]==(
+        "LINEAR_MACRO_HOOKE_ELECTRIC_OFF_GRADIENT_OFF")

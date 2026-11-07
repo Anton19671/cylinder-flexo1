@@ -26,6 +26,7 @@ on:
       - "interface/FINAL_GUI.py"
       - "config/verification/independent_te4/**"
       - "config/verification/independent_all_models/**"
+      - "config/verification/independent_static/**"
 permissions:
   contents: read
 jobs:
@@ -54,4 +55,10 @@ jobs:
           for integrator in BATHE NEWMARK GAUSS_IRK4; do
             python -m independent_mkr.run_case --case "config/verification/independent_te4/MKR_${integrator}.json" --validate-only > /dev/null
             python -m independent_mvi.run_case --case "config/verification/independent_te4/MVI_${integrator}.json" --validate-only > /dev/null
+          done
+          for theory in KL FSDT REDDY CUF_TE1 CUF_TE2 CUF_TE3 CUF_TE4; do
+            python -m independent_mkr.run_static --case "config/verification/independent_static/MKR_${theory}.json" --validate-only > /dev/null
+            for rank in 1 2 3 4 5 6 7 8; do
+              python -m independent_mvi.run_static --case "config/verification/independent_static/MVI_R${rank}_${theory}.json" --validate-only > /dev/null
+            done
           done

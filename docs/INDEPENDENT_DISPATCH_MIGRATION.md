@@ -148,3 +148,19 @@ commit, method exclusivity and rejection of wrong SCHEMA without
 a single actual physical calculation. New CI only compiles,
 preflights and runs such algebraic/source tests; no loaded
 shell simulation was executed in this work.
+
+## Full STATIC CASE preflight coverage (2026-11-07)
+
+The explicit `config/verification/independent_static/` directory
+contains **63** ready-to-validate independent stationary cases:
+seven theories × one MKR or eight MVI ranks. The 56 MVI inputs
+use rank-specific output directories to prevent name collisions.
+
+The independent algebra CI workflow now invokes **all 63 cases**
+with the matching `--validate-only` CLI and tests the same
+input files through the public `validate_final_case` dispatcher.
+No `--run` invocation appears in this workflow.
+
+This verification checks CASE schemas, method selection, unsupported
+physics rejection, spatial grid shape and output routing. It is not
+a physical solution or numerical accuracy demonstration.
