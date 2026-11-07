@@ -1,0 +1,299 @@
+"""Private Newton solver of a COUPLED MVI frozen X/Y halfstep.
+
+This method-owned numerical module has NO imports from
+cylinder_variational_fdm, nor any route to full-space FDM correction.
+The physical enthalpy and essential trace providers remain shared
+with the legacy reference model, so this is an architecture split,
+NOT certification of a complete independent G3D spatial assembly.
+
+The algorithm below is an independently namespaced version of the
+previous projected Newton subproblem, kept algebraically compatible
+with existing X/Y profile updates. Only non-None X/Y directions
+are admissible.
+"""
+from __future__ import annotations
+from dataclasses import dataclass, fields, is_dataclass
+import warnings
+import numpy as np
+from scipy.linalg import LinAlgWarning, lu_factor, lu_solve, get_lapack_funcs
+from cylinder_boundary_spatial import affine_trace_space
+from cylinder_variational_boundary import combine_functional_and_boundary
+from cylinder_residual_norms import admissible_nodal_inf_norm
+
+
+@dataclass(frozen=True)
+class MVIHalfstepSettings:
+    relative_tolerance: float = 1.e-7
+    absolute_tolerance_scaled: float = 1.e-12
+    tangent_step_scaled: float = 2.e-6
+    max_iterations: int = 15
+    max_halvings: int = 16
+    potential_scale_v: float = 1.
+    min_reciprocal_condition: float = 0.
+    max_free_dofs: int = 256
+
+    def __post_init__(self):
+        for key in ("relative_tolerance", "absolute_tolerance_scaled",
+                    "tangent_step_scaled", "potential_scale_v",
+                    "min_reciprocal_condition"):
+            value=getattr(self,key)
+            if isinstance(value,bool):raise ValueError(key+": boolean is not numeric")
+            try:value=float(value)
+            except (TypeError,ValueError) as exc:raise ValueError(key+": finite number required") from exc
+            if not np.isfinite(value) or value<0 or (
+                    key not in ("absolute_tolerance_scaled",
+                                "min_reciprocal_condition") and value==0):
+                raise ValueError(key+" must be finite and positive (absolute tolerance may be zero)")
+            object.__setattr__(self,key,value)
+        if self.min_reciprocal_condition>=1.:
+            raise ValueError("min_reciprocal_condition must be < 1")
+        for key in ("max_iterations","max_halvings","max_free_dofs"):
+            value=getattr(self,key)
+            if isinstance(value,bool) or not isinstance(value,int) or value<1:
+                raise ValueError(key+" must be a positive integer")
+        if self.max_free_dofs>512:
+            raise ValueError("dense reference solver is limited to 512 free DOFs")
+
+
+@dataclass(frozen=True)
+class MVIHalfstepResult:
+    converged: bool
+    status: str
+    mechanical: np.ndarray
+    electrical: np.ndarray | None
+    total_potential_j: float
+    full_residual: np.ndarray
+    constraint_reaction: np.ndarray
+    admissible_residual_scaled: float
+    residual_relative_to_initial: float
+    constraint_defect_scaled: float
+    history: tuple
+    iterations: int
+
+
+def mvi_state_scales(functional, mechanical, electrical, settings):
+    """Physical units of one dimensionless nodal coefficient."""
+    q=np.asarray(mechanical)
+    scales=np.full(q.size+(0 if electrical is None else np.size(electrical)),functional.h)
+    if functional.theory in ("FSDT","REDDY"):
+        scales[3*np.prod(functional.ops.shape):q.size]=1.
+    if electrical is not None:scales[q.size:]=settings.potential_scale_v
+    return scales
+
+
+def mvi_checked_reduced_tangent(tangent, projected_residual, *,
+                                  min_reciprocal_condition=0.):
+    """Solve the exact indefinite reduced Newton system with LU, never SVD.
+
+    LAPACK xGECON estimates the reciprocal ONE-norm condition from the
+    *same LU factors*; no singular values, pseudo-inverse, or regularization.
+    Reject singular or numerically untrustworthy systems without
+    modifying the tangent or replacing the physics. The default reciprocal
+    condition floor accounts for at least 100*n floating-point roundoffs;
+    an optional larger floor can be selected by the caller.
+    """
+    a=np.asarray(tangent,float)
+    g=np.asarray(projected_residual,float)
+    if a.ndim!=2 or a.shape!=(len(g),len(g)) or not (
+            np.isfinite(a).all() and np.isfinite(g).all()):
+        raise np.linalg.LinAlgError("invalid reduced tangent/residual")
+    try:
+        floor=float(min_reciprocal_condition)
+    except (TypeError,ValueError) as exc:
+        raise ValueError("invalid minimum reciprocal condition") from exc
+    if (isinstance(min_reciprocal_condition,(bool,np.bool_)) or
+            not np.isfinite(floor) or not 0.<=floor<1.):
+        raise ValueError("invalid minimum reciprocal condition")
+    threshold=max(100.*len(g)*np.finfo(float).eps,floor)
+    norm1=float(np.linalg.norm(a,ord=1))
+    if norm1<=0 or not np.isfinite(norm1):
+        raise np.linalg.LinAlgError("zero or nonfinite reduced tangent")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error",LinAlgWarning)
+        try:
+            lu,piv=lu_factor(a,check_finite=False)
+        except (LinAlgWarning,ValueError) as exc:
+            raise np.linalg.LinAlgError("singular reduced tangent LU") from exc
+    gecon=get_lapack_funcs("gecon",(a,))
+    rcond,info=gecon(lu,norm1)
+    if (info!=0 or not np.isfinite(rcond) or
+            rcond<=threshold):
+        raise np.linalg.LinAlgError("ill-conditioned reduced tangent")
+    correction=lu_solve((lu,piv),-g,check_finite=False)
+    if not np.isfinite(correction).all():
+        raise np.linalg.LinAlgError("nonfinite reduced Newton correction")
+    defect=float(np.max(np.abs(a@correction+g),initial=0))
+    scale=(float(np.linalg.norm(a,ord=np.inf))*
+           float(np.max(np.abs(correction),initial=0))+
+           float(np.max(np.abs(g),initial=0)))
+    if defect>5.e-10*max(scale,np.finfo(float).tiny):
+        raise np.linalg.LinAlgError("reduced Newton linear residual too large")
+    return correction,float(1./rcond)
+
+
+def mvi_solve_static_subspace(problem, mechanical, electrical=None, *, dead_load=None,
+                          free_charge=None, settings=None, on_iteration=None,
+                          directions=None):
+    """Solve selected admissible nodal equations with fixed STATIC boundary data.
+
+    Translation/CUF coefficients are scaled by h, director rotations by 1 rad,
+    electric coefficients by potential_scale_v. Residual is the derivative of
+    Pi/(E*h*area) in those scaled coordinates. Reported absolute tolerance has
+    this dimensionless meaning. No eigenvalue clipping or tangent regularizing.
+    """
+    # A standalone MVI halfstep must be restricted to the currently
+    # frozen X/Y tangent. A missing tangent must never invoke a dense
+    # global nodal solve, even when called through an old adapter.
+    if directions is None:
+        raise ValueError("MVI_OWN_HALFSTEP_REQUIRES_XY_DIRECTIONS")
+    directions=np.asarray(directions,float)
+    if directions.ndim!=2 or directions.shape[1]==0 or not np.isfinite(directions).all():
+        raise ValueError("MVI_OWN_HALFSTEP_DIRECTIONS_INVALID")
+    if problem.kind!="STATIC":
+        raise ValueError("static subspace solve requires STATIC; no dynamic substitution")
+    settings=MVIHalfstepSettings() if settings is None else settings
+    if not isinstance(settings,MVIHalfstepSettings):
+        raise TypeError("settings must be MVIHalfstepSettings")
+    f=problem.functional
+    q=np.asarray(mechanical,float)
+    p=None if electrical is None else np.asarray(electrical,float)
+    first=problem.assemble(q,p,dead_load=dead_load,free_charge=free_charge)
+    scales=mvi_state_scales(f,q,p,settings)
+    energy_scale=float(f.material.young_pa*f.h*np.sum(f.W))
+    if not np.isfinite(energy_scale) or energy_scale<=0:
+        raise ValueError("invalid mechanical energy scale")
+    # directions are dimensionless nodal variations. None selects the full
+    # space; an MVI caller supplies only its frozen-partner profile directions.
+    # Frozen-partner MVI directions can satisfy a clamped trace exactly.
+    # Then C*T contains only floating-point noise even though C has genuine
+    # nonzero rows. A purely relative rank cutoff interprets that noise as
+    # independent constraints and builds an enormous artificial trace lift,
+    # destroying an already stationary MVI field on the NEXT Y/X sweep.
+    # Use the absolute direction-scaled rank floor already used by modal MVI.
+    # This does not relax prescribed traces: affine_trace_space still checks
+    # their actual physical defect against its strict machine-scale bound.
+    trace_rank_floor = (0.0 if directions is None else
+        1.e-10 * float(np.max(np.linalg.norm(directions, axis=0), initial=0.0)))
+    space=affine_trace_space(first.space.matrix*scales[None,:],
+                             first.space.target,first.state/scales,
+                             directions=directions,
+                             constraint_rank_floor=trace_rank_floor)
+    b=space.basis
+    if b.shape[1]>settings.max_free_dofs:
+        raise ValueError(f"reference dense solve has {b.shape[1]} free DOFs; limit={settings.max_free_dofs}")
+
+    def evaluate(v):
+        u=scales*v
+        qm=u[:q.size].reshape(q.shape)
+        pm=None if p is None else u[q.size:].reshape(p.shape)
+        energy,rm,re,_=combine_functional_and_boundary(
+            f,qm,pm,bc_spec=problem.spec,dead_load=dead_load,free_charge=free_charge)
+        r=rm.ravel() if re is None else np.concatenate((rm.ravel(),re.ravel()))
+        g=b.T@(scales*r)/energy_scale
+        if not np.isfinite(energy) or not np.isfinite(r).all():
+            raise ValueError("nonfinite stationary functional/residual")
+        return energy,r,g
+
+    v=space.origin.copy()
+    energy,r,g=evaluate(v)
+    initial_norm=admissible_nodal_inf_norm(b,g)
+    tolerance=settings.absolute_tolerance_scaled+settings.relative_tolerance*initial_norm
+    history=[]
+    status="MAX_ITERATIONS"
+    converged=False
+    iterations=0
+    for iteration in range(settings.max_iterations+1):
+        norm=admissible_nodal_inf_norm(b,g)
+        record={"iteration":iteration,"residual_scaled":norm,
+                "residual_relative_to_initial":norm/initial_norm if initial_norm else 0.,
+                "basis_coordinate_residual_scaled":float(np.max(abs(g),initial=0)),
+                "potential_j":float(energy)}
+        history.append(record)
+        if on_iteration is not None:on_iteration(dict(record))
+        if norm<=tolerance:
+            converged=True;status="CONVERGED";break
+        if iteration==settings.max_iterations:break
+        tangent=np.empty((len(g),len(g)))
+        for j,direction in enumerate(b.T):
+            step=settings.tangent_step_scaled
+            for attempt in range(settings.max_halvings+1):
+                try:
+                    gp=evaluate(v+step*direction)[2]
+                    gm=evaluate(v-step*direction)[2]
+                    break
+                except ValueError as exc:
+                    if "INVALID_" not in str(exc):raise
+                    step*=.5
+            else:
+                status="INVALID_TANGENT_PERTURBATION";break
+            tangent[:,j]=(gp-gm)/(2*step)
+        if status=="INVALID_TANGENT_PERTURBATION":break
+        record["tangent_symmetry_relative"]=float(
+            np.linalg.norm(tangent-tangent.T)/max(np.linalg.norm(tangent),1.e-300))
+        try:
+            correction,estimate=mvi_checked_reduced_tangent(
+                tangent,g,min_reciprocal_condition=settings.min_reciprocal_condition)
+            record["tangent_condition"]=estimate
+            record["tangent_condition_method"]="LU_1_NORM_ESTIMATE"
+        except np.linalg.LinAlgError:
+            record["tangent_condition"]=float("inf")
+            status="SINGULAR_TANGENT_CHECK_SUPPORTS_AND_GAUGE";break
+        merit=admissible_nodal_inf_norm(b,g)
+        for halving in range(settings.max_halvings+1):
+            alpha=2.**(-halving)
+            trial=v+b@(alpha*correction)
+            try:trial_energy,trial_r,trial_g=evaluate(trial)
+            except ValueError as exc:
+                if "INVALID_" not in str(exc):raise
+                continue
+            trial_norm=admissible_nodal_inf_norm(b,trial_g)
+            if (trial_norm<=(1.-1.e-4*alpha)*merit or
+                    trial_norm<=tolerance):
+                record["step_factor"]=alpha
+                record["increment_scaled"]=float(np.max(abs(alpha*correction),initial=0))
+                v,energy,r,g=trial,trial_energy,trial_r,trial_g
+                iterations+=1
+                break
+        else:
+            status="RESIDUAL_LINE_SEARCH_FAILED";break
+    # R = applied generalized reaction + admissible imbalance. A raw zero
+    # residual at fixed displacement/electrode coefficients is not required.
+    scaled_r=scales*r
+    admissible=b@(b.T@scaled_r)
+    reaction=(scaled_r-admissible)/scales
+    defect=float(np.max(abs(space.defect(v)),initial=0))
+    if defect>1.e-9:
+        converged=False;status="BOUNDARY_CONSTRAINT_DRIFT"
+    u=scales*v
+    return MVIHalfstepResult(converged,status,u[:q.size].reshape(q.shape),
+        None if p is None else u[q.size:].reshape(p.shape),float(energy),r.copy(),reaction,
+        admissible_nodal_inf_norm(b,g),
+        admissible_nodal_inf_norm(b,g)/initial_norm if initial_norm else 0.,
+        defect,tuple(history),iterations)
+
+
+
+def mvi_settings_from_options(settings):
+    """Translate old public parameter passports without importing FDM.
+
+    Old public CASE parsing produces a frozen StaticFDMSettings type;
+    accepting *parameters* here does not call its solver, tangent,
+    assembly or update routine. New internal callers use own MVI type.
+    """
+    if settings is None:
+        return MVIHalfstepSettings()
+    if isinstance(settings,MVIHalfstepSettings):
+        return settings
+    if (not is_dataclass(settings) or
+            type(settings).__name__!="StaticFDMSettings"):
+        raise TypeError("MVI_NEWTON_SETTINGS_TYPE_INVALID")
+    keys={field.name for field in fields(MVIHalfstepSettings)}
+    if any(not hasattr(settings,key) for key in keys):
+        raise TypeError("MVI_NEWTON_SETTINGS_FIELDS_INVALID")
+    return MVIHalfstepSettings(**{
+        key:getattr(settings,key) for key in sorted(keys)})
+
+
+__all__=("MVIHalfstepSettings","MVIHalfstepResult",
+         "mvi_state_scales","mvi_settings_from_options",
+         "mvi_checked_reduced_tangent","mvi_solve_static_subspace")

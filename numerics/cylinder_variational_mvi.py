@@ -12,8 +12,9 @@ import numpy as np
 from scipy.linalg import qr as pivoted_qr
 
 from cylinder_boundary_spatial import affine_trace_space, separated_profile_directions
-from cylinder_variational_fdm import (
-    StaticFDMSettings, StaticFDMResult, solve_static_subspace, state_scales,
+from cylinder_mvi_subspace_newton import (
+    MVIHalfstepResult, mvi_state_scales, mvi_settings_from_options,
+    mvi_solve_static_subspace,
 )
 from cylinder_variational_boundary import combine_functional_and_boundary
 from cylinder_residual_norms import admissible_nodal_inf_norm, admissible_nodal_metrics
@@ -50,7 +51,7 @@ class StaticMVISettings:
 
 
 @dataclass(frozen=True)
-class StaticMVIResult(StaticFDMResult):
+class StaticMVIResult(MVIHalfstepResult):
     x_profiles: np.ndarray
     y_profiles: np.ndarray
     scales: np.ndarray
@@ -117,15 +118,14 @@ def solve_static_mvi(problem, mechanical, electrical=None, *, dead_load=None,
                      free_charge=None, settings=None, mvi_settings=None,
                      on_iteration=None, previous_mvi_result=None):
     if problem.kind!="STATIC":raise ValueError("solve_static_mvi requires STATIC")
-    settings=StaticFDMSettings() if settings is None else settings
+    settings=mvi_settings_from_options(settings)
     mvi_settings=StaticMVISettings() if mvi_settings is None else mvi_settings
-    if not isinstance(settings,StaticFDMSettings):raise TypeError("invalid Newton settings")
     if not isinstance(mvi_settings,StaticMVISettings):raise TypeError("invalid MVI settings")
     f=problem.functional
     q=np.asarray(mechanical,float)
     p=None if electrical is None else np.asarray(electrical,float)
     first=problem.assemble(q,p,dead_load=dead_load,free_charge=free_charge)
-    scales=state_scales(f,q,p,settings)
+    scales=mvi_state_scales(f,q,p,settings)
     energy_scale=float(f.material.young_pa*f.h*np.sum(f.W))
     c=first.space.matrix*scales[None,:]
     target=first.space.target
@@ -240,7 +240,7 @@ def solve_static_mvi(problem, mechanical, electrical=None, *, dead_load=None,
             def report(row):
                 data={**row,"event":"halfstep","sweep":sweep,"direction":axis}
                 if on_iteration is not None:on_iteration(dict(data))
-            result=solve_static_subspace(problem,qm,pm,dead_load=dead_load,
+            result=mvi_solve_static_subspace(problem,qm,pm,dead_load=dead_load,
                 free_charge=free_charge,settings=settings,directions=directions,on_iteration=report)
             # Newton fills tangent/line-search diagnostics after its callback.
             history.extend({**row,"event":"halfstep","sweep":sweep,"direction":axis}
