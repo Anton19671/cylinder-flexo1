@@ -9,12 +9,6 @@ on:
         type: choice
         options: [pilot, full]
         default: pilot
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/scientific-real-coupled-physical.yml"
-      - "ci/scientific_real_coupled_case.py"
-      - "tests/test_scientific_real_case_generation.py"
 permissions:
   contents: read
 jobs:

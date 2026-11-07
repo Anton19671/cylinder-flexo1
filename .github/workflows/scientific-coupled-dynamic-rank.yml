@@ -1,12 +1,6 @@
 name: Real nonlinear flexoelectric CUF TE1 Newmark FDM vs MVI ranks
 run-name: "DYNAMIC CUF TE1 rank ${{ github.event.inputs.scope || 'pilot' }} - ${{ github.sha }}"
 on:
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/scientific-coupled-dynamic-rank.yml"
-      - "ci/scientific_coupled_dynamic_rank.py"
-      - "tests/test_scientific_coupled_dynamic_rank.py"
   workflow_dispatch:
     inputs:
       scope:

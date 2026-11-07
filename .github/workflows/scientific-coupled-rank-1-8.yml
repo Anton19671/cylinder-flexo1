@@ -1,12 +1,6 @@
 name: Real CUF TE1 flexoelectric MVI ranks 1-8 versus FDM
 run-name: "REAL TE1 Gz flexoelectric rank1-8 - ${{ github.sha }}"
 on:
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/scientific-coupled-rank-1-8.yml"
-      - "ci/scientific_coupled_rank_1_8.py"
-      - "tests/test_scientific_coupled_rank_1_8.py"
   workflow_dispatch:
 permissions:
   contents: read

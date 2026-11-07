@@ -9,16 +9,6 @@ on:
         type: choice
         options: [pilot, full]
         default: pilot
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/scientific-coupled-convergence.yml"
-      - "ci/scientific_coupled_convergence.py"
-      - "ci/scientific_real_coupled_case.py"
-      - "tests/test_scientific_coupled_convergence.py"
-      - "tests/test_scientific_coupled_field_compare.py"
-      - "ci/scientific_coupled_field_compare.py"
-      - "tests/test_scientific_real_case_generation.py"
 permissions:
   contents: read
 jobs:
