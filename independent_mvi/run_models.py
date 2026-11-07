@@ -26,6 +26,22 @@ THICKNESS_SCHEME="ANALYTIC_KINEMATICS_GAUSS12_NO_Z_GRID"
 PHYSICS_SCOPE="LINEAR_MACRO_HOOKE_ELECTRIC_OFF_GRADIENT_OFF"
 
 
+def _central_grid_value(field):
+    """Sample x=L/2, theta=pi with linear interpolation on the grid."""
+    field=np.asarray(field)
+    if field.ndim!=2 or min(field.shape)<1:
+        raise ValueError("CENTRAL_SAMPLE_REQUIRES_2D_FIELD")
+    nx,ns=field.shape
+    ix=(nx-1)/2.
+    js=ns/2.
+    i0=int(np.floor(ix)); i1=int(np.ceil(ix))
+    j0=int(np.floor(js)); j1=int(np.ceil(js))%ns
+    tx=ix-i0; ts=js-int(np.floor(js))
+    a=(1.-tx)*field[i0,j0]+tx*field[i1,j0]
+    b=(1.-tx)*field[i0,j1]+tx*field[i1,j1]
+    return float((1.-ts)*a+ts*b)
+
+
 def _outer_radial_field(mechanical, theory):
     """Recover w(x,theta,z=+h/2), without a third spatial grid.
 
@@ -223,12 +239,10 @@ def run(path: Path, *, validate_only: bool):
                         output/f"MVI_R{rank}_STEP_{k:04d}_{stage}.npz",
                         time_s,mechanical,velocity,acceleration,
                         {"step":k,"stage":stage,"time_s":time_s,
-                         "central_w0_m":float(mechanical[
-                             radial,physics.nx//2,physics.ns//2]),
+                         "central_w0_m":_central_grid_value(mechanical[radial]),
                          "maximum_abs_w0_m":float(np.max(np.abs(
                              mechanical[radial]))),
-                         "central_outer_w_m":float(outer[
-                             physics.nx//2,physics.ns//2]),
+                         "central_outer_w_m":_central_grid_value(outer),
                          "maximum_abs_outer_w_m":float(
                              np.max(np.abs(outer)))}
                     ))
