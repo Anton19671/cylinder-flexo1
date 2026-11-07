@@ -147,10 +147,29 @@ def solve_strong_nonlinear_equations(
             if magnitude == 0:
                 return np.zeros(count)
             step = settings.difference_step * (1. + float(np.linalg.norm(z))) / magnitude
-            return (evaluate(z + step*vec)-evaluate(z - step*vec))/(2*step)
+            # The current deformation can be admissible while a finite
+            # difference probe crosses the det(F)>0 boundary. Reduce only
+            # the probe, retaining a symmetric derivative at the same state.
+            for _ in range(settings.line_search_halvings + 1):
+                try:
+                    plus = evaluate(z + step*vec)
+                    minus = evaluate(z - step*vec)
+                    return (plus-minus)/(2*step)
+                except ValueError as exc:
+                    if "INVALID_DEFORMATION_MAPPING" not in str(exc):
+                        raise
+                    step *= .5
+            raise ValueError('DIRECT_STRONG_INVALID_TANGENT_PROBE')
         jvp = LinearOperator((count,count), matvec=apply, dtype=float)
-        delta, info = gmres(jvp,-fun,atol=0.,rtol=settings.relative_linear_tolerance,
-                            restart=min(40,count),maxiter=max(10,count//2))
+        try:
+            delta, info = gmres(jvp,-fun,atol=0.,rtol=settings.relative_linear_tolerance,
+                                restart=min(40,count),maxiter=max(10,count//2))
+        except ValueError as exc:
+            if str(exc) != 'DIRECT_STRONG_INVALID_TANGENT_PROBE':
+                raise
+            q,p = decode(z)
+            return StrongNewtonResult(q,p,iteration-1,False,
+                                      'INVALID_TANGENT_PERTURBATION',norm)
         if info or not np.isfinite(delta).all():
             q,p = decode(z)
             return StrongNewtonResult(q,p,iteration-1,False,'LINEAR_TANGENT_NOT_SOLVED',norm)

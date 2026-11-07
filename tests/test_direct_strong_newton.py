@@ -5,6 +5,32 @@ from cylinder_direct_strong_newton import StrongNewtonSettings,solve_strong_nonl
 from cylinder_direct_strong_fdm import DirectStrongGrid,direct_coefficient_derivative
 
 class DirectStrongNewtonTests(unittest.TestCase):
+    def test_tangent_probe_respects_deformation_domain(self):
+        q=np.full((1,7,4),.9999)
+        def equations(q,p):
+            if np.any(q >= 1.):
+                raise ValueError('INVALID_DEFORMATION_MAPPING: detF<=0')
+            return q-.5,None
+        result=solve_strong_nonlinear_equations(
+            equations,q,mechanical_state_scale=1.,mechanical_equation_scale=1.,
+            settings=StrongNewtonSettings(max_dofs=28,difference_step=.001,
+                                         line_search_halvings=15))
+        self.assertTrue(result.converged,result.status)
+        np.testing.assert_allclose(result.mechanical,.5,atol=1.e-8)
+
+    def test_tangent_probe_failure_is_reported(self):
+        q=np.full((1,7,4),.9999)
+        def equations(q,p):
+            if np.any(q >= 1.):
+                raise ValueError('INVALID_DEFORMATION_MAPPING: detF<=0')
+            return q-.5,None
+        result=solve_strong_nonlinear_equations(
+            equations,q,mechanical_state_scale=1.,mechanical_equation_scale=1.,
+            settings=StrongNewtonSettings(max_dofs=28,difference_step=.001,
+                                         line_search_halvings=0))
+        self.assertFalse(result.converged)
+        self.assertEqual(result.status,'INVALID_TANGENT_PERTURBATION')
+
     def test_manufactured_coupled_second_order(self):
         grid=DirectStrongGrid(9,4,1.6,2.)
         x=np.arange(grid.nx)[:,None]*grid.dx
