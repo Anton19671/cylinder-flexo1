@@ -14,6 +14,48 @@ class StrongEndSystem:
     axial_orders: tuple
     status: str = "STRONG_END_ROWS_NOT_SOLVER_CERTIFIED"
 
+
+@dataclass(frozen=True)
+class CUFParallelEndConditions:
+    """Source §§30--33: immobile sections, microfree higher traces.
+
+    Axial half-orders are explicit input, not inferred from the number of
+    jets. This distinction matters when a G3D model degenerates to Gz or
+    classical elasticity. Electrical insulation leaves ONE global gauge.
+    """
+    te_order: int
+    axial_orders: tuple
+    potential_order: int | None = None
+
+    def __post_init__(self):
+        if type(self.te_order) is not int or not 1 <= self.te_order <= 4:
+            raise ValueError("CUF TE order must be 1..4")
+        orders = tuple(self.axial_orders)
+        if (len(orders) != 3*(self.te_order+1) or
+                any(type(m) is not int or m not in (1, 2) for m in orders)):
+            raise ValueError("explicit CUF axial half-order 1 or 2 per field required")
+        if self.potential_order is not None and (
+                type(self.potential_order) is not int or
+                not 0 <= self.potential_order <= 4):
+            raise ValueError("potential order must be None (OFF) or 0..4")
+        object.__setattr__(self, "axial_orders", orders)
+
+    @property
+    def mechanical_ends(self):
+        # Fresh dictionaries: changing one end/field cannot change another.
+        return {side: [[{"kind": "ESSENTIAL", "value": 0.}] +
+                       [{"kind": "NATURAL", "value": 0.} for _ in range(m-1)]
+                       for m in self.axial_orders]
+                for side in ("left", "right")}
+
+    @property
+    def electrical_ends(self):
+        if self.potential_order is None:
+            return None
+        return {side: [{"kind": "NATURAL", "value": 0.}
+                       for _ in range(self.potential_order+1)]
+                for side in ("left", "right")}
+
 def _condition(value, ns, label):
     if not isinstance(value, dict) or set(value) != {"kind", "value"} or value["kind"] not in ("ESSENTIAL", "NATURAL"):
         raise ValueError(label + ": explicit ESSENTIAL/NATURAL kind and value required")
@@ -100,4 +142,4 @@ def assemble_physical_end_rows(balance, mechanical, grid, *, axial_orders,
             raise ValueError("constant electric mode requires electrode or gauge closure")
     return StrongEndSystem(result,electric,tuple(axial_orders))
 
-__all__=("StrongEndSystem","assemble_physical_end_rows")
+__all__=("StrongEndSystem","CUFParallelEndConditions","assemble_physical_end_rows")

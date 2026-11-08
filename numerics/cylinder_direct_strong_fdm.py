@@ -154,7 +154,9 @@ def direct_strong_jet_balance(mechanical_coefficients, derivative_orders, grid,
     End actions conjugate to the OUTWARD-NORMAL traces (q,d_n q,d_nn q):
        (n_x*(B_1-d_x B_2+d_xx B_3), B_2-d_x B_3, n_x*B_3).
     The double traction has NO outward-normal sign: d_n q = n_x*d_x q.
-    Electric bulk: E_0-d_x E_1-d_s E_2-charge.
+    Electric bulk: E_0-d_x E_1-d_s E_2+charge.
+    Physical free charge contributes +integral(rho*phi) to the electric
+    enthalpy, whereas mechanical loading contributes -integral(f*q).
     Electric end potential action: n_x*E_1.
 
     No SVD, pseudoinverse, weighted-weak adjoint, or implicit BC closure.
@@ -211,7 +213,7 @@ def direct_strong_jet_balance(mechanical_coefficients, derivative_orders, grid,
             ec[1], 1, 0, grid)
         elec_bulk -= direct_coefficient_derivative(ec[2], 0, 1, grid)
         if electrical_charge is not None:
-            elec_bulk -= _finite_field(electrical_charge,
+            elec_bulk += _finite_field(electrical_charge,
                                        ec[0].shape, "electric charge")
         elec_end = _outward_ends(ec[1])
     elif electrical_charge is not None:

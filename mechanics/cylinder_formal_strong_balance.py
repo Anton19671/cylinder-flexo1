@@ -41,7 +41,9 @@ def formal_coupled_balance(mechanical_coefficients, derivative_orders,
     orders are (name, axial_order, periodic_order), each jet occurring once.
     Electrical coefficients, when supplied, are (3,npotential,nx,ns) in
     [psi,psi_x,psi_s] order. Distributed loads and charges are densities in
-    the same midsurface measure and are subtracted after differentiation.
+    the same midsurface measure. Mechanical force is subtracted; physical
+    free charge is added, consistently with +integral(rho*phi) in the
+    stationary electric enthalpy and div(D)=rho.
     """
     if not callable(derivative):
         raise TypeError("a smooth-field derivative callback is required")
@@ -80,7 +82,7 @@ def formal_coupled_balance(mechanical_coefficients, derivative_orders,
             charge=np.asarray(electrical_charge,float)
             if charge.shape!=electric.shape or not np.isfinite(charge).all():
                 raise ValueError("finite charge density has wrong shape")
-            electric-=charge
+            electric+=charge
     elif electrical_charge is not None:
         raise ValueError("charge requires active electrical coefficients")
     return FormalCoupledBalance(mechanical,electric)

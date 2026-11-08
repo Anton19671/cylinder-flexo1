@@ -40,7 +40,7 @@ class FormalStrongBalanceTests(unittest.TestCase):
         np.testing.assert_allclose(balance.mechanical,
                                    np.broadcast_to(expected,(2,5,7)))
         np.testing.assert_allclose(balance.electrical,
-                                   np.broadcast_to(3.-2*x-2*s,(1,5,7)))
+                                   np.broadcast_to(5.-2*x-2*s,(1,5,7)))
 
     def test_missing_electric_model_rejects_charge(self):
         mc=np.zeros((1,1,4,5))
