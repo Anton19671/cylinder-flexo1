@@ -13,16 +13,20 @@ from cylinder_direct_strong_newton import (
     StrongElectricGauge, StrongNewtonSettings, solve_strong_nonlinear_equations,
 )
 from cylinder_cuf_parallel_ends import CUFParallelEndProblem
+from cylinder_direct_strong_model import DirectStrongShell
 from cylinder_functional_assembly import CylinderFunctional, surface_trapezoid
 from flexo_gradient_g3d import G3DMaterial
 
 
-def functional(order=1, electric=True):
+def functional(order=1, electric=True, reference=False):
     material = G3DMaterial(80., .23, .1, .001 if electric else 0.,
                           .003 if electric else 0., .8 if electric else 0.)
-    return CylinderFunctional(f"CUF_TE{order}", material, radius_m=2.,
-        thickness_m=.2, surface_operators=surface_trapezoid(7, 4, 1., 2.),
-        n_gauss=6)
+    if reference:
+        return CylinderFunctional(f"CUF_TE{order}", material, radius_m=2.,
+            thickness_m=.2, surface_operators=surface_trapezoid(7, 4, 1., 2.),
+            n_gauss=6)
+    return DirectStrongShell(f"CUF_TE{order}",material,
+        grid=DirectStrongGrid(7,4,1.,2.),thickness_m=.2,n_gauss=6)
 
 
 @pytest.mark.parametrize("order", range(1, 5))
@@ -110,7 +114,7 @@ def test_insulated_net_charge_rejected_but_higher_modes_not_individually_constra
 
 
 def test_physical_free_charge_has_same_sign_as_enthalpy_first_variation():
-    f = functional()
+    f = functional(reference=True)
     q = np.zeros((6, 7, 4)); p = np.zeros((2, 7, 4))
     charge = np.ones_like(p)
     zero = f.evaluate(q, p, energy_breakdown=False)

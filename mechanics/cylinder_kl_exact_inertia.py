@@ -45,6 +45,11 @@ def _normal_data(q, v, a, Dx, Ds, R):
     vs=apply_periodic(v,Ds)
     ax=apply_axial(a,Dx)
     ass=apply_periodic(a,Ds)
+    return _normal_data_from_jets(q,qx,qs,v,vx,vs,a,ax,ass,R)
+
+
+def _normal_data_from_jets(q,qx,qs,v,vx,vs,a,ax,ass,R):
+    """Local director physics; all surface derivatives supplied by the method."""
 
     def axial(t,with_identity):
         return np.stack((t[0]+(1. if with_identity else 0.),t[1],t[2]),axis=-1)
@@ -109,6 +114,36 @@ def kl_inertial_jet_coefficients(mechanical, velocity, acceleration, *,
     q=_state(mechanical,shape,"KL displacement")
     v=_state(velocity,shape,"KL velocity")
     a=_state(acceleration,shape,"KL acceleration")
+    return kl_inertial_coefficients_from_jets(
+        (q,apply_axial(q,Dx),apply_periodic(q,Ds)),
+        (v,apply_axial(v,Dx),apply_periodic(v,Ds)),
+        (a,apply_axial(a,Dx),apply_periodic(a,Ds)),
+        radius_m=R,thickness_m=h,density_kg_m3=rho,
+        geometry_model=geometry_model)
+
+
+def kl_inertial_coefficients_from_jets(qjets, vjets, ajets, *,
+                                      radius_m, thickness_m, density_kg_m3,
+                                      geometry_model="GREEN_LAGRANGE"):
+    """Local KL inertia from (value, x derivative, s derivative) tuples.
+
+    No differentiation matrix, quadrature, boundary closure or numerical
+    method is used here. This lets MKR and MVI share the director physics
+    while each supplies its OWN field derivatives, including acceleration.
+    The velocity-square director term is retained for Green--Lagrange.
+    """
+    R,h,rho=map(float,(radius_m,thickness_m,density_kg_m3))
+    if not all(map(math.isfinite,(R,h,rho))) or not (R>h/2>0 and rho>0):
+        raise ValueError("KL inertia requires R>h/2>0 and rho>0")
+    groups=(qjets,vjets,ajets)
+    if any(not isinstance(g,(tuple,list)) or len(g)!=3 for g in groups):
+        raise ValueError("KL inertia requires three (value,x,s) jet tuples")
+    base=np.asarray(qjets[0],float)
+    if base.ndim!=3 or base.shape[0]!=3 or min(base.shape[1:])<1:
+        raise ValueError("KL inertial jets require shape (3,nx,ns)")
+    q,qx,qs=(_state(x,base.shape,"KL displacement jet") for x in qjets)
+    v,vx,vs=(_state(x,base.shape,"KL velocity jet") for x in vjets)
+    a,ax,ass=(_state(x,base.shape,"KL acceleration jet") for x in ajets)
     model=normalized_model(geometry_model)
     a_vec=np.moveaxis(a,0,-1)
     m0=rho*h
@@ -117,8 +152,6 @@ def kl_inertial_jet_coefficients(mechanical, velocity, acceleration, *,
     if model!="GREEN_LAGRANGE":
         # The LINEAR / von Karman KL director is the small-rotation map
         # n=(-w_x,v/R-w_s,1); its acceleration has no quadratic velocity term.
-        ax=apply_axial(a,Dx)
-        ass=apply_periodic(a,Ds)
         ntt=np.stack((-ax[2],a[1]/R-ass[2],np.zeros_like(a[0])),axis=-1)
         g0=m0*a_vec+m1*ntt
         gn=m1*a_vec+m2*ntt
@@ -134,7 +167,7 @@ def kl_inertial_jet_coefficients(mechanical, velocity, acceleration, *,
         if not np.isfinite(out).all():
             raise ValueError("INVALID_KL_SMALL_ROTATION_INERTIA")
         return out
-    n,nt,ntt,A,B,mag=_normal_data(q,v,a,Dx,Ds,R)
+    n,nt,ntt,A,B,mag=_normal_data_from_jets(q,qx,qs,v,vx,vs,a,ax,ass,R)
     g0=m0*a_vec+m1*ntt
     gn=m1*a_vec+m2*ntt
     projected=(gn-n*np.sum(n*gn,axis=-1)[...,None])/mag[...,None]
@@ -208,4 +241,4 @@ def kl_kinetic_energy(mechanical, velocity, *, Dx, Ds, wx, ws,
 
 
 __all__=("kl_inertial_weak_action","kl_inertial_jet_coefficients",
-         "kl_kinetic_energy")
+         "kl_inertial_coefficients_from_jets","kl_kinetic_energy")

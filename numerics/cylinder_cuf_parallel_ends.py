@@ -5,8 +5,8 @@ constitutive jets, physical end equations and a single volume gauge to the
 experimental strong Newton driver. It is NOT a new GUI dispatch or a claim
 that the direct-strong discretization has been physically certified.
 
-The constitutive adapter is explicitly the normalized-basis CylinderFunctional.
-It is shared continuum/reference infrastructure, not independent MVI assembly.
+The native DirectStrongShell owns the field derivatives and coefficient
+assembly. Only local continuum physics is shared with other methods.
 Differential half-orders and dimensional equation scales remain explicit.
 """
 from dataclasses import dataclass
@@ -15,7 +15,7 @@ import numpy as np
 from cylinder_direct_strong_boundary import (
     CUFParallelEndConditions, assemble_physical_end_rows,
 )
-from cylinder_direct_strong_fdm import DirectStrongGrid, direct_strong_from_functional
+from cylinder_direct_strong_model import DirectStrongShell
 from cylinder_direct_strong_newton import (
     StrongNewtonSettings, cuf_mean_potential_gauge, solve_strong_nonlinear_equations,
 )
@@ -46,38 +46,33 @@ class CUFParallelEndProblem:
     variational projection; no additional face collocation rows are added.
 
     Loads are thickness-integrated generalized surface force/charge densities,
-    as in direct_strong_from_functional; pressure in Pa is not interchangeable.
+    as in DirectStrongShell.balance; pressure in Pa is not interchangeable.
     """
-    def __init__(self, functional, *, length_m, axial_orders,
+    def __init__(self, model, *, axial_orders, length_m=None,
                  potential_order=None, mechanical_load=None,
                  electrical_charge=None, mean_potential_v=0.,
                  potential_scale_v=1.):
-        # Check the actual basis-bearing adapter, not a loosely named theory.
-        from cylinder_functional_assembly import CylinderFunctional
-        if not isinstance(functional, CylinderFunctional):
-            raise TypeError("normalized-basis CylinderFunctional required")
-        if functional.theory not in ("CUF_TE1", "CUF_TE2", "CUF_TE3", "CUF_TE4"):
+        if not isinstance(model, DirectStrongShell):
+            raise TypeError("native DirectStrongShell required; construct it from physical parameters")
+        if model.theory not in ("CUF_TE1", "CUF_TE2", "CUF_TE3", "CUF_TE4"):
             raise ValueError("parallel CUF ends require CUF_TE1..CUF_TE4")
-        ends = CUFParallelEndConditions(int(functional.theory[-1]),
+        ends = CUFParallelEndConditions(int(model.theory[-1]),
                                        axial_orders, potential_order)
-        if functional.electrical_on != (potential_order is not None):
+        if model.electrical_on != (potential_order is not None):
             raise ValueError("potential order must agree with electrical ON/OFF")
         if potential_order is None and (electrical_charge is not None or
                                         mean_potential_v != 0.):
             raise ValueError("charge and mean potential require active electricity")
-        nx, ns = functional.ops.shape
-        grid = DirectStrongGrid(nx, ns, length_m, functional.R)
-        # Enforce this before constructing the gauge; don't mix another
-        # quadrature or circumference with the direct-strong grid.
-        wx = np.full(nx, grid.dx)
-        wx[[0, -1]] *= .5
-        expected_area = np.broadcast_to(wx[:, None]*grid.ds, (nx, ns))
-        if not np.allclose(functional.W, expected_area, rtol=1.e-10, atol=0.):
-            raise ValueError("uniform trapezoid x and periodic circumference quadrature required")
-        self.functional = functional
+        grid = model.grid
+        nx, ns = grid.nx, grid.ns
+        if length_m is not None and (
+                not np.isfinite(length_m) or length_m != grid.length_m):
+            raise ValueError("length must match native MKR grid and quadrature")
+        expected_area = model.area_weights
+        self.model = model
         self.grid = grid
         self.ends = ends
-        self.mechanical_shape = (functional.n_mechanical, nx, ns)
+        self.mechanical_shape = model.shape
         self.electrical_shape = (None if potential_order is None else
                                  (potential_order+1, nx, ns))
         self.mechanical_load = self._load(mechanical_load, self.mechanical_shape,
@@ -91,8 +86,8 @@ class CUFParallelEndProblem:
             if abs(net) > 1.e-10*max(1.e-30, total):
                 raise ValueError("incompatible insulated free charge: nonzero net charge")
         self.electric_gauge = (None if potential_order is None else
-            cuf_mean_potential_gauge(expected_area, radius_m=functional.R,
-                thickness_m=functional.h, potential_order=potential_order,
+            cuf_mean_potential_gauge(expected_area, radius_m=grid.radius_m,
+                thickness_m=model.thickness_m, potential_order=potential_order,
                 target_v=mean_potential_v, potential_scale_v=potential_scale_v))
 
     @staticmethod
@@ -115,8 +110,8 @@ class CUFParallelEndProblem:
 
     def evaluate(self, mechanical, electrical=None):
         q, p = self._state(mechanical, electrical)
-        balance = direct_strong_from_functional(
-            self.functional, q, p, length_m=self.grid.length_m,
+        balance = self.model.balance(
+            q, p,
             mechanical_load=self.mechanical_load,
             electrical_charge=self.electrical_charge)
         rows = assemble_physical_end_rows(

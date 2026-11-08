@@ -30,12 +30,14 @@ methods. Constructing the problem never starts a calculation.
 
 ## Basis, grid and load conventions
 
-This adapter accepts the actual normalized-basis `CylinderFunctional` CUF
-implementation: F_i=G_i=(2z/h)^i. It checks that the surface quadrature agrees
-with the requested physical length, periodic circumference and trapezoid
-grid before constructing the cylindrical volume gauge. The constructor
-copies generalized loads, so a subsequent caller edit cannot silently
-change the problem.
+This adapter now accepts the native `DirectStrongShell` CUF implementation:
+F_i=G_i=(2z/h)^i. Its own grid supplies the physical length, periodic
+circumference and trapezoid quadrature for the cylindrical volume gauge.
+An optional `length_m` must agree with that grid. The constructor copies
+generalized loads, so a subsequent caller edit cannot silently change the
+problem. The prototype constructor that accepted a `CylinderFunctional`
+has been replaced; build a `DirectStrongShell` from physical parameters.
+The separate legacy `solve_direct_strong_reference` API remains available.
 
 `mechanical_load` and `electrical_charge` are generalized densities per
 reference midsurface area, not raw face pressure or unintegrated volume
@@ -76,9 +78,11 @@ tests, not physical loaded-shell benchmarks.
 ## Remaining work
 
 This is an experimental stationary strong-equation adapter, not a completed
-production shell solver. It still obtains local constitutive jets and their
-field derivatives from `CylinderFunctional`; it must not be presented as
-fully independent MKR/MVI spatial assembly. Full compatible G3D/Gz face-flux
+production shell solver. Native MKR now owns field preparation, constitutive
+coefficient assembly and the call to direct bulk/end differentiation; it
+does not call `CylinderFunctional` or MVI. The MVI coupled spatial route
+still needs its own implementation. Full compatible G3D/Gz face-flux
 placement, coupled differential-order certification, physical grid tests,
-dynamic integration of this end program and GUI dispatch remain open. No
-loaded-shell calculation, transient series or GitHub Actions run is invoked.
+dynamic integration of this end program and GUI dispatch remain open.
+See `NATIVE_MKR_FIELD_ASSEMBLY.md` for the preserved stencil convention.
+No loaded-shell calculation, transient series or GitHub Actions run is invoked.
