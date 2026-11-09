@@ -101,6 +101,37 @@ def test_independent_mvi_weak_work_equals_direct_factor_variation(
         np.testing.assert_allclose(analytic,numerical,atol=2.e-8,rtol=1.e-6)
 
 
+@pytest.mark.parametrize("theory",("KL","FSDT","REDDY","CUF_TE1","CUF_TE4"))
+@pytest.mark.parametrize("electric",(False,True))
+def test_full_nodal_first_variation_matches_independent_factor_chain_rule(
+        theory,electric):
+    model,fac=setup(theory,electric=electric)
+    model._local=_fake_local(model,"synthetic")
+    result=model.weak_work(fac)
+    assert result.nodal_gradient.shape==model.shape
+    assert np.isfinite(result.nodal_gradient).all()
+    direct_x=np.einsum("cij,crj->cri",result.nodal_gradient,fac.y)
+    direct_y=np.einsum("cij,cri->crj",result.nodal_gradient,fac.x)
+    np.testing.assert_allclose(direct_x,result.gradient_x,rtol=1e-12,atol=1e-12)
+    np.testing.assert_allclose(direct_y,result.gradient_y,rtol=1e-12,atol=1e-12)
+
+
+def test_full_nodal_first_variation_mixed_derivative_not_counted_twice():
+    model,fac=setup()
+    model._local=_fake_local(model,"synthetic")
+    result=model.weak_work(fac)
+    q=model.reconstruct(fac)[:model.n_mechanical]
+    Dx=model.grid.dx
+    Ds=model.grid.ds
+    weights=model.grid.weights
+    qxs=np.einsum("ip,cpq,jq->cij",Dx,q,Ds,optimize=True)
+    expected=(q*weights[None,:,:]
+        +.4*np.einsum("ip,cij,jq->cpq",Dx,qxs*weights[None,:,:],
+                       Ds,optimize=True))
+    np.testing.assert_allclose(result.nodal_gradient,expected,
+                               rtol=1e-12,atol=1e-12)
+
+
 def test_electricity_off_never_accepts_free_charge():
     model,fac=setup()
     model._local=_fake_local(model,"synthetic")
