@@ -56,6 +56,10 @@ def test_native_newmark_constructor_rejects_missing_physical_data():
         NativeStrongNewmark(model,axial_orders=(1,)*model.n_mechanical,
                             mechanical_ends={"left":[],"right":[]},
                             density_kg_m3=3.,beta=0.)
+    with pytest.raises(ValueError,match="NEWMARK_UNSTABLE_PARAMETER_PAIR"):
+        NativeStrongNewmark(model,axial_orders=(1,)*model.n_mechanical,
+                            mechanical_ends={"left":[],"right":[]},
+                            density_kg_m3=3.,beta=.1,gamma=.5)
 
 
 def test_controlled_step_uses_newmark_kinematics_and_does_not_call_mvi(monkeypatch):
