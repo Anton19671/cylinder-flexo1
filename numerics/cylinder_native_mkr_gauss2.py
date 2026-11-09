@@ -109,7 +109,8 @@ class NativeStrongGauss2:
         q0=_field(state.mechanical,shape,"initial displacement")
         v0=_field(state.velocity,shape,"initial velocity")
         a0=_field(state.acceleration,shape,"initial acceleration")
-        _verify_fixed_initial_supports(engine,q0,v0,absolute_tolerance=1.e-9)
+        _verify_fixed_initial_supports(engine,q0,v0,acceleration=a0,
+                                       absolute_tolerance=1.e-9)
         p0=(engine._electric_field(state.electrical,"initial potential")
             if engine.model.electrical_on else None)
         if not engine.model.electrical_on and state.electrical is not None:
