@@ -8,9 +8,9 @@ growth, reference dynamic residual, or shared time integrator.
 Experimental boundary subset: immobile parallel mechanical ends and
 grounded electric modes. The caller supplies consistent q0,v0,a0,phi0.
 This module does not certify higher-gradient natural actions, moving
-supports, or a physical initial-acceleration solve. The Kelvin-Voigt
-constitutive contribution is NOT supported here (mass-rate damping is
-separate) and is never silently substituted. No CASE/GUI dispatch.
+supports, or a physical initial-acceleration solve. Kelvin-Voigt
+constitutive force is assembled by independent_mvi.coupled_viscosity,
+separately from mass-proportional damping. No CASE/GUI dispatch.
 """
 from __future__ import annotations
 
