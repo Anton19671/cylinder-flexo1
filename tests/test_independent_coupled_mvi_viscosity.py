@@ -43,9 +43,10 @@ def test_constant_local_viscous_force_has_correct_surface_weights(surface,monkey
     q=np.zeros((n,9,5))
     v=np.zeros_like(q)
     out=NativeCoupledMVIViscosity(surface,eta_s=.04).apply(q,v)
+    expected=np.broadcast_to(
+        2.*surface.grid.weights[None,:,:],out.shape)
     np.testing.assert_allclose(
-        out,2.*surface.grid.weights[None,:,:],
-        rtol=2.e-13,atol=2.e-13)
+        out,expected,rtol=2.e-13,atol=2.e-13)
 
 
 def test_own_mvi_high_derivative_weighted_adjoint(surface,monkeypatch):
