@@ -184,13 +184,27 @@ def _checked_lu_newton(hessian,gradient,min_reciprocal):
     return delta
 
 
+def _active_field_ids(surface, active_fields):
+    if active_fields is None:
+        return tuple(range(surface.n_fields))
+    if not isinstance(active_fields,(tuple,list)):
+        raise TypeError("MVI_ACTIVE_FIELDS_REQUIRE_INDEX_SEQUENCE")
+    fields=tuple(active_fields)
+    if (not fields or len(set(fields))!=len(fields) or
+            any(type(c) is not int or not 0<=c<surface.n_fields
+                for c in fields)):
+        raise ValueError("MVI_ACTIVE_FIELDS_INVALID")
+    return fields
+
+
 def solve_coupled_mvi_halfstep(
         surface: NativeCoupledMVISurface, factors: CoupledMVIFactors, *,
         axis: str, program: CoupledMVIEndProgram,
         field_scales, energy_scale_j,
         mechanical_load=None, free_charge=None,
         settings=CoupledMVIHalfstepSettings(),
-        on_iteration=None, cancelled=None, work_evaluator=None):
+        on_iteration=None, cancelled=None, work_evaluator=None,
+        active_fields=None):
     """Solve ONLY the active frozen-partner X or Y coordinates.
 
     All coordinates belong to the selected separated family. A status
@@ -211,6 +225,7 @@ def solve_coupled_mvi_halfstep(
     if work_evaluator is not None and not callable(work_evaluator):
         raise TypeError("work_evaluator must be callable")
     scales,energy_scale=_scales(surface,field_scales,energy_scale_j)
+    components=_active_field_ids(surface,active_fields)
     # All field/end validation precedes the first nonlinear material call.
     _check_end_factors(surface,factors,program)
     working=normalized_mvi_factors(surface,factors,program,axis)
@@ -219,14 +234,14 @@ def solve_coupled_mvi_halfstep(
     indices=(allowed if axis=="X" else
              tuple(np.arange(surface.grid.ns,dtype=int)
                    for _ in range(surface.n_fields)))
-    sizes=[working.rank*len(i) for i in indices]
+    sizes=[working.rank*len(indices[c]) for c in components]
     count=sum(sizes)
     if count>settings.max_coordinates:
         raise ValueError("MVI_DENSE_HALFSTEP_COORDINATE_LIMIT")
     if any(n==0 for n in sizes):
         raise ValueError("MVI_EMPTY_HALFSTEP_FIELD")
-    origin=np.concatenate([active[c][:,ids].ravel()/scales[c]
-                           for c,ids in enumerate(indices)])
+    origin=np.concatenate([active[c][:,indices[c]].ravel()/scales[c]
+                           for c in components])
 
     def unpack(z):
         if z.shape!=(count,) or not np.isfinite(z).all():
@@ -235,8 +250,9 @@ def solve_coupled_mvi_halfstep(
         y=working.y.copy()
         array=x if axis=="X" else y
         offset=0
-        for c,ids in enumerate(indices):
-            n=sizes[c]
+        for k,c in enumerate(components):
+            ids=indices[c]
+            n=sizes[k]
             array[c][:,ids]=scales[c]*z[offset:offset+n].reshape(
                 working.rank,len(ids))
             offset+=n
@@ -248,8 +264,8 @@ def solve_coupled_mvi_halfstep(
                                 free_charge=free_charge)
               if work_evaluator is None else work_evaluator(f))
         derivative=(work.gradient_x if axis=="X" else work.gradient_y)
-        g=np.concatenate([derivative[c][:,ids].ravel()*scales[c]/energy_scale
-                          for c,ids in enumerate(indices)])
+        g=np.concatenate([derivative[c][:,indices[c]].ravel()*scales[c]/energy_scale
+                          for c in components])
         if not np.isfinite(g).all():
             raise ValueError("MVI_NONFINITE_HALFSTEP_STATIONARITY")
         return f,g
