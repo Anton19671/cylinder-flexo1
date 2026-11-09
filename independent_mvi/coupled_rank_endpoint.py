@@ -87,7 +87,7 @@ def fit_mvi_endpoint_field(surface: NativeCoupledMVISurface,
                     return MVIRankEndpointFit(
                         None,False,"MVI_ENDPOINT_FACTOR_SINGULAR",
                         float("inf"),iteration)
-                Anew=np.linalg.solve(gram,(T@B.T).T).T
+                Anew=np.linalg.solve(gram,(T@B.T).T)
                 x[c]=0.
                 x[c][:,ids]=Anew
                 gram=Anew@Anew.T
