@@ -119,6 +119,7 @@ class CoupledMVIWork:
     gradient_y: np.ndarray
     rank: int
     status: str="MVI_OWN_WEAK_WORK_NOT_BOUNDARY_CERTIFIED"
+    nodal_gradient: np.ndarray | None=None
 
 
 class NativeCoupledMVISurface:
@@ -269,6 +270,11 @@ class NativeCoupledMVISurface:
         if self.electrical_on:
             energy+=float(np.sum(weights*load_e*p))
             coeff[self.n_mechanical:,0]+=load_e
+        # In addition to the frozen-partner X/Y variations, assemble the
+        # first variation against EACH independent surface nodal direction.
+        # This is a method-owned weighted transpose on its SBP/Fourier grid:
+        # no MKR stencil, full-grid Newton step or rank expansion occurs.
+        nodal=np.zeros((self.n_fields,*shape),dtype=float)
         # Vary the X family with Y fixed, and vice versa; only the
         # one-dimensional factor derivative matrices enter these sums.
         gx=np.zeros_like(factors.x)
@@ -277,6 +283,9 @@ class NativeCoupledMVISurface:
             coefficient=coeff[:,k]
             if not np.any(coefficient):
                 continue
+            nodal+=np.einsum("ip,cij,jq->cpq",
+                self._dx_power[ax],coefficient*weights[None,:,:],
+                self._ds_power[ang],optimize=True)
             wx_contracted=np.einsum("cij,crj,j->cri",coefficient,yd[ang],
                                    self.grid.ws,optimize=True)
             wy_contracted=np.einsum("cij,cri,i->crj",coefficient,xd[ax],
@@ -286,10 +295,22 @@ class NativeCoupledMVISurface:
             gy+=np.einsum("jp,crj->crp",self._ds_power[ang],wy_contracted,
                           optimize=True)
         if not (math.isfinite(energy) and np.isfinite(gx).all() and
-                np.isfinite(gy).all()):
-            raise ValueError("nonfinite MVI projected weak work")
+                np.isfinite(gy).all() and np.isfinite(nodal).all()):
+            raise ValueError("nonfinite MVI surface first variation")
+        # The directly computed factor derivatives MUST be the tangent
+        # contractions of the same full admissible surface variation.
+        # This identity guards mixed-jet multiplicity and adjoint signs.
+        nx=np.einsum("cij,crj->cri",nodal,factors.y,optimize=True)
+        ny=np.einsum("cij,cri->crj",nodal,factors.x,optimize=True)
+        scale=max(1.,float(np.max(np.abs(gx),initial=0.)),
+                       float(np.max(np.abs(gy),initial=0.)),
+                       float(np.max(np.abs(nx),initial=0.)),
+                       float(np.max(np.abs(ny),initial=0.)))
+        if (float(np.max(np.abs(nx-gx),initial=0.))>1.e-9*scale or
+                float(np.max(np.abs(ny-gy),initial=0.))>1.e-9*scale):
+            raise ValueError("MVI_WEAK_WORK_CHAIN_RULE_FAILED")
         return CoupledMVIWork(energy,q.copy(),None if p is None else p.copy(),
-                              gx,gy,factors.rank)
+                              gx,gy,factors.rank,nodal_gradient=nodal)
 
 
 __all__=("THEORIES","MECHANICAL_MULTI","ELECTRIC_MULTI",
