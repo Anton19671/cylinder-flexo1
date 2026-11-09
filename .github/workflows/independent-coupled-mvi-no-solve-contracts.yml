@@ -36,4 +36,5 @@ jobs:
             tests/test_independent_coupled_mvi_bathe.py \
             tests/test_independent_coupled_mvi_viscosity.py \
             tests/test_independent_coupled_mvi_endpoint.py \
-            tests/test_independent_coupled_mvi_gauss2.py
+            tests/test_independent_coupled_mvi_gauss2.py \
+            tests/test_independent_coupled_mvi_electric_only.py
