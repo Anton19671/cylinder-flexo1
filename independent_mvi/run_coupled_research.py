@@ -54,6 +54,7 @@ GRID_KEYS=frozenset(("nx","ns","length_m","radius_m"))
 SOLVER_KEYS=frozenset((
     "kind","integrator","dt_s","steps","field_scales",
     "energy_scale_j","max_sweeps","max_acceleration_coordinates",
+    "max_halfstep_coordinates",
 ))
 CASE_KEYS=frozenset((
     "schema","physics","grid","boundary","solver","rank",
@@ -202,7 +203,23 @@ def load_case(path):
         raise ValueError("COUPLED_MVI_UNSAFE_OUTPUT_DIRECTORY")
     if output.exists():
         raise ValueError("COUPLED_MVI_OUTPUT_ALREADY_EXISTS")
-    settings=CoupledMVISweepSettings(max_sweeps=opts["max_sweeps"])
+    from independent_mvi.coupled_halfstep import CoupledMVIHalfstepSettings
+    cap=opts["max_halfstep_coordinates"]
+    if type(cap) is not int or not 1<=cap<=4096:
+        raise ValueError("COUPLED_MVI_HALFSTEP_CAP_INVALID")
+    # Every field carries rank*ns active angular factors in Y and
+    # rank*available-axial factors in X. Report the needed cap before
+    # any physical run, rather than silently failing after output creation.
+    free=program.free_axial_indices(surface)
+    needed_x=sum(factors.rank*len(ids) for ids in free)
+    needed_y=factors.rank*surface.n_fields*surface.grid.ns
+    if max(needed_x,needed_y)>cap:
+        raise ValueError(
+            "COUPLED_MVI_HALFSTEP_CAP_TOO_SMALL_FOR_RANK_AND_GRID: "
+            +str(max(needed_x,needed_y)))
+    settings=CoupledMVISweepSettings(
+        max_sweeps=opts["max_sweeps"],
+        halfstep=CoupledMVIHalfstepSettings(max_coordinates=cap))
     return dict(
         path=path,case=case,surface=surface,factors=factors,initial=init,
         program=program,load=loads,opts=opts,settings=settings,
