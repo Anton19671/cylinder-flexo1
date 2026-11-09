@@ -46,7 +46,7 @@ def _normal_trace(field, grid, component, normal_order, side):
     return sign*derivative[node,:]
 
 
-def _verify_fixed_initial_supports(engine, q, v, *, absolute_tolerance):
+def _verify_fixed_initial_supports(engine, q, v, *, absolute_tolerance, acceleration=None):
     """Check prescribed q traces and time-independent support velocities."""
     for side in ("left","right"):
         for comp,conditions in enumerate(engine.mechanical_ends[side]):
@@ -61,6 +61,11 @@ def _verify_fixed_initial_supports(engine, q, v, *, absolute_tolerance):
                     raise ValueError("INITIAL_DISPLACEMENT_ESSENTIAL_TRACE_MISMATCH")
                 if np.max(np.abs(vtrace)) > absolute_tolerance:
                     raise ValueError("INITIAL_MOVING_SUPPORT_NOT_SUPPORTED")
+                if acceleration is not None:
+                    atrace=_normal_trace(acceleration,engine.model.grid,
+                                         comp,order,side)
+                    if np.max(np.abs(atrace)) > absolute_tolerance:
+                        raise ValueError("INITIAL_ACCELERATION_ESSENTIAL_TRACE_MISMATCH")
 
 
 def _acceleration_ends(ends):
