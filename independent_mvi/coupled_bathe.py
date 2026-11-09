@@ -8,9 +8,9 @@ require the full admissible nodal first-variation gate to pass.
 No global FDM Newton, SVD, electric inertia, artificial rank growth,
 production CASE dispatch or loaded physical test is introduced.
 The same explicit stationary-end and electric-grounding subset as the
-new coupled MVI static/Newmark branch applies. Kelvin-Voigt rate
-constitutive laws, moving supports and higher-order microfree end
-closure are not certified and must not be silently accepted.
+new coupled MVI static/Newmark branch applies. Kelvin-Voigt material
+virtual work is included through the independent MVI viscosity operator.
+Moving supports and higher-order microfree end closure are not certified.
 """
 from __future__ import annotations
 
