@@ -33,6 +33,22 @@ Boundary: mechanical, electric.
 Solver: kind, integrator, dt_s, steps, field_scales, energy_scale_j,
 max_sweeps, max_acceleration_coordinates, max_halfstep_coordinates.
 
+Optional nonlinear X/Y reduced tangent options (backward-compatible):
+`linear_solver` = `AUTO`, `DENSE_LU` or `MATRIX_FREE_GMRES`;
+`dense_coordinate_limit` (default 96);
+`krylov_restart` (default 24);
+`krylov_maxiter` (default 60);
+`krylov_relative_tolerance` (default 1e-5).
+The `AUTO` mode performs dense LU for small fixed-rank halfsteps,
+then switches to the independent matrix-free GMRES tangent action above
+the dense-coordinate limit. Krylov vectors live **only** in the X or Y
+reduced factor coordinates. Two directional physical MVI weak-work
+evaluations form each matrix-vector action; it never constructs or
+factorizes the full nonlinear dense tangent. No SVD, pseudoinverse,
+grid-field Newton or MKR fallback is permitted. The existing
+`max_halfstep_coordinates` remains an explicit size safety ceiling,
+not a dense allocation requirement.
+
 Initial NPZ:
 `x_profiles` shape (n_fields, rank, nx),
 `y_profiles` shape (n_fields, rank, ns);
@@ -101,3 +117,19 @@ conditions, microfree electric face/edge work, floating electric gauge,
 source-model reciprocity and tangent validation, independent grid/rank/
 time convergence, loaded physical benchmarks and comprehensive GUI
 integration. Do not enable this path as an ordinary production default.
+
+## No-solve CI (2026-11-09 update)
+
+`.github/workflows/independent-coupled-mvi-no-solve-contracts.yml`
+now runs on changes to native coupled MVI source and tests on `main`,
+as well as by explicit manual dispatch. It includes the
+`tests/test_independent_coupled_mvi_matrix_free.py` synthetic
+quadratic tests for X, Y, automatic method choice, Krylov failure and
+forbidden numerical backends. The workflow is strictly algebraic,
+syntax and method isolation only; it does **not** run a physical
+cylinder time-history/loaded benchmark.
+
+**Execution status:** do not claim success before an actual GitHub
+Actions result has been observed. The independent MVI coupled research
+route remains experimental pending source higher-order boundary and
+electric face-condition validation.
