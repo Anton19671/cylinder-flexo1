@@ -153,3 +153,38 @@ def test_new_mvi_dynamic_has_no_mkr_or_reference_numeric_imports():
             "cylinder_variational_dynamic","cylinder_variational_fdm",
             "cylinder_functional_assembly","cylinder_surface_linear_algebra"))
             for p in imports)
+
+
+def test_newmark_adds_viscosity_only_to_mechanical_virtual_work(monkeypatch):
+    surf,driver,state=build(electric=True)
+    driver.viscosity.eta_s=.2
+    def weak(factors,**kwargs):
+        value=surf.reconstruct(factors)
+        node=np.zeros(surf.shape)
+        node[-1]=.15
+        return CoupledMVIWork(0.,value[:surf.n_mechanical],
+            value[surf.n_mechanical:],
+            np.einsum("cij,crj->cri",node,factors.y),
+            np.einsum("cij,cri->crj",node,factors.x),
+            factors.rank,nodal_gradient=node)
+    monkeypatch.setattr(surf,"weak_work",weak)
+    monkeypatch.setattr(driver.inertia,"apply",
+                        lambda q,v,a:np.ones_like(q)*.05)
+    viscous_inputs=[]
+    def viscosity(q,v):
+        viscous_inputs.append((q.copy(),v.copy()))
+        return np.ones_like(q)*.07
+    monkeypatch.setattr(driver.viscosity,"apply",viscosity)
+    def verify(surface,factors,*,work_evaluator,**kwargs):
+        work=work_evaluator(factors)
+        np.testing.assert_allclose(work.nodal_gradient[:surf.n_mechanical],.12)
+        np.testing.assert_allclose(work.nodal_gradient[surf.n_mechanical:],.15)
+        assert len(viscous_inputs)==1
+        return CoupledMVISweepResult(
+            factors,True,"MVI_FIXED_RANK_FULL_NODAL_STATIONARY",1,
+            0.,0.,0.,(),0.)
+    monkeypatch.setattr(dynamic,"solve_coupled_mvi_static",verify)
+    out=driver.advance(state,.05,field_scales=np.ones(surf.n_fields),
+                       energy_scale_j=1.)
+    assert out.state is not None
+    assert len(viscous_inputs)==1
