@@ -56,6 +56,10 @@ SOLVER_KEYS=frozenset((
     "energy_scale_j","max_sweeps","max_acceleration_coordinates",
     "max_halfstep_coordinates",
 ))
+OPTIONAL_LINEAR_KEYS=frozenset((
+    "linear_solver","dense_coordinate_limit","krylov_restart",
+    "krylov_maxiter","krylov_relative_tolerance",
+))
 CASE_KEYS=frozenset((
     "schema","physics","grid","boundary","solver","rank",
     "initial_state_npz","loads_npz","output_dir","research_opt_in",
@@ -135,7 +139,11 @@ def load_case(path):
              "COUPLED_MVI_BOUNDARY")
     program=CoupledMVIEndProgram(**b)
     program.validate(surface)
-    opts=_exact(case["solver"],SOLVER_KEYS,"COUPLED_MVI_SOLVER")
+    opts=case["solver"]
+    if (not isinstance(opts,dict) or
+            not SOLVER_KEYS.issubset(opts) or
+            set(opts)-SOLVER_KEYS-OPTIONAL_LINEAR_KEYS):
+        raise ValueError("COUPLED_MVI_SOLVER_KEYS_INVALID")
     if opts["kind"] not in ("STATIC","DYNAMIC"):
         raise ValueError("COUPLED_MVI_UNKNOWN_CALCULATION_KIND")
     if opts["kind"]=="STATIC":
@@ -226,7 +234,14 @@ def load_case(path):
             +str(max(needed_x,needed_y)))
     settings=CoupledMVISweepSettings(
         max_sweeps=opts["max_sweeps"],
-        halfstep=CoupledMVIHalfstepSettings(max_coordinates=cap))
+        halfstep=CoupledMVIHalfstepSettings(
+            max_coordinates=cap,
+            linear_solver=opts.get("linear_solver","AUTO"),
+            dense_coordinate_limit=opts.get("dense_coordinate_limit",96),
+            krylov_restart=opts.get("krylov_restart",24),
+            krylov_maxiter=opts.get("krylov_maxiter",60),
+            krylov_relative_tolerance=opts.get(
+                "krylov_relative_tolerance",1.e-5)))
     return dict(
         path=path,case=case,surface=surface,factors=factors,initial=init,
         program=program,load=loads,opts=opts,settings=settings,
