@@ -38,6 +38,7 @@ from independent_mvi.coupled_bathe import NativeCoupledMVIBathe
 from independent_mvi.coupled_gauss2 import NativeCoupledMVIGauss2
 from independent_mvi.coupled_initial import close_mvi_instantaneous_state
 from independent_mvi.coupled_discrete_green import coupled_mvi_discrete_green_identity
+from independent_mvi.coupled_dynamic_green import audit_mvi_dynamic_discrete_green
 
 SCHEMA="INDEPENDENT_MVI_COUPLED_RESEARCH_V1"
 METHOD="MVI_COUPLED_RESEARCH_FIXED_RANK"
@@ -293,6 +294,40 @@ def _green_audit(surface,factors,mechanical_load,free_charge):
     )
 
 
+def _dynamic_green_audit(surface,configuration,state,
+                         mechanical_load,free_charge):
+    """Whole instantaneous dynamic virtual work from the SAME physical jets.
+
+    No experimental force is automatically applied at an end. The
+    printed boundary actions are diagnostic, not source-certified
+    microfree or electric face conditions.
+    """
+    audit=audit_mvi_dynamic_discrete_green(
+        surface,state.factors,state.velocity,state.acceleration,
+        inertia=configuration.inertia,viscosity=configuration.viscosity,
+        mechanical_load=mechanical_load,free_charge=free_charge)
+    return dict(
+        status=audit.status,
+        conservative_only=False,
+        includes_inertia=True,
+        includes_kelvin_voigt=True,
+        electric_inertia=False,
+        physical_boundary_closure_certified=False,
+        conservative_identity_error=float(
+            audit.conservative.identity_relative_error),
+        inertia_identity_error=float(audit.inertia.identity_relative_error),
+        viscosity_identity_error=float(audit.kelvin_voigt.identity_relative_error),
+        total_identity_error=float(audit.total.identity_relative_error),
+        mechanical_force_consistency_error=float(
+            audit.mechanical_nodal_work_error),
+        electric_mass_viscosity_error=float(
+            audit.electric_nodal_work_error),
+        total_boundary_work_coefficient_max_abs=float(
+            np.max(np.abs(audit.total.boundary_gradient),initial=0.)),
+        field_trace_orders=[len(items) for items in audit.total.normal_left],
+    )
+
+
 def _store_state(output,step,state,surface):
     field=surface.reconstruct(state.factors)
     if (not np.isfinite(field).all() or not
@@ -367,8 +402,8 @@ def run(path,*,validate_only):
             if initial.state is None:
                 raise RuntimeError("COUPLED_MVI_INITIAL_"+initial.status)
             state=initial.state
-            result["initial_discrete_green"]=_green_audit(
-                surface,state.factors,mechanical,charge)
+            result["initial_discrete_green"]=_dynamic_green_audit(
+                surface,configuration,state,mechanical,charge)
             _store_state(output,0,state,surface)
             driver=(configuration if opts["integrator"]=="NEWMARK"
                     else NativeCoupledMVIBathe(configuration)
@@ -392,8 +427,8 @@ def run(path,*,validate_only):
                 if advance.state.factors.rank!=items["factors"].rank:
                     raise RuntimeError("COUPLED_MVI_RANK_CHANGED")
                 state=advance.state
-                result["last_discrete_green"]=_green_audit(
-                    surface,state.factors,mechanical,charge)
+                result["last_discrete_green"]=_dynamic_green_audit(
+                    surface,configuration,state,mechanical,charge)
                 _store_state(output,step,state,surface)
                 result.update(accepted_steps=step,
                               physical_steps_computed=step,
