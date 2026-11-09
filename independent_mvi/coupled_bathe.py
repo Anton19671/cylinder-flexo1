@@ -65,6 +65,8 @@ class NativeCoupledMVIBathe:
             v=velocity_predictor+velocity_factor*a
             nodal=work.nodal_gradient.copy()
             nodal[:surf.n_mechanical]+=config.inertia.apply(q,v,a)
+            if config.viscosity.eta_s:
+                nodal[:surf.n_mechanical]+=config.viscosity.apply(q,v)
             gx=np.einsum("cij,crj->cri",nodal,f.y,optimize=True)
             gy=np.einsum("cij,cri->crj",nodal,f.x,optimize=True)
             if not (np.isfinite(gx).all() and np.isfinite(gy).all()):
