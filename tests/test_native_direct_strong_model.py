@@ -149,8 +149,12 @@ for theory in THEORIES:
     native.balance(zero,p,velocity=zero,acceleration=zero,
         density_kg_m3=3.,mass_damping_rate_per_s=.1)
 '''
+    from cylinder_paths import activate
+    activate()
+    process_env=os.environ.copy()
+    process_env["PYTHONPATH"]=os.pathsep.join(sys.path)
     result=subprocess.run([sys.executable,"-c",script],capture_output=True,
-                          text=True,timeout=30,env=os.environ.copy())
+                          text=True,timeout=30,env=process_env)
     assert result.returncode==0,result.stderr
 
 
