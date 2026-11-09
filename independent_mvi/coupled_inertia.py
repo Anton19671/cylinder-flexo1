@@ -104,27 +104,30 @@ class NativeCoupledMVIInertia:
                 out[:,:,i,j]=np.asarray(c,float).T
         return out
 
-    def apply(self,mechanical,velocity,acceleration):
-        """Return (n_mechanical,nx,ns) inertial + mass-damping nodal work.
+    def local_weak_coefficients(self,mechanical,velocity,acceleration):
+        """Physical inertial/mass-damping weak coefficients before MVI adjoints.
 
-        All arguments are mechanical fields, never X/Y factor coordinates.
-        The local kinematic coefficients are evaluated using only this
-        MVI method's independent axial/circumferential derivative matrices.
+        Shape (n_mechanical,len(mechanical_multi),nx,ns). Each entry is
+        conjugate to exactly one independent surface-jet variation.
+        In particular, Reddy and KL retain q_x/q_s inertial actions
+        while CUF has q-only mass. No electric mass is introduced.
         """
         model=self.surface
         q=_field(model,mechanical,"mechanical")
         v=_field(model,velocity,"velocity")
         a=_field(model,acceleration,"acceleration")
         rate=self.mass_damping_rate_per_s
+        local=np.zeros((model.n_mechanical,len(model.mechanical_multi),
+                        model.grid.nx,model.grid.ns),dtype=float)
         if self._mass_te is not None:
             m=int(model.theory[-1])+1
             effective=(a+rate*v).reshape(3,m,model.grid.nx,model.grid.ns)
-            nodal=np.einsum("ij,cjkl->cikl",self._mass_te,effective,
-                            optimize=True).reshape(q.shape)
-            nodal=nodal*model.grid.weights[None,:,:]
+            local[:,0]=np.einsum(
+                "ij,cjkl->cikl",self._mass_te,effective,
+                optimize=True).reshape(q.shape)
         elif model.theory in ("FSDT","REDDY"):
             coefficients=self._director_coefficients(a+rate*v)
-            nodal=_transpose_weak(model.grid,coefficients)
+            local[:,:3]=np.swapaxes(coefficients,0,1)
         elif model.theory=="KL":
             qj=_derivatives(q,model.grid)
             vj=_derivatives(v,model.grid)
@@ -135,7 +138,7 @@ class NativeCoupledMVIInertia:
                 thickness_m=model.thickness_m,
                 density_kg_m3=self.density_kg_m3,
                 geometry_model=model.geometry_model)
-            nodal=_transpose_weak(model.grid,coeff)
+            local[:,:3]=np.swapaxes(coeff,0,1)
             if rate:
                 z=np.zeros_like(v)
                 damping=kl_inertial_coefficients_from_jets(
@@ -144,12 +147,27 @@ class NativeCoupledMVIInertia:
                     thickness_m=model.thickness_m,
                     density_kg_m3=self.density_kg_m3,
                     geometry_model=model.geometry_model)
-                nodal+=rate*_transpose_weak(model.grid,damping)
+                local[:,:3]+=rate*np.swapaxes(damping,0,1)
         else:
             raise ValueError("MVI_INERTIA_UNSUPPORTED_THEORY")
-        if nodal.shape!=q.shape or not np.isfinite(nodal).all():
-            raise ValueError("MVI_INERTIA_NONFINITE_MECHANICAL_WORK")
-        return nodal
+        if not np.isfinite(local).all():
+            raise ValueError("MVI_INERTIA_NONFINITE_LOCAL_WEAK_COEFFICIENTS")
+        return local
 
+    def apply(self,mechanical,velocity,acceleration):
+        """Return nodal inertial work assembled from SAME local coefficients."""
+        model=self.surface
+        local=self.local_weak_coefficients(mechanical,velocity,acceleration)
+        result=np.zeros((model.n_mechanical,model.grid.nx,model.grid.ns))
+        for k,(ax,ang) in enumerate(model.mechanical_multi):
+            if not np.any(local[:,k]):
+                continue
+            result+=np.einsum(
+                "ip,cij,jq->cpq",model._dx_power[ax],
+                local[:,k]*model.grid.weights[None,:,:],
+                model._ds_power[ang],optimize=True)
+        if not np.isfinite(result).all():
+            raise ValueError("MVI_INERTIA_NONFINITE_MECHANICAL_WORK")
+        return result
 
 __all__=("NativeCoupledMVIInertia",)
