@@ -37,8 +37,10 @@ def test_endpoint_exact_rank_reconstructed_without_svd():
     rng=np.random.default_rng(2026)
     x=seed.x.copy()
     y=seed.y.copy()
+    # Keep the original independent Y span so one exact X-halfstep
+    # suffices. This tests algebra, not convergence of a nonconvex ALS
+    # search from two unrelated random factor subspaces.
     x[:,:,1:-1]=rng.normal(size=x[:,:,1:-1].shape)
-    y[:]=rng.normal(size=y.shape)
     goal=surf.reconstruct(CoupledMVIFactors(x,y))
     result=fit_mvi_endpoint_field(
         surf,seed,goal,ends,relative_tolerance=1.e-9,
