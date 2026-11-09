@@ -231,7 +231,9 @@ def test_unsupported_face_modes_do_not_launch_solver(tmp_path,condition):
         "outer":{"mode":condition,"charge_c_per_m2":None},
     }
     case.write_text(json.dumps(document))
-    with pytest.raises(ValueError,match="MVI_FACE_"):
+    expected=("MVI_FACE_DIRICHLET_POTENTIAL_NOT_IMPLEMENTED"
+              if condition=="POTENTIAL" else "MVI_ELECTRIC_FACE_MODE_UNSUPPORTED")
+    with pytest.raises(ValueError,match=expected):
         native.run(case,validate_only=True)
     assert not (tmp_path/"output").exists()
 
