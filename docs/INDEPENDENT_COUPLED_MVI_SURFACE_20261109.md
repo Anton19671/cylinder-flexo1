@@ -4,10 +4,11 @@ Date: 2026-11-09; module `independent_mvi/coupled_surface.py`.
 
 ## Implemented
 
-- Dedicated MVI SBP42 axial and odd-grid Fourier circumferential operators
-  from the independent MVI package, with their own one-dimensional surface
-  quadrature. No MKR strong operator, nodal finite-difference field jet,
-  CylinderFunctional or reference variational spatial assembler is invoked.
+- Dedicated SBP42 axial and odd-grid Fourier circumferential operators
+  in `independent_mvi/coupled_operators.py`, with their own one-dimensional
+  surface quadrature. The coupled module does NOT import the existing linear
+  MVI solver, its initialization algorithm, any MKR strong operator,
+  CylinderFunctional or a reference variational spatial assembler.
 - Exactly fixed rank 1..8 per surface field, with a sum of X(x)Y(s)
   products. No SVD, pseudoinverse, rank growth or full-grid solve.
 - Supported local physical kinematics: KL, FSDT, Reddy, CUF TE1--TE4;
@@ -80,3 +81,16 @@ auto-dispatch and claims no convergence. The following are still required:
 
 The legacy coupled reference MVI remains a reproducible reference branch,
 NOT a fully independent spatial discretization. Do not relabel it as one.
+
+## Additional operator isolation (same date)
+
+The new nonlinear coupled path now imports its axial SBP42 and odd Fourier
+matrices ONLY from `independent_mvi.coupled_operators`. This explicitly
+removes the dependency on `independent_mvi.linear_models`. The formulae
+remain the same; they were moved without physical model changes.
+The new source/test `tests/test_independent_coupled_mvi_operators.py`
+checks the diagonal-norm first-derivative SBP Green identity, exact linear
+axial differentiation, Fourier trigonometric modes, skew symmetry and tensor
+commutation (tests committed, not executed here). This is NOT certification
+of higher-order natural boundary conditions or the independent nonlinear
+MVI solver.
