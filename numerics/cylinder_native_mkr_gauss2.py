@@ -138,9 +138,9 @@ class NativeStrongGauss2:
         forces=(get_load(ts[0]),get_load(ts[1]))
         # Surface field count is unchanged by collocation: the first axis
         # merely packs TWO independent, simultaneously solved RK stages.
-        qguess=np.stack((
+        qguess=np.stack([
             q0+h*GAUSS_C[i]*v0+.5*(h*GAUSS_C[i])**2*a0
-            for i in range(2)),axis=0)
+            for i in range(2)],axis=0)
         qscale=_positive_scale(mechanical_state_scale,shape,"mechanical state")
         qforce=_positive_scale(mechanical_equation_scale,shape,"mechanical equation")
         packed_q_guess=np.concatenate((qguess[0],qguess[1]),axis=0)
