@@ -203,3 +203,56 @@ def test_legacy_coupled_case_without_optional_controls_remains_valid(tmp_path):
     assert result["settings"].halfstep.linear_solver=="AUTO"
     assert result["settings"].halfstep.dense_coordinate_limit==96
     assert not (tmp_path/"output").exists()
+
+
+@pytest.mark.parametrize("theory",native.THEORIES)
+def test_electric_face_charge_preflight_enters_generalized_electric_work(
+        tmp_path,theory):
+    case,document=make_case(tmp_path,theory=theory,electric=True)
+    document["electric_faces"]={
+        "inner":{"mode":"CHARGE","charge_c_per_m2":2.},
+        "outer":{"mode":"CHARGE","charge_c_per_m2":-.5},
+    }
+    case.write_text(json.dumps(document),encoding="utf8")
+    parsed=native.load_case(case)
+    h=parsed["surface"].thickness_m
+    radius=parsed["surface"].grid.radius_m
+    expected=(1.-h/(2*radius))*2.+(1.+h/(2*radius))*(-.5)
+    np.testing.assert_allclose(parsed["load"]["free_charge"][0],expected)
+    assert parsed["electric_faces"]==document["electric_faces"]
+    assert not (tmp_path/"output").exists()
+
+
+@pytest.mark.parametrize("condition",("POTENTIAL","UNKNOWN"))
+def test_unsupported_face_modes_do_not_launch_solver(tmp_path,condition):
+    case,document=make_case(tmp_path,electric=True)
+    document["electric_faces"]={
+        "inner":None,
+        "outer":{"mode":condition,"charge_c_per_m2":None},
+    }
+    case.write_text(json.dumps(document))
+    with pytest.raises(ValueError,match="MVI_FACE_"):
+        native.run(case,validate_only=True)
+    assert not (tmp_path/"output").exists()
+
+
+def test_electricity_disabled_rejects_face_charge_in_preflight(tmp_path):
+    case,document=make_case(tmp_path,electric=False)
+    document["electric_faces"]={
+        "inner":{"mode":"CHARGE","charge_c_per_m2":.2},
+        "outer":None,
+    }
+    case.write_text(json.dumps(document))
+    with pytest.raises(ValueError,match="MVI_ELECTRIC_FACE_WITH_ELECTRICITY_OFF"):
+        native.run(case,validate_only=True)
+    assert not (tmp_path/"output").exists()
+
+
+def test_old_coupled_case_omitting_faces_remains_compatible(tmp_path):
+    case,_=make_case(tmp_path,electric=True)
+    parsed=native.load_case(case)
+    np.testing.assert_array_equal(
+        parsed["load"]["free_charge"],
+        np.zeros_like(parsed["load"]["free_charge"]))
+    assert parsed["electric_faces"]=={"inner":None,"outer":None}
+    assert not (tmp_path/"output").exists()
