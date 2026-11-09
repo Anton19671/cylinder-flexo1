@@ -125,6 +125,12 @@ class NativeStrongNewmark:
             mass_damping_rate_per_s, "mass damping")
         self.beta = _finite_number(beta, "Newmark beta", positive=True)
         self.gamma = _finite_number(gamma, "Newmark gamma", positive=True)
+        # Standard unconditional-stability region for linear elastodynamics.
+        # This is a parameter preflight, NOT a stability proof for nonlinear
+        # gradient-flexoelectric time integration.
+        if not (0.5 <= self.gamma <= 1.0 and
+                self.beta >= 0.25 * (self.gamma + 0.5)**2):
+            raise ValueError("NEWMARK_UNSTABLE_PARAMETER_PAIR")
         self.mechanical_load = (None if mechanical_load is None else
             _frozen_field(mechanical_load, model.shape, "mechanical load"))
         self.electrical_charge = (None if electrical_charge is None else
