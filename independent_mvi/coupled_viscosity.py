@@ -57,8 +57,13 @@ class NativeCoupledMVIViscosity:
         zeros=np.zeros(max(1,surface.n_electric))
         return surface._jet_type(*values,zeros,zeros,zeros)
 
-    def apply(self,mechanical,velocity):
-        """Return viscosity nodal virtual work, without altering input arrays."""
+    def local_weak_coefficients(self,mechanical,velocity):
+        """Return unweighted local Kelvin-Voigt coefficients, not a force.
+
+        Shape (n_mechanical,n_mechanical_jets,nx,ns), indexed by exactly
+        the same own MVI jet families as the conservative virtual work.
+        Reused by apply() and the discrete dynamic boundary-work audit.
+        """
         surface=self.surface
         shape=(surface.n_mechanical,surface.grid.nx,surface.grid.ns)
         q=np.asarray(mechanical,dtype=float)
@@ -66,12 +71,12 @@ class NativeCoupledMVIViscosity:
         if (q.shape!=shape or v.shape!=shape or
                 not np.isfinite(q).all() or not np.isfinite(v).all()):
             raise ValueError("MVI_KV_REQUIRES_FINITE_Q_V_FIELDS")
-        if self.eta_s==0:
-            return np.zeros(shape,dtype=float)
-        qderivatives=self._surface_jets(q)
-        vderivatives=self._surface_jets(v)
         local=np.zeros((surface.n_mechanical,len(surface.mechanical_multi),
                         surface.grid.nx,surface.grid.ns),dtype=float)
+        if self.eta_s==0:
+            return local
+        qderivatives=self._surface_jets(q)
+        vderivatives=self._surface_jets(v)
         for i in range(surface.grid.nx):
             for j in range(surface.grid.ns):
                 qjets=self._jets(qderivatives,i,j)
@@ -89,7 +94,14 @@ class NativeCoupledMVIViscosity:
                 if coefficients.shape!=expected or not np.isfinite(coefficients).all():
                     raise ValueError("MVI_KV_LOCAL_WEAK_SHAPE_MISMATCH")
                 local[:,:,i,j]=coefficients
-        nodal=np.zeros(shape)
+        return local
+
+    def apply(self,mechanical,velocity):
+        """Return own MVI viscosity nodal work via the SAME local jets."""
+        surface=self.surface
+        local=self.local_weak_coefficients(mechanical,velocity)
+        nodal=np.zeros((surface.n_mechanical,
+                        surface.grid.nx,surface.grid.ns))
         area=surface.grid.weights
         for idx,(ax,ang) in enumerate(surface.mechanical_multi):
             nodal+=np.einsum(
@@ -99,6 +111,5 @@ class NativeCoupledMVIViscosity:
         if not np.isfinite(nodal).all():
             raise ValueError("MVI_KV_NONFINITE_NODAL_WORK")
         return nodal
-
 
 __all__=("NativeCoupledMVIViscosity",)
