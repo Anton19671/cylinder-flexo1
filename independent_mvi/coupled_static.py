@@ -20,7 +20,8 @@ from independent_mvi.coupled_surface import (
 )
 from independent_mvi.coupled_halfstep import (
     CoupledMVIEndProgram, CoupledMVIHalfstepSettings,
-    _check_end_factors, _scales, solve_coupled_mvi_halfstep,
+    _check_end_factors, _scales, _active_field_ids,
+    solve_coupled_mvi_halfstep,
 )
 
 
@@ -56,18 +57,20 @@ class CoupledMVISweepResult:
 
 
 def _projected_norms(surface,factors,program,field_scales,energy_scale_j,
-                     mechanical_load,free_charge,work_evaluator=None):
+                     mechanical_load,free_charge,work_evaluator=None,
+                     active_fields=None):
     scale,energy=_scales(surface,field_scales,energy_scale_j)
     free=_check_end_factors(surface,factors,program)
+    components=_active_field_ids(surface,active_fields)
     work=(surface.weak_work(factors,mechanical_load=mechanical_load,
                             free_charge=free_charge)
           if work_evaluator is None else work_evaluator(factors))
     gx=work.gradient_x
     gy=work.gradient_y
     norm_x=max(float(np.max(np.abs(gx[c][:,ids]*scale[c]/energy),initial=0.))
-               for c,ids in enumerate(free))
+               for c in components for ids in (free[c],))
     norm_y=max(float(np.max(np.abs(gy[c]*scale[c]/energy),initial=0.))
-               for c in range(surface.n_fields))
+               for c in components)
     nodal=getattr(work,"nodal_gradient",None)
     if nodal is None:
         raise ValueError("MVI_OWN_FULL_NODAL_FIRST_VARIATION_REQUIRED")
@@ -78,7 +81,7 @@ def _projected_norms(surface,factors,program,field_scales,energy_scale_j,
     # Each electric mode can have a different admissible endpoint subset.
     norm_full=max(float(np.max(np.abs(nodal[c,ids,:]*scale[c]/energy),
                                initial=0.))
-                  for c,ids in enumerate(free))
+                  for c in components for ids in (free[c],))
     return norm_x,norm_y,norm_full
 
 
@@ -89,7 +92,8 @@ def solve_coupled_mvi_static(
         field_scales,energy_scale_j,
         mechanical_load=None,free_charge=None,
         settings=CoupledMVISweepSettings(),
-        on_iteration=None,cancelled=None,work_evaluator=None):
+        on_iteration=None,cancelled=None,work_evaluator=None,
+        active_fields=None):
     """Explicit Y then X halfsteps; no rank growth or hidden full-node correction.
 
     A successful result means *projected* stationarity only. A publication-
@@ -107,6 +111,7 @@ def solve_coupled_mvi_static(
     if work_evaluator is not None and not callable(work_evaluator):
         raise TypeError("work_evaluator must be callable")
     _check_end_factors(surface,factors,program)
+    _active_field_ids(surface,active_fields)
     _scales(surface,field_scales,energy_scale_j)
     history=[]
     accepted=factors
@@ -133,14 +138,16 @@ def solve_coupled_mvi_static(
                 on_iteration=(None if on_iteration is None else
                     lambda item,axis=axis,sweep=sweep:
                     on_iteration(dict(sweep=sweep,**item))),
-                cancelled=cancelled,work_evaluator=work_evaluator)
+                cancelled=cancelled,work_evaluator=work_evaluator,
+                active_fields=active_fields)
             if not response.converged:
                 return finish(False,"MVI_"+axis+"_"+response.status,
                               sweep-1,float("inf"),float("inf"))
             candidate=response.factors
         norm_x,norm_y,full_norm=_projected_norms(
             surface,candidate,program,field_scales,energy_scale_j,
-            mechanical_load,free_charge,work_evaluator=work_evaluator)
+            mechanical_load,free_charge,work_evaluator=work_evaluator,
+            active_fields=active_fields)
         next_field=surface.reconstruct(candidate)
         change=float(np.linalg.norm(next_field-previous)/
                      max(np.linalg.norm(next_field),
