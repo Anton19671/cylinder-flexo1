@@ -68,6 +68,8 @@ def test_controlled_step_uses_newmark_kinematics_and_does_not_call_mvi(monkeypat
     q=np.zeros(model.shape)
     v=np.full_like(q,.3)
     a=np.full_like(q,.2)
+    v[:,[0,-1],:]=0.
+    a[:,[0,-1],:]=0.
     state=NativeNewmarkState(.7,q,v,a)
     dt=.1
     target=q+dt*v+(.5-engine.beta)*dt**2*a
@@ -100,6 +102,26 @@ def test_controlled_step_uses_newmark_kinematics_and_does_not_call_mvi(monkeypat
     np.testing.assert_allclose(step.state.acceleration,trace["a"])
     assert step.state.time_s==pytest.approx(.8)
     assert state.time_s==pytest.approx(.7)
+
+
+@pytest.mark.parametrize("field",("mechanical","velocity","acceleration"))
+def test_incompatible_fixed_support_state_rejected_before_solve(field,monkeypatch):
+    model,engine=make_engine()
+    q=np.zeros(model.shape)
+    v=np.zeros_like(q)
+    a=np.zeros_like(q)
+    {"mechanical":q,"velocity":v,"acceleration":a}[field][:,0,:]=.2
+    state=NativeNewmarkState(0.,q,v,a)
+    import cylinder_native_mkr_newmark as native
+    def never(*args,**kwargs):
+        raise AssertionError("strong Newton must not run for incompatible initial state")
+    monkeypatch.setattr(native,"solve_strong_nonlinear_equations",never)
+    with pytest.raises(ValueError,match={
+            "mechanical":"INITIAL_DISPLACEMENT_ESSENTIAL_TRACE_MISMATCH",
+            "velocity":"INITIAL_MOVING_SUPPORT_NOT_SUPPORTED",
+            "acceleration":"INITIAL_ACCELERATION_ESSENTIAL_TRACE_MISMATCH"}[field]):
+        engine.advance(state,.01,mechanical_state_scale=1.,
+                       mechanical_equation_scale=1.)
 
 
 def test_nonlinear_failure_never_accepts_time_step(monkeypatch):
