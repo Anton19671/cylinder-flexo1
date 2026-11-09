@@ -1,0 +1,37 @@
+name: Independent coupled MVI algebra and method isolation (no shell runs)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  mvi-contracts:
+    name: MVI seven-theory static dynamic algebra and BC guards
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      PYTHONPATH: ".:independent_mvi:mechanics:numerics:flexoelectric:physics:interface"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install algebra-only dependencies
+        run: python -m pip install numpy scipy pytest
+      - name: Syntax check independent MVI modules
+        run: |
+          python -m py_compile independent_mvi/coupled_operators.py independent_mvi/coupled_surface.py independent_mvi/coupled_halfstep.py independent_mvi/coupled_static.py independent_mvi/coupled_end_actions.py independent_mvi/coupled_inertia.py independent_mvi/coupled_viscosity.py independent_mvi/coupled_newmark.py independent_mvi/coupled_bathe.py
+      - name: No-solve seven-theory method contract tests
+        run: |
+          python -m pytest -q \
+            tests/test_independent_coupled_mvi_operators.py \
+            tests/test_independent_coupled_mvi_surface.py \
+            tests/test_independent_coupled_mvi_halfstep.py \
+            tests/test_independent_coupled_mvi_static.py \
+            tests/test_independent_coupled_mvi_end_actions.py \
+            tests/test_independent_coupled_mvi_newmark.py \
+            tests/test_independent_coupled_mvi_bathe.py \
+            tests/test_independent_coupled_mvi_viscosity.py
