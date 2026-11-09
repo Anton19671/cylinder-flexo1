@@ -167,3 +167,39 @@ def test_public_final_runner_reaches_only_native_coupled_mvi(monkeypatch,tmp_pat
     assert response["no_reference_fallback"] is True
     assert response["scientific_accuracy_certified"] is False
     assert not (tmp_path/"output").exists()
+
+
+@pytest.mark.parametrize("solver",("AUTO","DENSE_LU","MATRIX_FREE_GMRES"))
+def test_optional_halfstep_linear_solver_configuration_reaches_native_settings(
+        tmp_path,solver):
+    case,document=make_case(tmp_path,theory="CUF_TE2")
+    document["solver"].update(
+        linear_solver=solver,dense_coordinate_limit=24,
+        krylov_restart=12,krylov_maxiter=20,
+        krylov_relative_tolerance=1.e-5)
+    case.write_text(json.dumps(document))
+    parsed=native.load_case(case)
+    selected=parsed["settings"].halfstep
+    assert selected.linear_solver==solver
+    assert selected.dense_coordinate_limit==24
+    assert selected.krylov_restart==12
+    assert selected.krylov_maxiter==20
+    assert selected.krylov_relative_tolerance==pytest.approx(1.e-5)
+    assert not (tmp_path/"output").exists()
+
+
+def test_unknown_krylov_backend_never_defaults_to_dense_or_mkr(tmp_path):
+    case,document=make_case(tmp_path)
+    document["solver"]["linear_solver"]="SVD"
+    case.write_text(json.dumps(document))
+    with pytest.raises(ValueError,match="MVI_UNKNOWN_HALFSTEP_LINEAR_SOLVER"):
+        native.load_case(case)
+    assert not (tmp_path/"output").exists()
+
+
+def test_legacy_coupled_case_without_optional_controls_remains_valid(tmp_path):
+    case,_=make_case(tmp_path)
+    result=native.load_case(case)
+    assert result["settings"].halfstep.linear_solver=="AUTO"
+    assert result["settings"].halfstep.dense_coordinate_limit==96
+    assert not (tmp_path/"output").exists()
