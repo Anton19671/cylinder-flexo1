@@ -131,7 +131,7 @@ def test_bathe_rejects_inconsistent_support_before_any_stage(field,monkeypatch):
     q=np.array(state.mechanical)
     v=np.array(state.velocity)
     a=np.array(state.acceleration)
-    {"velocity":v,"acceleration":a}[...,0,:]=.1
+    {"velocity":v,"acceleration":a}[field][:,0,:]=.1
     incompatible=NativeNewmarkState(state.time_s,q,v,a,state.electrical)
     def never(*args,**kwargs):
         raise AssertionError("strong Newton must not run")
