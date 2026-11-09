@@ -52,6 +52,7 @@ class CoupledMVISweepResult:
     projected_norm_x: float
     projected_norm_y: float
     history: tuple
+    full_nodal_norm: float=float("inf")
 
 
 def _projected_norms(surface,factors,program,field_scales,energy_scale_j,
@@ -66,7 +67,18 @@ def _projected_norms(surface,factors,program,field_scales,energy_scale_j,
                for c,ids in enumerate(free))
     norm_y=max(float(np.max(np.abs(gy[c]*scale[c]/energy),initial=0.))
                for c in range(surface.n_fields))
-    return norm_x,norm_y
+    nodal=getattr(work,"nodal_gradient",None)
+    if nodal is None:
+        raise ValueError("MVI_OWN_FULL_NODAL_FIRST_VARIATION_REQUIRED")
+    nodal=np.asarray(nodal,dtype=float)
+    if nodal.shape!=surface.shape or not np.isfinite(nodal).all():
+        raise ValueError("MVI_INVALID_FULL_NODAL_FIRST_VARIATION")
+    # Restrict tests to the independently declared essential axial traces.
+    # Each electric mode can have a different admissible endpoint subset.
+    norm_full=max(float(np.max(np.abs(nodal[c,ids,:]*scale[c]/energy),
+                               initial=0.))
+                  for c,ids in enumerate(free))
+    return norm_x,norm_y,norm_full
 
 
 def solve_coupled_mvi_static(
@@ -98,9 +110,11 @@ def solve_coupled_mvi_static(
     previous=surface.reconstruct(accepted)
     change=float("inf")
 
+    full_norm=float("inf")
+
     def finish(flag,status,sweep,nx,ny):
         return CoupledMVISweepResult(accepted,flag,status,sweep,
-                                    change,nx,ny,tuple(history))
+                                    change,nx,ny,tuple(history),full_norm)
 
     for sweep in range(1,settings.max_sweeps+1):
         if cancelled is not None and cancelled():
@@ -121,7 +135,7 @@ def solve_coupled_mvi_static(
                 return finish(False,"MVI_"+axis+"_"+response.status,
                               sweep-1,float("inf"),float("inf"))
             candidate=response.factors
-        norm_x,norm_y=_projected_norms(
+        norm_x,norm_y,full_norm=_projected_norms(
             surface,candidate,program,field_scales,energy_scale_j,
             mechanical_load,free_charge)
         next_field=surface.reconstruct(candidate)
@@ -132,13 +146,17 @@ def solve_coupled_mvi_static(
         accepted=candidate
         previous=next_field
         row=dict(sweep=sweep,field_change=change,
-                 projected_x=norm_x,projected_y=norm_y,rank=accepted.rank)
+                 projected_x=norm_x,projected_y=norm_y,
+                 full_nodal=full_norm,rank=accepted.rank)
         history.append(row)
         if on_iteration is not None:
             on_iteration(dict(row))
         if max(norm_x,norm_y)<=settings.halfstep.tolerance_scaled and (
                 change<=settings.relative_field_change):
-            return finish(True,"MVI_FIXED_RANK_PROJECTED_STATIONARY_ONLY",
+            if full_norm>settings.halfstep.tolerance_scaled:
+                return finish(False,"MVI_FIXED_RANK_INSUFFICIENT_FULL_NODAL_WORK",
+                              sweep,norm_x,norm_y)
+            return finish(True,"MVI_FIXED_RANK_FULL_NODAL_STATIONARY",
                           sweep,norm_x,norm_y)
     return finish(False,"MVI_FIXED_RANK_SWEEPS_EXHAUSTED",
                   settings.max_sweeps,norm_x,norm_y)
