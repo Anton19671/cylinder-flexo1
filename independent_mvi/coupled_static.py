@@ -56,11 +56,12 @@ class CoupledMVISweepResult:
 
 
 def _projected_norms(surface,factors,program,field_scales,energy_scale_j,
-                     mechanical_load,free_charge):
+                     mechanical_load,free_charge,work_evaluator=None):
     scale,energy=_scales(surface,field_scales,energy_scale_j)
     free=_check_end_factors(surface,factors,program)
-    work=surface.weak_work(factors,mechanical_load=mechanical_load,
-                           free_charge=free_charge)
+    work=(surface.weak_work(factors,mechanical_load=mechanical_load,
+                            free_charge=free_charge)
+          if work_evaluator is None else work_evaluator(factors))
     gx=work.gradient_x
     gy=work.gradient_y
     norm_x=max(float(np.max(np.abs(gx[c][:,ids]*scale[c]/energy),initial=0.))
@@ -88,7 +89,7 @@ def solve_coupled_mvi_static(
         field_scales,energy_scale_j,
         mechanical_load=None,free_charge=None,
         settings=CoupledMVISweepSettings(),
-        on_iteration=None,cancelled=None):
+        on_iteration=None,cancelled=None,work_evaluator=None):
     """Explicit Y then X halfsteps; no rank growth or hidden full-node correction.
 
     A successful result means *projected* stationarity only. A publication-
@@ -103,6 +104,8 @@ def solve_coupled_mvi_static(
         raise TypeError("on_iteration must be callable")
     if cancelled is not None and not callable(cancelled):
         raise TypeError("cancelled must be callable")
+    if work_evaluator is not None and not callable(work_evaluator):
+        raise TypeError("work_evaluator must be callable")
     _check_end_factors(surface,factors,program)
     _scales(surface,field_scales,energy_scale_j)
     history=[]
@@ -130,14 +133,14 @@ def solve_coupled_mvi_static(
                 on_iteration=(None if on_iteration is None else
                     lambda item,axis=axis,sweep=sweep:
                     on_iteration(dict(sweep=sweep,**item))),
-                cancelled=cancelled)
+                cancelled=cancelled,work_evaluator=work_evaluator)
             if not response.converged:
                 return finish(False,"MVI_"+axis+"_"+response.status,
                               sweep-1,float("inf"),float("inf"))
             candidate=response.factors
         norm_x,norm_y,full_norm=_projected_norms(
             surface,candidate,program,field_scales,energy_scale_j,
-            mechanical_load,free_charge)
+            mechanical_load,free_charge,work_evaluator=work_evaluator)
         next_field=surface.reconstruct(candidate)
         change=float(np.linalg.norm(next_field-previous)/
                      max(np.linalg.norm(next_field),
