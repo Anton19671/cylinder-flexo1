@@ -23,7 +23,7 @@ jobs:
         run: python -m pip install numpy scipy pytest
       - name: Syntax check independent MVI modules
         run: |
-          python -m py_compile independent_mvi/coupled_operators.py independent_mvi/coupled_surface.py independent_mvi/coupled_halfstep.py independent_mvi/coupled_static.py independent_mvi/coupled_end_actions.py independent_mvi/coupled_inertia.py independent_mvi/coupled_viscosity.py independent_mvi/coupled_newmark.py independent_mvi/coupled_bathe.py
+          python -m py_compile independent_mvi/coupled_operators.py independent_mvi/coupled_surface.py independent_mvi/coupled_halfstep.py independent_mvi/coupled_static.py independent_mvi/coupled_end_actions.py independent_mvi/coupled_inertia.py independent_mvi/coupled_viscosity.py independent_mvi/coupled_newmark.py independent_mvi/coupled_bathe.py independent_mvi/coupled_initial.py independent_mvi/coupled_rank_endpoint.py independent_mvi/coupled_gauss2.py
       - name: No-solve seven-theory method contract tests
         run: |
           python -m pytest -q \
@@ -34,4 +34,6 @@ jobs:
             tests/test_independent_coupled_mvi_end_actions.py \
             tests/test_independent_coupled_mvi_newmark.py \
             tests/test_independent_coupled_mvi_bathe.py \
-            tests/test_independent_coupled_mvi_viscosity.py
+            tests/test_independent_coupled_mvi_viscosity.py \
+            tests/test_independent_coupled_mvi_endpoint.py \
+            tests/test_independent_coupled_mvi_gauss2.py
