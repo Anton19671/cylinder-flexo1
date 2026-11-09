@@ -76,6 +76,16 @@ def close_mvi_instantaneous_state(
     if cancelled is not None and cancelled():
         return MVIAccelerationResult(None,"MVI_INITIAL_CANCELLED",None,None)
 
+    # A dense mass solve is impossible when its explicitly declared
+    # coordinate budget is exceeded. Reject BEFORE local constitutive
+    # evaluation: malformed high-gradient trial fields must never mask
+    # this deterministic resource preflight.
+    free_count=sum(len(free[c])*surface.grid.ns
+                   for c in range(surface.n_mechanical))
+    if free_count>max_acceleration_coordinates:
+        return MVIAccelerationResult(
+            None,"MVI_ACCELERATION_DENSE_COORDINATE_LIMIT",None,None)
+
     current=factors
     electric_status=None
     if surface.electrical_on:
