@@ -118,6 +118,20 @@ def test_gauss_endpoint_failure_rejects_full_step(monkeypatch):
     assert out.status=="GAUSS_ENDPOINT_FAILED"
 
 
+def test_gauss_initial_acceleration_fixed_support_gate(monkeypatch):
+    model,solver,state=setup()
+    acceleration=np.zeros(model.shape)
+    acceleration[:,-1,:]=.2
+    inconsistent=NativeNewmarkState(state.time_s,state.mechanical,
+                                     state.velocity,acceleration,state.electrical)
+    def never(*args,**kwargs):
+        raise AssertionError("Newton must not run")
+    monkeypatch.setattr(gauss,"solve_strong_nonlinear_equations",never)
+    with pytest.raises(ValueError,match="INITIAL_ACCELERATION_ESSENTIAL"):
+        solver.advance(inconsistent,.02,mechanical_state_scale=1.,
+                       mechanical_equation_scale=1.)
+
+
 def test_source_excludes_cross_method_numerical_backends():
     path=Path(__file__).resolve().parents[1]/"numerics/cylinder_native_mkr_gauss2.py"
     imports=[]
