@@ -31,7 +31,7 @@ jobs:
         run: python -m pip install numpy scipy pytest
       - name: Syntax check independent MVI modules
         run: |
-          python -m py_compile independent_mvi/coupled_operators.py independent_mvi/coupled_surface.py independent_mvi/coupled_halfstep.py independent_mvi/coupled_static.py independent_mvi/coupled_end_actions.py independent_mvi/coupled_inertia.py independent_mvi/coupled_viscosity.py independent_mvi/coupled_newmark.py independent_mvi/coupled_bathe.py independent_mvi/coupled_initial.py independent_mvi/coupled_rank_endpoint.py independent_mvi/coupled_gauss2.py independent_mvi/run_coupled_research.py interface/cylinder_independent_dispatch.py
+          python -m py_compile independent_mvi/coupled_operators.py independent_mvi/coupled_surface.py independent_mvi/coupled_halfstep.py independent_mvi/coupled_static.py independent_mvi/coupled_end_actions.py independent_mvi/coupled_inertia.py independent_mvi/coupled_viscosity.py independent_mvi/coupled_newmark.py independent_mvi/coupled_bathe.py independent_mvi/coupled_initial.py independent_mvi/coupled_rank_endpoint.py independent_mvi/coupled_gauss2.py independent_mvi/coupled_discrete_green.py independent_mvi/run_coupled_research.py interface/cylinder_independent_dispatch.py
       - name: No-solve seven-theory method contract tests
         run: |
           python -m pytest -q \
@@ -48,4 +48,5 @@ jobs:
             tests/test_independent_coupled_mvi_electric_only.py \
             tests/test_independent_coupled_mvi_weighted_gateaux.py \
             tests/test_independent_coupled_mvi_case_dispatch.py \
-            tests/test_independent_coupled_mvi_matrix_free.py
+            tests/test_independent_coupled_mvi_matrix_free.py \
+            tests/test_independent_coupled_mvi_discrete_green.py
