@@ -120,6 +120,7 @@ class CoupledMVIWork:
     rank: int
     status: str="MVI_OWN_WEAK_WORK_NOT_BOUNDARY_CERTIFIED"
     nodal_gradient: np.ndarray | None=None
+    coefficient_jets: np.ndarray | None=None
 
 
 class NativeCoupledMVISurface:
@@ -309,8 +310,15 @@ class NativeCoupledMVISurface:
         if (float(np.max(np.abs(nx-gx),initial=0.))>1.e-9*scale or
                 float(np.max(np.abs(ny-gy),initial=0.))>1.e-9*scale):
             raise ValueError("MVI_WEAK_WORK_CHAIN_RULE_FAILED")
+        # Retain the physical weak jet coefficients for an opt-in end-action
+        # audit. These are NOT automatically imposed as boundary rows.
+        # A read-only snapshot prevents a caller changing the diagnostics
+        # without recomputing the same physical state and loading.
+        source_coeff=coeff.copy()
+        source_coeff.setflags(write=False)
         return CoupledMVIWork(energy,q.copy(),None if p is None else p.copy(),
-                              gx,gy,factors.rank,nodal_gradient=nodal)
+                              gx,gy,factors.rank,nodal_gradient=nodal,
+                              coefficient_jets=source_coeff)
 
 
 __all__=("THEORIES","MECHANICAL_MULTI","ELECTRIC_MULTI",
