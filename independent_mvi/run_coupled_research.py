@@ -37,6 +37,7 @@ from independent_mvi.coupled_newmark import NativeCoupledMVINewmark
 from independent_mvi.coupled_bathe import NativeCoupledMVIBathe
 from independent_mvi.coupled_gauss2 import NativeCoupledMVIGauss2
 from independent_mvi.coupled_initial import close_mvi_instantaneous_state
+from independent_mvi.coupled_discrete_green import coupled_mvi_discrete_green_identity
 
 SCHEMA="INDEPENDENT_MVI_COUPLED_RESEARCH_V1"
 METHOD="MVI_COUPLED_RESEARCH_FIXED_RANK"
@@ -269,6 +270,29 @@ def _write_npz(path,**arrays):
         temporary.unlink(missing_ok=True)
 
 
+def _green_audit(surface,factors,mechanical_load,free_charge):
+    """Audit only the conservative G3D/Gz weak-work decomposition.
+
+    Dynamic inertia/Kelvin-Voigt actions are deliberately excluded:
+    the returned diagnostic is NEVER a total dynamic natural end force.
+    The caller aborts if the identical method-owned nodal virtual work
+    cannot be decomposed into volume and boundary work.
+    """
+    work=surface.weak_work(
+        factors,mechanical_load=mechanical_load,free_charge=free_charge)
+    green=coupled_mvi_discrete_green_identity(surface,work)
+    return dict(
+        status=green.status,
+        conservative_only=True,
+        physical_boundary_closure_certified=False,
+        identity_max_abs_error=float(green.identity_max_abs_error),
+        identity_relative_error=float(green.identity_relative_error),
+        boundary_work_coefficient_max_abs=float(np.max(
+            np.abs(green.boundary_gradient),initial=0.)),
+        field_trace_orders=[len(items) for items in green.normal_left],
+    )
+
+
 def _store_state(output,step,state,surface):
     field=surface.reconstruct(state.factors)
     if (not np.isfinite(field).all() or not
@@ -324,6 +348,8 @@ def run(path,*,validate_only):
                 x_profiles=answer.factors.x,y_profiles=answer.factors.y,
                 mechanical=q[:surface.n_mechanical],
                 electrical=q[surface.n_mechanical:])
+            result["discrete_green"]= _green_audit(
+                surface,answer.factors,mechanical,charge)
             result.update(status="EXPERIMENTAL_STATIONARY_UNCERTIFIED",
                           accepted_steps=1,physical_steps_computed=1)
         else:
@@ -341,6 +367,8 @@ def run(path,*,validate_only):
             if initial.state is None:
                 raise RuntimeError("COUPLED_MVI_INITIAL_"+initial.status)
             state=initial.state
+            result["initial_discrete_green"]=_green_audit(
+                surface,state.factors,mechanical,charge)
             _store_state(output,0,state,surface)
             driver=(configuration if opts["integrator"]=="NEWMARK"
                     else NativeCoupledMVIBathe(configuration)
@@ -364,6 +392,8 @@ def run(path,*,validate_only):
                 if advance.state.factors.rank!=items["factors"].rank:
                     raise RuntimeError("COUPLED_MVI_RANK_CHANGED")
                 state=advance.state
+                result["last_discrete_green"]=_green_audit(
+                    surface,state.factors,mechanical,charge)
                 _store_state(output,step,state,surface)
                 result.update(accepted_steps=step,
                               physical_steps_computed=step,
