@@ -24,11 +24,13 @@ def test_reddy_sxz_zero_for_every_coefficient_at_both_faces(kin,strain,hooke):
     for z in (-h/2.,h/2.):
         c,dz=kin("REDDY",z,R,h)
         B=strain(c,dz,R,z)
-        # Row 4 maps all independent displacement and surface derivatives
-        # to engineering gamma_xz; its exact face trace must vanish.
-        np.testing.assert_allclose(B[4],0.,rtol=0.,atol=1.e-12)
-        trial=np.random.default_rng(313).normal(size=B.shape[1:])
-        eps=np.einsum("ijk,jk->i",B,trial)
+        # B is indexed [surface derivative, strain component, unknown].
+        # Engineering gamma_xz is strain component 4, across ALL
+        # derivative slots. Checking B[4] would accidentally check
+        # the mixed x-s derivative rather than transverse shear.
+        np.testing.assert_allclose(B[:,4,:],0.,rtol=0.,atol=1.e-12)
+        trial=np.random.default_rng(313).normal(size=(B.shape[0],B.shape[2]))
+        eps=np.einsum("ijk,ik->j",B,trial)
         sxz=C[4,4]*eps[4]
         assert abs(sxz)<1.e-2  # 210 GPa times floating roundoff
 
@@ -43,5 +45,5 @@ def test_fsd_t_sxz_not_falsely_forced_to_zero_on_faces(kin,strain,hooke):
         c,dz=kin("FSDT",z,R,h)
         B=strain(c,dz,R,z)
         # An independent axial rotation produces gamma_xz = 1.
-        assert B[4,0,3]==pytest.approx(1.)
+        assert B[0,4,3]==pytest.approx(1.)
         assert hooke("FSDT",E,nu)[4,4]==pytest.approx(E/(2*(1+nu)))
