@@ -49,6 +49,7 @@ def make_case(tmp_path,*,theory="CUF_TE1",electric=False,kind="DYNAMIC",
                  dt_s=.01 if kind=="DYNAMIC" else None,
                  steps=2 if kind=="DYNAMIC" else 0,
                  max_sweeps=4,max_acceleration_coordinates=256,
+                 max_halfstep_coordinates=512,
                  field_scales=[1.]* (n+ec),energy_scale_j=1.),
               initial_state_npz="initial.npz",loads_npz="loads.npz",
               output_dir="output")
@@ -104,3 +105,25 @@ def test_reference_schema_never_accepted_as_coupled_research(tmp_path):
     path.write_text(json.dumps(data))
     with pytest.raises(ValueError,match="UNSUPPORTED_SCHEMA"):
         validate_independent_case(path)
+
+
+def test_high_rank_preflight_is_explicit_and_no_solver_starts(tmp_path):
+    path,document=make_case(tmp_path,theory="CUF_TE4")
+    rank=8
+    nx=document["grid"]["nx"]
+    ns=document["grid"]["ns"]
+    nfields=15
+    x=np.zeros((nfields,rank,nx))
+    x[:,:,1:-1]=.001
+    y=np.ones((nfields,rank,ns))
+    np.savez_compressed(tmp_path/"initial.npz",x_profiles=x,y_profiles=y,
+                        velocity=np.zeros((nfields,nx,ns)))
+    document["rank"]=rank
+    document["solver"]["max_halfstep_coordinates"]=192
+    path.write_text(json.dumps(document))
+    with pytest.raises(ValueError,match="HALFSTEP_CAP_TOO_SMALL"):
+        native.run(path,validate_only=True)
+    document["solver"]["max_halfstep_coordinates"]=1200
+    path.write_text(json.dumps(document))
+    assert native.run(path,validate_only=True)["rank"]==rank
+    assert not (tmp_path/"output").exists()
