@@ -1,6 +1,14 @@
 name: Independent coupled MVI algebra and method isolation (no shell runs)
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "independent_mvi/coupled_*.py"
+      - "independent_mvi/run_coupled_research.py"
+      - "interface/cylinder_independent_dispatch.py"
+      - "tests/test_independent_coupled_mvi_*.py"
+      - ".github/workflows/independent-coupled-mvi-no-solve-contracts.yml"
 permissions:
   contents: read
 jobs:
@@ -39,4 +47,5 @@ jobs:
             tests/test_independent_coupled_mvi_gauss2.py \
             tests/test_independent_coupled_mvi_electric_only.py \
             tests/test_independent_coupled_mvi_weighted_gateaux.py \
-            tests/test_independent_coupled_mvi_case_dispatch.py
+            tests/test_independent_coupled_mvi_case_dispatch.py \
+            tests/test_independent_coupled_mvi_matrix_free.py
