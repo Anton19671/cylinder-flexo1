@@ -140,3 +140,30 @@ def test_dynamic_mass_preflight_prevents_unusable_initial_solver(tmp_path):
     with pytest.raises(ValueError,match="ACCELERATION_CAP_TOO_SMALL"):
         native.run(path,validate_only=True)
     assert not (tmp_path/"output").exists()
+
+
+def test_public_final_runner_reaches_only_native_coupled_mvi(monkeypatch,tmp_path):
+    from cylinder_final_stage11a_dispatcher import run_final_case
+    from independent_mvi import run_models as legacy_linear
+    from independent_mkr import run_models as opposite
+    case,_=make_case(tmp_path,theory="REDDY",integrator="GAUSS_IRK4")
+    called=[]
+    def fake_native(path,*,validate_only):
+        assert not validate_only
+        called.append(str(path))
+        return dict(method=native.METHOD,
+                    status="EXPERIMENTAL_COMPLETED_UNCERTIFIED",
+                    scientific_accuracy_certified=False)
+    def never(*a,**kw):
+        raise AssertionError("legacy linear, MKR or reference solver invoked")
+    monkeypatch.setattr(native,"run",fake_native)
+    monkeypatch.setattr(legacy_linear,"run",never)
+    monkeypatch.setattr(opposite,"run",never)
+    import cylinder_reference_case as ref
+    monkeypatch.setattr(ref,"run_reference_case",never)
+    response=run_final_case(case)
+    assert called==[str(case.resolve())]
+    assert response["solver_backend"]=="INDEPENDENT_MVI"
+    assert response["no_reference_fallback"] is True
+    assert response["scientific_accuracy_certified"] is False
+    assert not (tmp_path/"output").exists()
