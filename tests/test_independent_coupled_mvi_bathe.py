@@ -97,3 +97,33 @@ def test_zero_dt_rejected_before_any_stage(monkeypatch):
     with pytest.raises(ValueError):
         solver.advance(state,0.,field_scales=np.ones(surf.n_fields),
                        energy_scale_j=1.)
+
+
+def test_bathe_viscosity_is_applied_on_both_stages_without_electric_inertia(monkeypatch):
+    import independent_mvi.coupled_bathe as module
+    from independent_mvi.coupled_surface import CoupledMVIWork
+    surf,solver,state=configured()
+    solver.configuration.viscosity.eta_s=.3
+    stages=[]
+    def weak(factors,**kwargs):
+        q=surf.reconstruct(factors)
+        nodal=np.zeros(surf.shape)
+        return CoupledMVIWork(0.,q,None,
+            np.zeros_like(factors.x),np.zeros_like(factors.y),
+            factors.rank,nodal_gradient=nodal)
+    monkeypatch.setattr(surf,"weak_work",weak)
+    monkeypatch.setattr(solver.configuration.inertia,"apply",
+                        lambda q,v,a:np.ones_like(q)*.1)
+    def visc(q,v):
+        stages.append(v.copy())
+        return np.ones_like(q)*.2
+    monkeypatch.setattr(solver.configuration.viscosity,"apply",visc)
+    def halfstep(surface,factors,*,work_evaluator,**kw):
+        work=work_evaluator(factors)
+        np.testing.assert_allclose(work.nodal_gradient,.3)
+        return accepted(factors)
+    monkeypatch.setattr(module,"solve_coupled_mvi_static",halfstep)
+    result=solver.advance(state,.05,field_scales=np.ones(surf.n_fields),
+                          energy_scale_j=1.)
+    assert result.state is not None
+    assert len(stages)==2
