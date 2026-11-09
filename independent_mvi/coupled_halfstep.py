@@ -20,6 +20,7 @@ import warnings
 
 import numpy as np
 from scipy.linalg import LinAlgWarning, lu_factor, lu_solve, get_lapack_funcs
+from scipy.sparse.linalg import LinearOperator, gmres
 
 from independent_mvi.coupled_surface import (
     CoupledMVIFactors, NativeCoupledMVISurface,
@@ -68,8 +69,24 @@ class CoupledMVIHalfstepSettings:
     difference_step: float=1.e-6
     tolerance_scaled: float=1.e-8
     minimum_reciprocal_condition: float=0.
+    linear_solver: str="AUTO"
+    dense_coordinate_limit: int=96
+    krylov_restart: int=24
+    krylov_maxiter: int=60
+    krylov_relative_tolerance: float=1.e-5
 
     def __post_init__(self):
+        if self.linear_solver not in ("AUTO","DENSE_LU","MATRIX_FREE_GMRES"):
+            raise ValueError("MVI_UNKNOWN_HALFSTEP_LINEAR_SOLVER")
+        for name in ("dense_coordinate_limit","krylov_restart","krylov_maxiter"):
+            val=getattr(self,name)
+            if type(val) is not int or val<1:
+                raise ValueError("MVI_INVALID_"+name.upper())
+        rtol=float(self.krylov_relative_tolerance)
+        if (isinstance(self.krylov_relative_tolerance,(bool,np.bool_)) or
+                not math.isfinite(rtol) or not 0<rtol<.2):
+            raise ValueError("MVI_KRYLOV_RELATIVE_TOLERANCE_INVALID")
+        object.__setattr__(self,"krylov_relative_tolerance",rtol)
         for name in ("max_iterations","max_coordinates","max_halvings"):
             val=getattr(self,name)
             if type(val) is not int or val<(0 if name=="max_halvings" else 1):
@@ -287,32 +304,76 @@ def solve_coupled_mvi_halfstep(
     if norm<=settings.tolerance_scaled:
         return result(True,"MVI_HALFSTEP_PROJECTED_STATIONARY",0,z,g,history)
 
+    def jacobian_action(z, direction):
+        """Directional derivative of the OWN frozen-partner MVI stationarity.
+
+        Requires TWO material work evaluations, irrespective of coordinate
+        count. No dense tangent, MKR operator, or field-space correction.
+        """
+        direction=np.asarray(direction,dtype=float)
+        if direction.shape!=(count,) or not np.isfinite(direction).all():
+            raise np.linalg.LinAlgError("MVI_KRYLOV_NONFINITE_DIRECTION")
+        vmax=float(np.max(np.abs(direction),initial=0.))
+        if vmax==0.:
+            return np.zeros_like(direction)
+        h=settings.difference_step*(1.+float(np.max(np.abs(z))))/vmax
+        for _ in range(settings.max_halvings+1):
+            try:
+                _,gp=evaluate(z+h*direction)
+                _,gm=evaluate(z-h*direction)
+            except ValueError as exc:
+                if "INVALID_DEFORMATION_MAPPING" not in str(exc):
+                    raise
+                h*=.5
+                continue
+            action=(gp-gm)/(2*h)
+            if np.isfinite(action).all():
+                return action
+            h*=.5
+        raise np.linalg.LinAlgError("MVI_HALFSTEP_DIRECTIONAL_PROBE_FAILED")
+
     for iteration in range(1,settings.max_iterations+1):
         if cancelled is not None and cancelled():
             return result(False,"MVI_HALFSTEP_CANCELLED",iteration-1,z,g,history)
-        H=np.empty((count,count),dtype=float)
-        for j in range(count):
-            h=settings.difference_step*(1.+abs(z[j]))
-            column=None
-            for _ in range(settings.max_halvings+1):
-                zp=z.copy(); zm=z.copy()
-                zp[j]+=h;zm[j]-=h
-                try:
-                    _,gp=evaluate(zp)
-                    _,gm=evaluate(zm)
-                except ValueError as exc:
-                    if "INVALID_DEFORMATION_MAPPING" not in str(exc):
-                        raise
-                    h*=.5
-                    continue
-                column=(gp-gm)/(2*h)
-                break
-            if column is None:
-                return result(False,"MVI_HALFSTEP_TANGENT_PROBE_FAILED",
-                              iteration-1,z,g,history)
-            H[:,j]=column
+        method=(settings.linear_solver if settings.linear_solver!="AUTO"
+                else "DENSE_LU" if count<=settings.dense_coordinate_limit
+                else "MATRIX_FREE_GMRES")
         try:
-            direction=_checked_lu_newton(H,g,settings.minimum_reciprocal_condition)
+            if method=="DENSE_LU":
+                H=np.empty((count,count),dtype=float)
+                for j in range(count):
+                    if cancelled is not None and cancelled():
+                        raise InterruptedError("MVI_HALFSTEP_CANCELLED")
+                    direction=np.zeros(count)
+                    direction[j]=1.
+                    H[:,j]=jacobian_action(z,direction)
+                delta=_checked_lu_newton(
+                    H,g,settings.minimum_reciprocal_condition)
+            else:
+                def matvec(v):
+                    if cancelled is not None and cancelled():
+                        raise InterruptedError("MVI_HALFSTEP_CANCELLED")
+                    return jacobian_action(z,v)
+                H=LinearOperator((count,count),matvec=matvec,dtype=float)
+                delta,info=gmres(
+                    H,-g,atol=0.,rtol=settings.krylov_relative_tolerance,
+                    restart=min(settings.krylov_restart,count),
+                    maxiter=settings.krylov_maxiter)
+                if info!=0 or not np.isfinite(delta).all():
+                    raise np.linalg.LinAlgError("MVI_GMRES_NOT_CONVERGED")
+                # This is the linearised OWN reduced stationarity equation.
+                # Check the achieved action explicitly, not only the GMRES
+                # exit flag (which can be affected by preconditioning).
+                correction=jacobian_action(z,delta)+g
+                bound=max(settings.krylov_relative_tolerance*
+                          float(np.linalg.norm(g)),
+                          settings.tolerance_scaled)
+                if float(np.linalg.norm(correction))>2.*bound:
+                    raise np.linalg.LinAlgError("MVI_GMRES_LINEARIZATION_NOT_MET")
+            direction=delta
+        except InterruptedError:
+            return result(False,"MVI_HALFSTEP_CANCELLED",
+                          iteration-1,z,g,history)
         except np.linalg.LinAlgError:
             return result(False,"MVI_HALFSTEP_TANGENT_NOT_SOLVED",
                           iteration-1,z,g,history)
@@ -329,6 +390,7 @@ def solve_coupled_mvi_halfstep(
                 accepted=True
                 break
         history.append(dict(axis=axis,iteration=iteration,
+                            linear_solver=method,
                             scaled_gradient_norm=norm,accepted=accepted))
         if on_iteration is not None:
             on_iteration(dict(history[-1]))
