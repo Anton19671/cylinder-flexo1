@@ -48,7 +48,9 @@ def test_initial_state_solves_for_acceleration_not_displacement(monkeypatch):
         bulk,electric=equation(guess,None)
         assert electric is None
         np.testing.assert_allclose(bulk[:,1:-1],.11)
-        np.testing.assert_allclose(bulk[:,[0,-1],:],0.)
+        # Essential acceleration equations are evaluated at the trial guess.
+        # For a nonzero guess at fixed zero-support ends they equal .11.
+        np.testing.assert_allclose(bulk[:,[0,-1],:],.11)
         return StrongNewtonResult(np.zeros_like(q),None,1,True,"CONVERGED",0.)
     monkeypatch.setattr(native_initial,"solve_strong_nonlinear_equations",solve)
     result=native_initial.initialize_consistent_native_mkr(
