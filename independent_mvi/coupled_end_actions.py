@@ -48,6 +48,15 @@ def formal_mvi_axial_end_actions(surface: NativeCoupledMVISurface,
               surface.grid.nx,surface.grid.ns)
     if a is None or np.shape(a)!=expected:
         raise ValueError("MVI_END_ACTIONS_REQUIRE_LOCAL_WEAK_COEFFICIENTS")
+    if work.rank<1 or work.rank>8:
+        raise ValueError("MVI_END_ACTIONS_INVALID_FIXED_RANK")
+    if (np.shape(work.mechanical)!=(surface.n_mechanical,
+                                    surface.grid.nx,surface.grid.ns) or
+            (surface.electrical_on and
+             np.shape(work.electrical)!=(surface.n_electric,
+                                          surface.grid.nx,surface.grid.ns)) or
+            (not surface.electrical_on and work.electrical is not None)):
+        raise ValueError("MVI_END_ACTIONS_FIELD_SHAPE_MISMATCH")
     a=np.asarray(a,dtype=float)
     if not np.isfinite(a).all():
         raise ValueError("MVI_NONFINITE_LOCAL_WEAK_COEFFICIENTS")
