@@ -344,12 +344,12 @@ def run(path,*,validate_only):
             if not answer.converged:
                 raise RuntimeError("COUPLED_MVI_STATIC_"+answer.status)
             q=surface.reconstruct(answer.factors)
+            result["discrete_green"]=_green_audit(
+                surface,answer.factors,mechanical,charge)
             _write_npz(output/"STATIC_ACCEPTED.npz",
                 x_profiles=answer.factors.x,y_profiles=answer.factors.y,
                 mechanical=q[:surface.n_mechanical],
                 electrical=q[surface.n_mechanical:])
-            result["discrete_green"]= _green_audit(
-                surface,answer.factors,mechanical,charge)
             result.update(status="EXPERIMENTAL_STATIONARY_UNCERTIFIED",
                           accepted_steps=1,physical_steps_computed=1)
         else:
