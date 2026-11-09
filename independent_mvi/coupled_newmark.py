@@ -153,7 +153,6 @@ class NativeCoupledMVINewmark:
             if (np.max(np.abs(q_predictor[c,blocked,:]),initial=0.)>
                     self.stationary_tolerance):
                 raise ValueError("MVI_DYNAMIC_INCOMPATIBLE_BOUNDARY_PREDICTOR")
-        W=surf.grid.weights
 
         def effective_work(factors):
             work=surf.weak_work(factors,mechanical_load=mechanical_load,
@@ -164,11 +163,6 @@ class NativeCoupledMVINewmark:
             inertia_nodal=self.inertia.apply(qm,velocity,acceleration)
             full=np.asarray(work.nodal_gradient,float).copy()
             full[:surf.n_mechanical]+=inertia_nodal
-            xgrad=work.gradient_x+np.einsum(
-                "cij,crj->cri",full[:surf.n_mechanical]-
-                work.nodal_gradient[:surf.n_mechanical],
-                factors.y[:surf.n_mechanical],optimize=True).reshape(
-                    surf.n_mechanical,factors.rank,surf.grid.nx).tolist() if False else None
             # Construct all-field projection explicitly. There is no
             # SVD, MKR or full-grid Newton update.
             gx=np.einsum("cij,crj->cri",full,factors.y,optimize=True)
