@@ -25,7 +25,7 @@ def make_engine(theory="CUF_TE1", electric=False):
     ends={side: [[{"kind":"ESSENTIAL","value":0.}] for _ in orders]
           for side in ("left","right")}
     electrical_ends=(
-        {side: [{"kind":"ESSENTIAL","value":0.}] for side in ("left","right")}
+        {side: [{"kind":"ESSENTIAL","value":0.} for _ in range(2)] for side in ("left","right")}
         if electric else None)
     return model, NativeStrongNewmark(
         model, axial_orders=orders, mechanical_ends=ends,
