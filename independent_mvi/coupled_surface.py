@@ -25,7 +25,7 @@ import numpy as np
 
 from flexo_gradient_g3d import G3DMaterial
 from cylinder_kinematic_models import normalized_model
-from independent_mvi.linear_models import _mvi_axial_sbp, _mvi_fourier
+from independent_mvi.coupled_operators import (coupled_mvi_sbp42, coupled_mvi_odd_fourier)
 
 
 THEORIES=("KL","FSDT","REDDY","CUF_TE1","CUF_TE2","CUF_TE3","CUF_TE4")
@@ -70,8 +70,8 @@ class CoupledMVISurfaceGrid:
             raise ValueError("MVI requires nx>=9 and odd ns>=5 for SBP/Fourier")
         L=_positive(self.length_m,"length")
         R=_positive(self.radius_m,"radius")
-        Dx,wx=_mvi_axial_sbp(self.nx,L)
-        Ds,ws=_mvi_fourier(self.ns,R)
+        Dx,wx=coupled_mvi_sbp42(self.nx,L)
+        Ds,ws=coupled_mvi_odd_fourier(self.ns,R)
         for name,raw in (("dx",Dx),("ds",Ds),("wx",wx),("ws",ws)):
             array=np.array(raw,dtype=float,copy=True)
             if not np.isfinite(array).all():
