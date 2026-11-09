@@ -287,10 +287,10 @@ class NativeCoupledMVISurface:
             nodal+=np.einsum("ip,cij,jq->cpq",
                 self._dx_power[ax],coefficient*weights[None,:,:],
                 self._ds_power[ang],optimize=True)
-            wx_contracted=np.einsum("cij,crj,j->cri",coefficient,yd[ang],
-                                   self.grid.ws,optimize=True)
-            wy_contracted=np.einsum("cij,cri,i->crj",coefficient,xd[ax],
-                                   self.grid.wx,optimize=True)
+            wx_contracted=np.einsum("cij,crj,j,i->cri",coefficient,yd[ang],
+                                   self.grid.ws,self.grid.wx,optimize=True)
+            wy_contracted=np.einsum("cij,cri,i,j->crj",coefficient,xd[ax],
+                                   self.grid.wx,self.grid.ws,optimize=True)
             gx+=np.einsum("ip,cri->crp",self._dx_power[ax],wx_contracted,
                           optimize=True)
             gy+=np.einsum("jp,crj->crp",self._ds_power[ang],wy_contracted,
