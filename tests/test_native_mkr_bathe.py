@@ -36,6 +36,8 @@ def setup(electric=False):
         mechanical_ends=mechanical_ends,electrical_ends=electrical_ends,
         density_kg_m3=3.)
     q=np.zeros(model.shape);v=np.full_like(q,.12);a=np.full_like(q,.04)
+    v[:,[0,-1],:]=0.
+    a[:,[0,-1],:]=0.
     p=np.zeros((2,7,4)) if electric else None
     return model,bathe.NativeStrongBathe(engine),NativeNewmarkState(.3,q,v,a,p)
 
@@ -121,6 +123,22 @@ def test_bathe_electric_modes_remain_active_on_both_stages(monkeypatch):
     assert out.state is not None and out.first is not None
     assert len(seen)==2 and count[0]==2
     assert out.state.electrical.shape==(2,7,4)
+
+
+@pytest.mark.parametrize("field",("velocity","acceleration"))
+def test_bathe_rejects_inconsistent_support_before_any_stage(field,monkeypatch):
+    model,engine,state=setup()
+    q=np.array(state.mechanical)
+    v=np.array(state.velocity)
+    a=np.array(state.acceleration)
+    {"velocity":v,"acceleration":a}[...,0,:]=.1
+    incompatible=NativeNewmarkState(state.time_s,q,v,a,state.electrical)
+    def never(*args,**kwargs):
+        raise AssertionError("strong Newton must not run")
+    monkeypatch.setattr(bathe,"solve_strong_nonlinear_equations",never)
+    with pytest.raises(ValueError,match="INITIAL_"):
+        engine.advance(incompatible,.02,mechanical_state_scale=1.,
+                       mechanical_equation_scale=1.)
 
 
 def test_native_bathe_source_does_not_import_variational_or_mvi():
