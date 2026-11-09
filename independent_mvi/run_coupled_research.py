@@ -39,6 +39,10 @@ from independent_mvi.coupled_gauss2 import NativeCoupledMVIGauss2
 from independent_mvi.coupled_initial import close_mvi_instantaneous_state
 from independent_mvi.coupled_discrete_green import coupled_mvi_discrete_green_identity
 from independent_mvi.coupled_dynamic_green import audit_mvi_dynamic_discrete_green
+from independent_mvi.coupled_electric_faces import (
+    face_generalized_free_charge,recover_mvi_electric_faces,
+    summarize_mvi_electric_faces,
+)
 
 SCHEMA="INDEPENDENT_MVI_COUPLED_RESEARCH_V1"
 METHOD="MVI_COUPLED_RESEARCH_FIXED_RANK"
@@ -119,7 +123,10 @@ def load_case(path):
         raw=json.loads(path.read_text(encoding="utf-8-sig"))
     except (ValueError,OSError) as exc:
         raise ValueError("COUPLED_MVI_CASE_CANNOT_BE_READ") from exc
-    case=_exact(raw,CASE_KEYS,"COUPLED_MVI_CASE")
+    if (not isinstance(raw,dict) or not CASE_KEYS.issubset(raw) or
+            set(raw)-CASE_KEYS-{"electric_faces"}):
+        raise ValueError("COUPLED_MVI_CASE_KEYS_INVALID")
+    case=raw
     if case["schema"]!=SCHEMA:
         raise ValueError("COUPLED_MVI_CASE_SCHEMA_MISMATCH")
     if case["research_opt_in"] is not True:
@@ -188,6 +195,20 @@ def load_case(path):
     if surface.electrical_on:
         expected_load.add("free_charge")
     loads=_read_npz(load_path,expected_load)
+    faces=case.get("electric_faces")
+    if faces is not None:
+        if not isinstance(faces,dict) or set(faces)!={"inner","outer"}:
+            raise ValueError("MVI_ELECTRIC_FACES_REQUIRE_INNER_OUTER")
+        # Electric face CHARGE is converted into method-owned generalized
+        # electric work on the reference midsurface, never into a
+        # pointwise penalty or an unconstrained full-grid correction.
+        generalized=face_generalized_free_charge(
+            surface,inner=faces["inner"],outer=faces["outer"])
+        if generalized is not None:
+            loads["free_charge"]+=generalized
+    elif surface.electrical_on:
+        # Omitted specification means zero free charge on both faces.
+        faces={"inner":None,"outer":None}
     for name,shape in (
         ("mechanical_load",(surface.n_mechanical,surface.grid.nx,surface.grid.ns)),
         ("free_charge",(surface.n_electric,surface.grid.nx,surface.grid.ns))):
@@ -248,7 +269,8 @@ def load_case(path):
         path=path,case=case,surface=surface,factors=factors,initial=init,
         program=program,load=loads,opts=opts,settings=settings,
         field_scales=field_scales,energy_scale=energy_scale,
-        density=density,eta=eta,damping=damping,output=output)
+        density=density,eta=eta,damping=damping,output=output,
+        electric_faces=faces)
 
 
 def _write_json(path,data):
@@ -366,6 +388,15 @@ def run(path,*,validate_only):
     _write_json(output/"RUN_SUMMARY.json",result)
     mechanical=items["load"]["mechanical_load"]
     charge=items["load"].get("free_charge")
+    face_specs=items["electric_faces"]
+
+    def electric_face_diagnostic(factors):
+        if not surface.electrical_on:
+            return {"electrical_enabled":False}
+        physical=recover_mvi_electric_faces(
+            surface,factors,inner=face_specs["inner"],
+            outer=face_specs["outer"])
+        return summarize_mvi_electric_faces(physical)
     scales=items["field_scales"]
     energy=items["energy_scale"]
     settings=items["settings"]
@@ -381,6 +412,7 @@ def run(path,*,validate_only):
             q=surface.reconstruct(answer.factors)
             result["discrete_green"]=_green_audit(
                 surface,answer.factors,mechanical,charge)
+            result["electric_faces"]=electric_face_diagnostic(answer.factors)
             _write_npz(output/"STATIC_ACCEPTED.npz",
                 x_profiles=answer.factors.x,y_profiles=answer.factors.y,
                 mechanical=q[:surface.n_mechanical],
@@ -404,6 +436,8 @@ def run(path,*,validate_only):
             state=initial.state
             result["initial_discrete_green"]=_dynamic_green_audit(
                 surface,configuration,state,mechanical,charge)
+            result["initial_electric_faces"]=electric_face_diagnostic(
+                state.factors)
             _store_state(output,0,state,surface)
             driver=(configuration if opts["integrator"]=="NEWMARK"
                     else NativeCoupledMVIBathe(configuration)
@@ -429,6 +463,8 @@ def run(path,*,validate_only):
                 state=advance.state
                 result["last_discrete_green"]=_dynamic_green_audit(
                     surface,configuration,state,mechanical,charge)
+                result["last_electric_faces"]=electric_face_diagnostic(
+                    state.factors)
                 _store_state(output,step,state,surface)
                 result.update(accepted_steps=step,
                               physical_steps_computed=step,
