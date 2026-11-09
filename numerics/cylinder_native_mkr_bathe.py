@@ -21,6 +21,7 @@ from cylinder_direct_strong_newton import (
 from cylinder_native_mkr_newmark import (
     NativeNewmarkState, NativeStrongNewmark, _finite_number, _field,
 )
+from cylinder_native_mkr_initial import _verify_fixed_initial_supports
 
 
 BATHE_GAMMA=2.-math.sqrt(2.)
@@ -106,6 +107,8 @@ class NativeStrongBathe:
         q=_field(state.mechanical,engine.model.shape,"mechanical")
         v=_field(state.velocity,engine.model.shape,"velocity")
         a=_field(state.acceleration,engine.model.shape,"acceleration")
+        _verify_fixed_initial_supports(engine,q,v,acceleration=a,
+                                       absolute_tolerance=1.e-9)
         if engine.model.electrical_on:
             p=engine._electric_field(state.electrical,"electric potential")
         elif state.electrical is not None:
