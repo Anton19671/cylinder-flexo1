@@ -197,6 +197,12 @@ class NativeStrongNewmark:
         q0 = _field(state.mechanical, self.model.shape, "initial displacement")
         v0 = _field(state.velocity, self.model.shape, "initial velocity")
         a0 = _field(state.acceleration, self.model.shape, "initial acceleration")
+        # The initial state must meet all fixed essential traces, including
+        # their first and second time derivatives. Local import avoids a
+        # dependency cycle with the native initial-state solver.
+        from cylinder_native_mkr_initial import _verify_fixed_initial_supports
+        _verify_fixed_initial_supports(self, q0, v0, acceleration=a0,
+                                       absolute_tolerance=1.e-9)
         if self.model.electrical_on:
             p0 = self._electric_field(state.electrical, "initial potential")
         elif state.electrical is not None or electrical_guess is not None:
