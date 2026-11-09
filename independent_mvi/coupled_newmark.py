@@ -22,6 +22,7 @@ from independent_mvi.coupled_halfstep import (
     CoupledMVIEndProgram, _check_end_factors, _scales,
 )
 from independent_mvi.coupled_inertia import NativeCoupledMVIInertia
+from independent_mvi.coupled_viscosity import NativeCoupledMVIViscosity
 from independent_mvi.coupled_static import (
     CoupledMVISweepSettings, CoupledMVISweepResult,
     solve_coupled_mvi_static,
@@ -84,7 +85,7 @@ class NativeCoupledMVINewmark:
     def __init__(self,surface:NativeCoupledMVISurface,
                  inertia:NativeCoupledMVIInertia, *,
                  program:CoupledMVIEndProgram,beta=.25,gamma=.5,
-                 stationary_tolerance=1.e-10):
+                 stationary_tolerance=1.e-10, eta_s=0.):
         if not isinstance(surface,NativeCoupledMVISurface):
             raise TypeError("NativeCoupledMVISurface required")
         if not isinstance(inertia,NativeCoupledMVIInertia) or inertia.surface is not surface:
@@ -101,6 +102,7 @@ class NativeCoupledMVINewmark:
                                              "stationary boundary tolerance")
         self.surface=surface
         self.inertia=inertia
+        self.viscosity=NativeCoupledMVIViscosity(surface,eta_s=eta_s)
         self.program=program
 
     def _validate_state(self,state):
@@ -163,6 +165,8 @@ class NativeCoupledMVINewmark:
             inertia_nodal=self.inertia.apply(qm,velocity,acceleration)
             full=np.asarray(work.nodal_gradient,float).copy()
             full[:surf.n_mechanical]+=inertia_nodal
+            if self.viscosity.eta_s:
+                full[:surf.n_mechanical]+=self.viscosity.apply(qm,velocity)
             # Construct all-field projection explicitly. There is no
             # SVD, MKR or full-grid Newton update.
             gx=np.einsum("cij,crj->cri",full,factors.y,optimize=True)
