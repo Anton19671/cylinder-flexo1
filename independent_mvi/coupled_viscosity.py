@@ -36,21 +36,18 @@ class NativeCoupledMVIViscosity:
         self.surface=surface
         self.eta_s=eta
 
-    def _jets(self, mechanical, i, j):
+    def _surface_jets(self, field):
+        """Build each own MVI spatial derivative ONCE per nonlinear evaluation."""
         surface=self.surface
-        count=surface.n_mechanical
-        shape=(count,surface.grid.nx,surface.grid.ns)
-        f=np.asarray(mechanical,dtype=float)
-        if f.shape!=shape or not np.isfinite(f).all():
-            raise ValueError("MVI_KV_NONFINITE_MECHANICAL_GRID")
-        orders=surface.mechanical_multi
+        return tuple(np.einsum(
+            "ip,cpq,jq->cij",surface._dx_power[ax],field,
+            surface._ds_power[ang],optimize=True)
+            for ax,ang in surface.mechanical_multi)
+
+    def _jets(self, derivative_fields, i, j):
+        surface=self.surface
         values=[]
-        for ax,ang in orders:
-            # Direct independent MVI differentiation in physical x,s:
-            # derivatives are applied in the right factor order.
-            derivative=np.einsum(
-                "ip,cpq,jq->cij",surface._dx_power[ax],f,
-                surface._ds_power[ang],optimize=True)
+        for derivative in derivative_fields:
             field=derivative[:,i,j]
             if surface.theory.startswith("CUF_TE"):
                 field=field.reshape(3,int(surface.theory[-1])+1)
@@ -71,12 +68,14 @@ class NativeCoupledMVIViscosity:
             raise ValueError("MVI_KV_REQUIRES_FINITE_Q_V_FIELDS")
         if self.eta_s==0:
             return np.zeros(shape,dtype=float)
+        qderivatives=self._surface_jets(q)
+        vderivatives=self._surface_jets(v)
         local=np.zeros((surface.n_mechanical,len(surface.mechanical_multi),
                         surface.grid.nx,surface.grid.ns),dtype=float)
         for i in range(surface.grid.nx):
             for j in range(surface.grid.ns):
-                qjets=self._jets(q,i,j)
-                vjets=self._jets(v,i,j)
+                qjets=self._jets(qderivatives,i,j)
+                vjets=self._jets(vderivatives,i,j)
                 result=kelvin_voigt_thickness_weak(
                     qjets,vjets,surface.material,
                     theory=surface.theory,
@@ -85,7 +84,7 @@ class NativeCoupledMVIViscosity:
                     eta_s=self.eta_s,
                     n_gauss=surface.n_gauss,
                     geometry_model=surface.geometry_model)
-                coefficients=np.asarray(result.coefficients,dtype=float)
+                coefficients=np.asarray(result.mechanical,dtype=float)
                 expected=(surface.n_mechanical,len(surface.mechanical_multi))
                 if coefficients.shape!=expected or not np.isfinite(coefficients).all():
                     raise ValueError("MVI_KV_LOCAL_WEAK_SHAPE_MISMATCH")
