@@ -126,3 +126,45 @@ def test_discrete_green_rejects_tampered_nodal_variation():
         1,nodal_gradient=wrong,coefficient_jets=a)
     with pytest.raises(ValueError,match="FIRST_VARIATION_IDENTITY_FAILED"):
         coupled_mvi_discrete_green_identity(surf,forged)
+
+
+def test_native_case_green_audit_is_conservative_and_not_physical_certification(
+        monkeypatch):
+    from independent_mvi import run_coupled_research as runner
+    surf=surface("CUF_TE2",True)
+    a=np.zeros((surf.n_fields,len(surf.multi),surf.grid.nx,surf.grid.ns))
+    a[0,4]=.08
+    a[surf.n_mechanical:,1]=.12
+    work=work_of_coefficients(surf,a)
+    monkeypatch.setattr(surf,"weak_work",lambda *arg,**kw:work)
+    from independent_mvi.coupled_surface import CoupledMVIFactors
+    x=np.zeros((surf.n_fields,1,surf.grid.nx))
+    y=np.ones((surf.n_fields,1,surf.grid.ns))
+    factors=CoupledMVIFactors(x,y)
+    output=runner._green_audit(surf,factors,None,None)
+    assert output["status"]=="MVI_EXACT_DISCRETE_SBP_FOURIER_GREEN_IDENTITY"
+    assert output["conservative_only"] is True
+    assert output["physical_boundary_closure_certified"] is False
+    assert output["identity_relative_error"]<1.e-11
+    assert output["field_trace_orders"][-1]==1
+    assert output["field_trace_orders"][0]==2
+
+
+def test_native_case_green_audit_rejects_wrong_nodal_material_work(
+        monkeypatch):
+    from independent_mvi import run_coupled_research as runner
+    from independent_mvi.coupled_surface import CoupledMVIFactors
+    surf=surface("KL")
+    a=np.zeros((surf.n_fields,len(surf.multi),surf.grid.nx,surf.grid.ns))
+    a[0,6]=.4
+    base=work_of_coefficients(surf,a)
+    wrong=base.nodal_gradient.copy()
+    wrong[0,4,3]+=.02
+    forged=CoupledMVIWork(
+        0.,base.mechanical,None,base.gradient_x,base.gradient_y,
+        1,nodal_gradient=wrong,coefficient_jets=a)
+    monkeypatch.setattr(surf,"weak_work",lambda *arg,**kw:forged)
+    x=np.zeros((surf.n_fields,1,surf.grid.nx))
+    y=np.ones((surf.n_fields,1,surf.grid.ns))
+    with pytest.raises(ValueError,match="FIRST_VARIATION_IDENTITY_FAILED"):
+        runner._green_audit(surf,CoupledMVIFactors(x,y),None,None)
