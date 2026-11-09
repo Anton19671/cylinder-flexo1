@@ -211,6 +211,13 @@ def load_case(path):
     # rank*available-axial factors in X. Report the needed cap before
     # any physical run, rather than silently failing after output creation.
     free=program.free_axial_indices(surface)
+    if opts["kind"]=="DYNAMIC":
+        mass_dofs=sum(len(free[c])*surface.grid.ns
+                      for c in range(surface.n_mechanical))
+        if mass_dofs>opts["max_acceleration_coordinates"]:
+            raise ValueError(
+                "COUPLED_MVI_ACCELERATION_CAP_TOO_SMALL_FOR_GRID: "
+                +str(mass_dofs))
     needed_x=sum(factors.rank*len(ids) for ids in free)
     needed_y=factors.rank*surface.n_fields*surface.grid.ns
     if max(needed_x,needed_y)>cap:
