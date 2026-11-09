@@ -48,7 +48,7 @@ def make_case(tmp_path,*,theory="CUF_TE1",electric=False,kind="DYNAMIC",
                  integrator=integrator if kind=="DYNAMIC" else None,
                  dt_s=.01 if kind=="DYNAMIC" else None,
                  steps=2 if kind=="DYNAMIC" else 0,
-                 max_sweeps=4,max_acceleration_coordinates=256,
+                 max_sweeps=4,max_acceleration_coordinates=1024,
                  max_halfstep_coordinates=512,
                  field_scales=[1.]* (n+ec),energy_scale_j=1.),
               initial_state_npz="initial.npz",loads_npz="loads.npz",
@@ -110,15 +110,20 @@ def test_reference_schema_never_accepted_as_coupled_research(tmp_path):
 def test_high_rank_preflight_is_explicit_and_no_solver_starts(tmp_path):
     path,document=make_case(tmp_path,theory="CUF_TE4")
     rank=8
-    nx=document["grid"]["nx"]
-    ns=document["grid"]["ns"]
+    nx=11
+    ns=9
     nfields=15
+    document["grid"]["nx"]=nx
+    document["grid"]["ns"]=ns
     x=np.zeros((nfields,rank,nx))
     x[:,:,1:-1]=.001
     y=np.ones((nfields,rank,ns))
     np.savez_compressed(tmp_path/"initial.npz",x_profiles=x,y_profiles=y,
                         velocity=np.zeros((nfields,nx,ns)))
+    np.savez_compressed(tmp_path/"loads.npz",
+                        mechanical_load=np.zeros((nfields,nx,ns)))
     document["rank"]=rank
+    document["solver"]["max_acceleration_coordinates"]=1400
     document["solver"]["max_halfstep_coordinates"]=192
     path.write_text(json.dumps(document))
     with pytest.raises(ValueError,match="HALFSTEP_CAP_TOO_SMALL"):
@@ -126,4 +131,12 @@ def test_high_rank_preflight_is_explicit_and_no_solver_starts(tmp_path):
     document["solver"]["max_halfstep_coordinates"]=1200
     path.write_text(json.dumps(document))
     assert native.run(path,validate_only=True)["rank"]==rank
+    assert not (tmp_path/"output").exists()
+
+def test_dynamic_mass_preflight_prevents_unusable_initial_solver(tmp_path):
+    path,data=make_case(tmp_path,theory="CUF_TE4")
+    data["solver"]["max_acceleration_coordinates"]=10
+    path.write_text(json.dumps(data))
+    with pytest.raises(ValueError,match="ACCELERATION_CAP_TOO_SMALL"):
+        native.run(path,validate_only=True)
     assert not (tmp_path/"output").exists()
