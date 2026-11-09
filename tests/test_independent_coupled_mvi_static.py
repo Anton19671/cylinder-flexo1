@@ -130,7 +130,6 @@ def test_excluded_essential_traces_do_not_enter_full_nodal_check():
     surface,fac,program=build()
     from types import SimpleNamespace
     node=np.zeros(surface.shape)
-    node[:,:,0]=0. # No effect: second index is axial, not last.
     node[:,0,:]=10.
     node[:,-1,:]=-10.
     surface.weak_work=lambda *a,**k:SimpleNamespace(
