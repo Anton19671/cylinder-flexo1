@@ -190,7 +190,7 @@ def solve_coupled_mvi_halfstep(
         field_scales, energy_scale_j,
         mechanical_load=None, free_charge=None,
         settings=CoupledMVIHalfstepSettings(),
-        on_iteration=None, cancelled=None):
+        on_iteration=None, cancelled=None, work_evaluator=None):
     """Solve ONLY the active frozen-partner X or Y coordinates.
 
     All coordinates belong to the selected separated family. A status
@@ -208,6 +208,8 @@ def solve_coupled_mvi_halfstep(
         raise TypeError("on_iteration must be callable")
     if cancelled is not None and not callable(cancelled):
         raise TypeError("cancelled must be callable")
+    if work_evaluator is not None and not callable(work_evaluator):
+        raise TypeError("work_evaluator must be callable")
     scales,energy_scale=_scales(surface,field_scales,energy_scale_j)
     # All field/end validation precedes the first nonlinear material call.
     _check_end_factors(surface,factors,program)
@@ -242,8 +244,9 @@ def solve_coupled_mvi_halfstep(
 
     def evaluate(z):
         f=unpack(z)
-        work=surface.weak_work(f,mechanical_load=mechanical_load,
-                               free_charge=free_charge)
+        work=(surface.weak_work(f,mechanical_load=mechanical_load,
+                                free_charge=free_charge)
+              if work_evaluator is None else work_evaluator(f))
         derivative=(work.gradient_x if axis=="X" else work.gradient_y)
         g=np.concatenate([derivative[c][:,ids].ravel()*scales[c]/energy_scale
                           for c,ids in enumerate(indices)])
