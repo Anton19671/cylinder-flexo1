@@ -59,9 +59,12 @@ algorithm**, not a complete publication-grade cylinder solver. In particular:
 1. MVI halfstep tests are only manufactured quadratic factor equations,
    rank immutability, QR invariance, explicit boundary rejection, failure
    atomicity and cancellation. They are not loaded cylinder calculations.
-2. The missing full-field stationarity/rank-sufficiency test must be
-   implemented independently. Projected fixed-rank stationarity alone
-   does NOT certify the original 2D equations.
+2. A new mandatory full-admissible-nodal first-variation gate has now
+   been implemented in the independent coupled MVI surface and Y/X sweep
+   (2026-11-09). A fixed-rank projected-stationary field is NOT accepted
+   if any admissible two-dimensional nodal direction fails this gate.
+   This catches rank insufficiency but does NOT validate physical high-order
+   edge fluxes or prove mesh convergence.
 3. Consistent physical higher-order natural end conditions, electric
    gauge/insulation, reciprocal dynamic inertia and source boundary work
    require their own mathematical and numerical checks.
@@ -75,3 +78,33 @@ algorithm**, not a complete publication-grade cylinder solver. In particular:
 Only local continuum constitutive kernels are shared between methods;
 the MVI 2D spatial operators, factor gradients, and nonlinear Newton
 algorithms are owned by independent_mvi. MKR code is not imported.
+
+
+## 2026-11-09: full admissible 2D nodal certification
+
+The method-owned spatial assembler now exposes `nodal_gradient`, the
+weighted first variation with respect to every component and every
+independent surface nodal coefficient, assembled by the SAME MVI
+SBP42/Fourier derivative powers and thickness-integrated local virtual
+work. It does not import MKR, perform a full-node Newton solve or change
+rank. It confirms internally that contractions with the frozen opposite
+factors reproduce the independently assembled X/Y derivatives.
+
+The stationary Y/X driver checks the full gradient on each field's
+explicitly admissible axial coordinates (mechanical ends immobile;
+grounded electric endpoint(s) excluded separately). Acceptance requires
+both frozen-partner conditions, small change of reconstructed field AND
+all admissible nodal tests. Where projected stationarity holds but
+the full nodal criterion does not, status is
+`MVI_FIXED_RANK_INSUFFICIENT_FULL_NODAL_WORK` with `converged=False`.
+Acceptance status is now `MVI_FIXED_RANK_FULL_NODAL_STATIONARY`.
+The full norm is carried in the result and sweep history.
+
+Test code covers a manufactured mixed X/S local functional, mechanical/
+electric factor-to-node chain rule, exclusion of essential endpoints,
+and deliberate rank-insufficient cases. Tests were committed but not
+executed in this interaction. No physical cylinder calculation was run.
+
+This does not settle higher-order microfree and electric face
+boundary work, the mixed principal PDE order, the floating electric
+gauge problem, or independent dynamic MVI. The module remains opt-in.
