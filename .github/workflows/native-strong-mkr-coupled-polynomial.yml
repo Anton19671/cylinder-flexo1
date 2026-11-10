@@ -1,0 +1,32 @@
+name: Native strong MKR coupled polynomial and singular LU contracts
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "tests/test_cuf_parallel_ends.py"
+      - "tests/test_direct_strong_newton.py"
+      - "numerics/cylinder_direct_strong_newton.py"
+      - "numerics/cylinder_direct_strong_fdm.py"
+      - ".github/workflows/native-strong-mkr-coupled-polynomial.yml"
+permissions:
+  contents: read
+jobs:
+  strong-manufactured:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONPATH: ".:independent_mkr:independent_mvi:mechanics:numerics:flexoelectric:physics:interface"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install numerical dependencies
+        run: python -m pip install numpy scipy pytest
+      - name: Strong coupled fourth-order physical gauge and Newton tests
+        run: python -m pytest -q tests/test_cuf_parallel_ends.py tests/test_direct_strong_newton.py
