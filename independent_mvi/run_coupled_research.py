@@ -39,6 +39,7 @@ from independent_mvi.coupled_gauss2 import NativeCoupledMVIGauss2
 from independent_mvi.coupled_initial import close_mvi_instantaneous_state
 from independent_mvi.coupled_discrete_green import coupled_mvi_discrete_green_identity
 from independent_mvi.coupled_dynamic_green import audit_mvi_dynamic_discrete_green
+from independent_mvi.coupled_mechanical_end_work import compile_mechanical_end_work
 from independent_mvi.coupled_electric_faces import (
     face_generalized_free_charge,recover_mvi_electric_faces,
     summarize_mvi_electric_faces,
@@ -124,7 +125,7 @@ def load_case(path):
     except (ValueError,OSError) as exc:
         raise ValueError("COUPLED_MVI_CASE_CANNOT_BE_READ") from exc
     if (not isinstance(raw,dict) or not CASE_KEYS.issubset(raw) or
-            set(raw)-CASE_KEYS-{"electric_faces"}):
+            set(raw)-CASE_KEYS-{"electric_faces","mechanical_end_work"}):
         raise ValueError("COUPLED_MVI_CASE_KEYS_INVALID")
     case=raw
     if case["schema"]!=SCHEMA:
@@ -150,6 +151,9 @@ def load_case(path):
         raise ValueError("COUPLED_MVI_FIXED_RANK_MUST_BE_1_TO_8")
     program=CoupledMVIEndProgram(**b)
     program.validate(surface)
+    end_work=compile_mechanical_end_work(
+        surface,case.get("mechanical_end_work"))
+    surface.mechanical_end_work=end_work
     opts=case["solver"]
     if (not isinstance(opts,dict) or
             not SOLVER_KEYS.issubset(opts) or
@@ -284,7 +288,7 @@ def load_case(path):
         program=program,load=loads,opts=opts,settings=settings,
         field_scales=field_scales,energy_scale=energy_scale,
         density=density,eta=eta,damping=damping,output=output,
-        electric_faces=faces)
+        electric_faces=faces,mechanical_end_work=end_work)
 
 
 def _write_json(path,data):
@@ -389,6 +393,8 @@ def run(path,*,validate_only):
         theory=surface.theory,gradient_model=surface.material.gradient_model,
         geometry_model=surface.geometry_model,rank=items["factors"].rank,
         electric_floating_gauge=bool(surface.floating_gauge),
+        generalized_mechanical_end_work=(
+            items["mechanical_end_work"] is not None),
         steps=opts["steps"],output_dir=str(items["output"]),
         physical_steps_computed=0,
         physical_boundary_closure_certified=False)
