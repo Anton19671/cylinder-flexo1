@@ -121,6 +121,7 @@ class CoupledMVIWork:
     status: str="MVI_OWN_WEAK_WORK_NOT_BOUNDARY_CERTIFIED"
     nodal_gradient: np.ndarray | None=None
     coefficient_jets: np.ndarray | None=None
+    external_end_gradient: np.ndarray | None=None
 
 
 class NativeCoupledMVISurface:
@@ -192,6 +193,7 @@ class NativeCoupledMVISurface:
             from cylinder_kl_g3d_weak import KLSurfaceJets,thickness_weak_coefficients
             self._jet_type=KLSurfaceJets
         self._local=partial(thickness_weak_coefficients,material=material,**params)
+        self.mechanical_end_work=None
 
     @property
     def shape(self):
@@ -375,9 +377,23 @@ class NativeCoupledMVISurface:
         # without recomputing the same physical state and loading.
         source_coeff=coeff.copy()
         source_coeff.setflags(write=False)
+        external=None
+        if self.mechanical_end_work is not None:
+            end=self.mechanical_end_work
+            if end.surface is not self:
+                raise ValueError("MVI_END_WORK_SURFACE_MISMATCH")
+            external=end.nodal_gradient()
+            nodal+=external
+            gx+=np.einsum("cij,crj->cri",external,factors.y,optimize=True)
+            gy+=np.einsum("cij,cri->crj",external,factors.x,optimize=True)
+            energy+=end.potential(factors)
+            if not (math.isfinite(energy) and np.isfinite(nodal).all() and
+                    np.isfinite(gx).all() and np.isfinite(gy).all()):
+                raise ValueError("MVI_END_WORK_NONFINITE_VARIATION")
         return CoupledMVIWork(energy,q.copy(),None if p is None else p.copy(),
                               gx,gy,factors.rank,nodal_gradient=nodal,
-                              coefficient_jets=source_coeff)
+                              coefficient_jets=source_coeff,
+                              external_end_gradient=external)
 
 
 __all__=("THEORIES","MECHANICAL_MULTI","ELECTRIC_MULTI",
