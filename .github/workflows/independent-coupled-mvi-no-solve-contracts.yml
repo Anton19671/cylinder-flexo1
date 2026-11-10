@@ -11,6 +11,7 @@ on:
       - "independent_mvi/coupled_*.py"
       - "independent_mvi/run_coupled_research.py"
       - "tests/test_independent_coupled_mvi_load_history.py"
+      - "tests/test_independent_coupled_mvi_checkpoint.py"
       - "interface/cylinder_independent_dispatch.py"
       - "tests/test_independent_coupled_mvi_*.py"
       - "ci/check_mvi_gauss_endpoint_traces.py"
@@ -41,10 +42,10 @@ jobs:
         run: python ci/check_mvi_gauss_endpoint_traces.py
       - name: Verify time-dependent stage loads and CUF physical recovery without shell runs
         run: |
-          python -m pytest -q tests/test_independent_coupled_mvi_load_history.py tests/test_independent_coupled_mvi_case_dispatch.py
+          python -m pytest -q tests/test_independent_coupled_mvi_load_history.py tests/test_independent_coupled_mvi_case_dispatch.py tests/test_independent_coupled_mvi_checkpoint.py
       - name: Syntax check independent MVI modules
         run: |
-          python -m py_compile independent_mvi/coupled_operators.py independent_mvi/coupled_surface.py independent_mvi/coupled_halfstep.py independent_mvi/coupled_static.py independent_mvi/coupled_end_actions.py independent_mvi/coupled_inertia.py independent_mvi/coupled_viscosity.py independent_mvi/coupled_newmark.py independent_mvi/coupled_bathe.py independent_mvi/coupled_initial.py independent_mvi/coupled_rank_endpoint.py independent_mvi/coupled_gauss2.py independent_mvi/coupled_load_history.py independent_mvi/coupled_physical_recovery.py independent_mvi/coupled_discrete_green.py independent_mvi/coupled_dynamic_green.py independent_mvi/coupled_electric_faces.py independent_mvi/coupled_mechanical_end_work.py independent_mvi/run_coupled_research.py interface/cylinder_independent_dispatch.py
+          python -m py_compile independent_mvi/coupled_operators.py independent_mvi/coupled_surface.py independent_mvi/coupled_halfstep.py independent_mvi/coupled_static.py independent_mvi/coupled_end_actions.py independent_mvi/coupled_inertia.py independent_mvi/coupled_viscosity.py independent_mvi/coupled_newmark.py independent_mvi/coupled_bathe.py independent_mvi/coupled_initial.py independent_mvi/coupled_rank_endpoint.py independent_mvi/coupled_gauss2.py independent_mvi/coupled_load_history.py independent_mvi/coupled_physical_recovery.py independent_mvi/coupled_checkpoint.py independent_mvi/coupled_discrete_green.py independent_mvi/coupled_dynamic_green.py independent_mvi/coupled_electric_faces.py independent_mvi/coupled_mechanical_end_work.py independent_mvi/run_coupled_research.py interface/cylinder_independent_dispatch.py
       - name: Exact discrete SBP/Fourier boundary identity (no shell run)
         run: python -m pytest -q tests/test_independent_coupled_mvi_discrete_green.py
       - name: Complete dynamic inertia Kelvin-Voigt electric boundary identity
