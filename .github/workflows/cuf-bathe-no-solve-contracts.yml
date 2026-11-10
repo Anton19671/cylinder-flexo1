@@ -1,0 +1,37 @@
+name: CUF TE and Bathe verification contracts (no shell runs)
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "ci/generate_linear_bathe_case.py"
+      - "ci/check_linear_bathe_case_matrix.py"
+      - "ci/check_active_cuf_te_basis.py"
+      - "flexoelectric/cuf_g3d_weak.py"
+      - "config/verification/kl_cc_bathe/BATHE_MVI1.json"
+      - ".github/workflows/cuf-bathe-no-solve-contracts.yml"
+permissions:
+  contents: read
+jobs:
+  no-solve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONPATH: ".:ci:flexoelectric:physics:mechanics:numerics"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install algebra-only dependencies
+        run: python -m pip install numpy scipy
+      - name: Compile the three verification scripts
+        run: python -m py_compile ci/generate_linear_bathe_case.py ci/check_linear_bathe_case_matrix.py ci/check_active_cuf_te_basis.py
+      - name: Check 63 Bathe configurations without a physical solve
+        run: python ci/check_linear_bathe_case_matrix.py
+      - name: Check active TE1-TE4 basis and exact mass moments without a physical solve
+        run: python ci/check_active_cuf_te_basis.py
