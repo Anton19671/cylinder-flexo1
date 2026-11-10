@@ -44,6 +44,7 @@ SOLVER_KEYS=frozenset(("kind","integrator","dt_s","steps","max_dofs",
                         "max_iterations","mechanical_state_scale",
                         "mechanical_equation_scale","electrical_state_scale",
                         "electrical_equation_scale","potential_scale_v"))
+SOLVER_OPTIONAL=frozenset(("linear_solver","dense_lu_dof_limit"))
 CASE_KEYS=frozenset(("schema","research_opt_in","physics","grid","boundary",
                       "solver","initial_state_npz","loads_npz","output_dir"))
 OPTIONAL_KEYS=frozenset(("mechanical_end_work","electric_faces"))
@@ -166,7 +167,10 @@ def load_case(filename):
     potential_order=p["potential_order"]
     b=_strict(case["boundary"],("mechanical","electric","axial_orders"),
               "MKR_BOUNDARY")
-    opts=_strict(case["solver"],SOLVER_KEYS,"MKR_SOLVER")
+    opts=case["solver"]
+    if (not isinstance(opts,dict) or not SOLVER_KEYS.issubset(opts)
+            or set(opts)-SOLVER_KEYS-SOLVER_OPTIONAL):
+        raise ValueError("MKR_SOLVER_KEYS_INVALID")
     if opts["kind"] not in ("STATIC","DYNAMIC"):
         raise ValueError("MKR_COUPLED_UNKNOWN_CALCULATION_KIND")
     if opts["kind"]=="STATIC":
@@ -273,8 +277,11 @@ def load_case(filename):
             engine,seed["mechanical"],seed["velocity"],
             absolute_tolerance=1.e-9)
     return dict(path=path,case=case,model=model,program=program,engine=engine,
-                settings=StrongNewtonSettings(max_dofs=opts["max_dofs"],
-                    max_iterations=opts["max_iterations"]),
+                settings=StrongNewtonSettings(
+                    max_dofs=opts["max_dofs"],
+                    max_iterations=opts["max_iterations"],
+                    linear_solver=opts.get("linear_solver","MATRIX_FREE_GMRES"),
+                    dense_lu_dof_limit=opts.get("dense_lu_dof_limit",384)),
                 seed=seed,sources=sources,opts=opts,output=output,
                 qscale=qscale,rscale=rscale,escale=escale,
                 erescale=erescale)
