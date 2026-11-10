@@ -102,3 +102,24 @@ def test_dense_explicit_method_rejects_excess_before_allocating_matrix():
         acceleration_dense_limit=20)
     assert solved.state is None
     assert solved.status=="MVI_ACCELERATION_DENSE_METHOD_LIMIT"
+
+
+@pytest.mark.parametrize("force_scale",(1.,1.e-3,1.e-9,1.e-15))
+def test_mass_equilibrium_gate_is_relative_to_physical_force(force_scale):
+    rhs=np.array([0.,force_scale,-.2*force_scale])
+    bound=initial._mass_equilibrium_bound(rhs)
+    assert bound == pytest.approx(1.e-8*force_scale,rel=1.e-14)
+    assert 2.e-8*force_scale>bound
+    assert .5e-8*force_scale<bound
+
+
+def test_mass_equilibrium_gate_rejects_nonfinite_force():
+    for value in (float("nan"),float("inf"),-float("inf")):
+        with pytest.raises(ValueError,match="NONFINITE_FORCE_SCALE"):
+            initial._mass_equilibrium_bound(np.array([1.,value]))
+
+
+def test_mass_equilibrium_gate_zero_force_is_finite():
+    bound=initial._mass_equilibrium_bound(np.zeros(4))
+    assert np.isfinite(bound) and bound>0
+    assert bound<np.finfo(float).tiny
