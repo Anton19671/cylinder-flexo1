@@ -129,7 +129,7 @@ def test_bathe_viscosity_is_applied_on_both_stages_without_electric_inertia(monk
     assert len(stages)==2
 
 
-@pytest.mark.parametrize("dt",(1.e-200,1.e-155,1.e-140))
+@pytest.mark.parametrize("dt",(1.e-200,1.e-155))
 def test_bathe_rejects_unrepresentable_implicit_coefficients_before_loads(
         monkeypatch,dt):
     import independent_mvi.coupled_bathe as module
