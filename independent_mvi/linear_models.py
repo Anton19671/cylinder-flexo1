@@ -631,6 +631,26 @@ class IndependentVariationalModel:
         def acc(Q):
             return [sum(inv[i,j]*(Q[j]-base[j]) for j in range(2))/dt_s**2
                     for i in range(2)]
+
+        def full_stage_balance(Q,acceleration,tolerance=1.e-7):
+            # At free vibration the inertial and elastic weak terms
+            # cancel. Scaling by their SUM would make a nonzero
+            # cancellation error impossible to pass at any finite
+            # relative tolerance. Normalize by the physical terms
+            # separately, on the exact OWN admissible weak coordinates.
+            for i in range(2):
+                mass=self.pack(self.mass_action(acceleration[i]))
+                elastic=self.pack(self.stiffness_action(Q[i]))
+                applied=self.pack(force[i])
+                if not all(np.isfinite(term).all() for term in
+                           (mass,elastic,applied)):
+                    raise RuntimeError("MVI_GAUSS_NONFINITE_STAGE_WORK")
+                scale=max(np.linalg.norm(mass),np.linalg.norm(elastic),
+                          np.linalg.norm(applied),1.e-30)
+                if np.linalg.norm(mass+elastic-applied)>tolerance*scale:
+                    return False
+            return True
+
         history=[]
         for sweep in range(max_sweeps):
             before=fields()
@@ -681,23 +701,15 @@ class IndependentVariationalModel:
                 # unless BOTH independent physical stage equations
                 # also hold on all admissible weak surface coordinates.
                 a_now=acc(current)
-                if all(self._all_free_surface_equations_hold(
-                        force[i],
-                        self.mass_action(a_now[i])+
-                        self.stiffness_action(current[i]),1.e-7)
-                       for i in range(2)):
+                if full_stage_balance(current,a_now):
                     break
         else:
             raise RuntimeError("MVI_GAUSS_XY_NOT_COMPLETED")
         Q=fields()
         acceleration=acc(Q)
-        for i in range(2):
-            stage_action=(self.mass_action(acceleration[i])+
-                          self.stiffness_action(Q[i]))
-            if not self._all_free_surface_equations_hold(
-                    force[i],stage_action,1.e-7):
-                raise RuntimeError(
-                    "MVI_GAUSS_RANK_NOT_SUFFICIENT_FOR_FULL_2D_EQUATIONS")
+        if not full_stage_balance(Q,acceleration):
+            raise RuntimeError(
+                "MVI_GAUSS_RANK_NOT_SUFFICIENT_FOR_FULL_2D_EQUATIONS")
         V=[v+dt_s*sum(A[i,j]*acceleration[j] for j in range(2))
            for i in range(2)]
         endpoint=q+dt_s*v+dt_s**2*sum(
