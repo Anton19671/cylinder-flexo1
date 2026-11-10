@@ -82,4 +82,6 @@ class DirectStrongNewtonTests(unittest.TestCase):
             mechanical_state_scale=1.,mechanical_equation_scale=1.,
             settings=StrongNewtonSettings(max_dofs=28,max_iterations=2))
         self.assertFalse(result.converged)
-        self.assertEqual(result.status,"LINEAR_TANGENT_NOT_SOLVED")
+        # AUTO now selects an explicit LU for small strong systems.
+        # The zero tangent has a more specific, correct failure status.
+        self.assertEqual(result.status,"SINGULAR_STRONG_TANGENT")
