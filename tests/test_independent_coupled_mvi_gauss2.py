@@ -216,3 +216,26 @@ def test_gauss_axisymmetric_one_mode_selects_exact_shared_angular_subspace():
     assert not gauss._gauss_axisymmetric_rank1_subspace(
         surf,different,q,zero,zero,
         ((uniform,None),(uniform,None)))
+
+
+@pytest.mark.parametrize("source", ("q0", "v0", "stage_velocity", "stage_acceleration"))
+@pytest.mark.parametrize("bad", (float("nan"), float("inf"), -float("inf")))
+def test_gauss_endpoint_rejects_nonfinite_inputs(source, bad):
+    q0=np.zeros((3,3,3),float)
+    v0=np.zeros_like(q0)
+    velocities=np.zeros((2,*q0.shape),float)
+    accelerations=np.zeros_like(velocities)
+    target={"q0":q0,"v0":v0,"stage_velocity":velocities,
+            "stage_acceleration":accelerations}[source]
+    target.flat[0]=bad
+    with pytest.raises(ValueError,match="MVI_GAUSS_ENDPOINT_KINEMATICS_INVALID"):
+        gauss.mvi_gauss_endpoint(q0,v0,velocities,accelerations,.002)
+
+
+def test_gauss_endpoint_rejects_finite_inputs_with_nonfinite_output():
+    q0=np.zeros((3,3,3),float)
+    v0=np.zeros_like(q0)
+    velocities=np.full((2,*q0.shape),1.e308)
+    accelerations=np.zeros_like(velocities)
+    with pytest.raises(ValueError,match="MVI_GAUSS_ENDPOINT_NONFINITE_PHYSICAL_STATE"):
+        gauss.mvi_gauss_endpoint(q0,v0,velocities,accelerations,1.e308)
