@@ -676,7 +676,17 @@ class IndependentVariationalModel:
             if difference<=2.e-7*max(
                 sum(np.linalg.norm(item)**2 for item in current)**.5,
                 1.e-30):
-                break
+                # Small X/Y updates alone do not establish the full
+                # two-stage collocation equations. Continue iterating
+                # unless BOTH independent physical stage equations
+                # also hold on all admissible weak surface coordinates.
+                a_now=acc(current)
+                if all(self._all_free_surface_equations_hold(
+                        force[i],
+                        self.mass_action(a_now[i])+
+                        self.stiffness_action(current[i]),1.e-7)
+                       for i in range(2)):
+                    break
         else:
             raise RuntimeError("MVI_GAUSS_XY_NOT_COMPLETED")
         Q=fields()
