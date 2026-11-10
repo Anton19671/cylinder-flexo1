@@ -149,3 +149,34 @@ def test_free_interior_nodal_direction_is_checked():
         nodal_gradient=node)
     assert engine._projected_norms(surface,fac,program,
                         np.ones(surface.n_fields),1.,None,None)==(0.,0.,.05)
+
+
+def test_rank_five_keeps_five_separated_slots_at_every_sweep(monkeypatch):
+    """MVI-5 cannot be renamed MVI-1 or accepted early on a short series."""
+    surface,seed,program=build()
+    x=np.repeat(seed.x,5,axis=1)
+    y=np.repeat(seed.y,5,axis=1)
+    factors=CoupledMVIFactors(x,y)
+    requested_rank=5
+    seen=[]
+    def halfstep(surf,current,*,axis,**kwargs):
+        seen.append((axis,current.rank))
+        return CoupledMVIHalfstepResult(
+            current,True,"STATIONARY",axis,0,0.,())
+    monkeypatch.setattr(engine,"solve_coupled_mvi_halfstep",halfstep)
+    # This synthetic work is deliberately not stationary at any sweep.
+    # A full MAX_SWEEPS result must remain an unsuccessful MVI-5, not
+    # an artificial reduced-rank success.
+    monkeypatch.setattr(engine,"_projected_norms",
+                        lambda *args,**kwargs:(.05,.04,.03))
+    out=engine.solve_coupled_mvi_static(
+        surface,factors,program=program,
+        field_scales=np.ones(surface.n_fields),energy_scale_j=1.,
+        settings=engine.CoupledMVISweepSettings(max_sweeps=4))
+    assert not out.converged
+    assert out.status=="MVI_FIXED_RANK_SWEEPS_EXHAUSTED"
+    assert out.sweeps==4
+    assert out.factors.rank==requested_rank
+    assert seen==[("Y",5),("X",5)]*4
+    assert len(out.history)==4
+    assert all(row["rank"]==5 for row in out.history)
