@@ -149,3 +149,58 @@ def test_no_svd_or_mkr_or_shared_spatial_imports():
         "independent_mkr","cylinder_mkr_","cylinder_direct_strong_",
         "cylinder_variational_fdm","cylinder_functional_assembly"))
         for name in imports)
+
+
+@pytest.mark.parametrize("rank",range(1,9))
+def test_zero_axial_seed_preserves_all_user_angular_modes_through_y_step(rank):
+    """No silent loss of prescribed modes before the next X iteration."""
+    nx,ns=11,9
+    surface=NativeCoupledMVISurface(
+        "KL",G3DMaterial(90.,.24,.06,0.,0.,0.),
+        grid=CoupledMVISurfaceGrid(nx,ns,1.2,2.),
+        thickness_m=.3,n_gauss=2)
+    theta=2.*np.pi*np.arange(ns)/ns
+    profiles=[np.ones(ns)]
+    for k in range(1,5):
+        profiles.extend((np.cos(k*theta),np.sin(k*theta)))
+    yy=np.broadcast_to(np.stack(profiles[:rank]),
+                       (surface.n_fields,rank,ns)).copy()
+    xx=np.zeros((surface.n_fields,rank,nx))
+    original=CoupledMVIFactors(xx,yy)
+    program=CoupledMVIEndProgram("IMMOBILE_PARALLEL_ENDS","OFF")
+    normalized=normalized_mvi_factors(surface,original,program,"Y")
+    np.testing.assert_array_equal(normalized.y,original.y)
+    np.testing.assert_array_equal(normalized.x,original.x)
+    # In this state Y is dormant; no physical response or mode is
+    # allowed to be fabricated merely by coordinate normalization.
+    np.testing.assert_array_equal(surface.reconstruct(normalized),0.)
+    # X is permitted to activate ANY of the original R angular
+    # directions without a numerical rank reduction or substitution.
+    updated_x=np.zeros_like(xx)
+    updated_x[:,:,1:-1]=np.arange(1,rank+1)[None,:,None]*.001
+    activated=CoupledMVIFactors(updated_x,normalized.y)
+    assert activated.rank==rank
+    assert np.linalg.matrix_rank(activated.y[0],tol=1.e-10)==rank
+    assert np.max(np.abs(surface.reconstruct(activated)))>0.
+
+
+@pytest.mark.parametrize("rank",(2,3,5,8))
+def test_duplicate_or_zero_angular_modes_not_silently_replaced(rank):
+    nx,ns=11,9
+    surface=NativeCoupledMVISurface(
+        "KL",G3DMaterial(90.,.24,.06,0.,0.,0.),
+        grid=CoupledMVISurfaceGrid(nx,ns,1.2,2.),
+        thickness_m=.3,n_gauss=2)
+    xx=np.zeros((surface.n_fields,rank,nx))
+    yy=np.ones((surface.n_fields,rank,ns))
+    xx[:,:,1:-1]=.001
+    yy[:,0]=0.
+    start=CoupledMVIFactors(xx,yy)
+    program=CoupledMVIEndProgram("IMMOBILE_PARALLEL_ENDS","OFF")
+    for axis in ("X","Y"):
+        out=normalized_mvi_factors(surface,start,program,axis)
+        assert out.rank==rank
+        np.testing.assert_allclose(surface.reconstruct(out),
+                                   surface.reconstruct(start),atol=1.e-14)
+        np.testing.assert_array_equal(out.x,start.x)
+        np.testing.assert_array_equal(out.y,start.y)
