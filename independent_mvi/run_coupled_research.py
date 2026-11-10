@@ -136,16 +136,18 @@ def load_case(path):
     mat=_exact(p["material"],MATERIAL_KEYS,"COUPLED_MVI_MATERIAL")
     if p["theory"] not in THEORIES:
         raise ValueError("COUPLED_MVI_UNKNOWN_THEORY")
+    b=_exact(case["boundary"],{"mechanical","electric"},
+             "COUPLED_MVI_BOUNDARY")
+    floating=(b["electric"]=="INSULATED_FLOATING")
     surface=NativeCoupledMVISurface(
         p["theory"],G3DMaterial(**mat),
         grid=CoupledMVISurfaceGrid(**grid),
         thickness_m=p["thickness_m"],n_gauss=p["n_gauss"],
         potential_order=p["potential_order"],
-        geometry_model=p["geometry_model"])
+        geometry_model=p["geometry_model"],
+        floating_gauge=floating)
     if type(case["rank"]) is not int or not 1<=case["rank"]<=8:
         raise ValueError("COUPLED_MVI_FIXED_RANK_MUST_BE_1_TO_8")
-    b=_exact(case["boundary"],{"mechanical","electric"},
-             "COUPLED_MVI_BOUNDARY")
     program=CoupledMVIEndProgram(**b)
     program.validate(surface)
     opts=case["solver"]
@@ -209,6 +211,18 @@ def load_case(path):
     elif surface.electrical_on:
         # Omitted specification means zero free charge on both faces.
         faces={"inner":None,"outer":None}
+    if surface.floating_gauge:
+        # A floating electrostatic problem is solvable only if net
+        # generalized physical free charge is zero. Check the full
+        # sum of volume and curvature-weighted face loads BEFORE any
+        # physical material evaluation or output directory creation.
+        source=np.asarray(loads["free_charge"][0],dtype=float)
+        weights=surface.grid.weights
+        net=float(np.sum(source*weights))
+        absolute=float(np.sum(np.abs(source)*weights))
+        if absolute>0 and abs(net)>5.e-11*absolute:
+            raise ValueError(
+                "MVI_FLOATING_GAUGE_INCOMPATIBLE_TOTAL_FREE_CHARGE")
     for name,shape in (
         ("mechanical_load",(surface.n_mechanical,surface.grid.nx,surface.grid.ns)),
         ("free_charge",(surface.n_electric,surface.grid.nx,surface.grid.ns))):
@@ -374,6 +388,7 @@ def run(path,*,validate_only):
         calculation_kind=opts["kind"],integrator=opts["integrator"],
         theory=surface.theory,gradient_model=surface.material.gradient_model,
         geometry_model=surface.geometry_model,rank=items["factors"].rank,
+        electric_floating_gauge=bool(surface.floating_gauge),
         steps=opts["steps"],output_dir=str(items["output"]),
         physical_steps_computed=0,
         physical_boundary_closure_certified=False)
