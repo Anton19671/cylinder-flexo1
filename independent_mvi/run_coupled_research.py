@@ -45,6 +45,9 @@ from independent_mvi.coupled_load_history import (
 from independent_mvi.coupled_physical_recovery import (
     recover_cuf_displacements, radial_history_row,
 )
+from independent_mvi.coupled_checkpoint import (
+    input_manifest, exclusive_run_lock, prepare_resume, append_history_row,
+)
 from independent_mvi.coupled_discrete_green import coupled_mvi_discrete_green_identity
 from independent_mvi.coupled_dynamic_green import audit_mvi_dynamic_discrete_green
 from independent_mvi.coupled_mechanical_end_work import compile_mechanical_end_work
@@ -126,8 +129,8 @@ def _read_npz(path,required,optional=()):
     return result
 
 
-def load_case(path):
-    """Preflight is deliberately non-solving and has no output side effects."""
+def load_case(path, *, allow_existing_output=False):
+    """Non-solving preflight; existing outputs require explicit resume."""
     path=Path(path).expanduser().resolve()
     if path.suffix.lower()!=".json" or not path.is_file():
         raise ValueError("COUPLED_MVI_CASE_REQUIRES_JSON_FILE")
@@ -180,7 +183,7 @@ def load_case(path):
         if opts["integrator"] not in ("NEWMARK","BATHE","GAUSS_IRK4"):
             raise ValueError("COUPLED_MVI_UNKNOWN_TIME_INTEGRATOR")
         _positive(opts["dt_s"],"COUPLED_MVI_TIME_STEP")
-        if type(opts["steps"]) is not int or not 1<=opts["steps"]<=120:
+        if type(opts["steps"]) is not int or not 1<=opts["steps"]<=100000:
             raise ValueError("COUPLED_MVI_TIME_STEP_COUNT_INVALID")
     if type(opts["max_sweeps"]) is not int or not 1<=opts["max_sweeps"]<=500:
         raise ValueError("COUPLED_MVI_MAX_SWEEPS_INVALID")
@@ -293,8 +296,10 @@ def load_case(path):
     if (output in (path.parent,path.parent.parent,src.parent,load_path.parent)
             or output in (path,src,load_path)):
         raise ValueError("COUPLED_MVI_UNSAFE_OUTPUT_DIRECTORY")
-    if output.exists():
+    if output.exists() and not allow_existing_output:
         raise ValueError("COUPLED_MVI_OUTPUT_ALREADY_EXISTS")
+    if allow_existing_output and (not output.is_dir()):
+        raise ValueError("COUPLED_MVI_CHECKPOINT_OUTPUT_DIRECTORY_MISSING")
     from independent_mvi.coupled_halfstep import CoupledMVIHalfstepSettings
     cap=opts["max_halfstep_coordinates"]
     if type(cap) is not int or not 1<=cap<=300000:
@@ -365,7 +370,8 @@ def load_case(path):
         field_scales=field_scales,energy_scale=energy_scale,
         density=density,eta=eta,damping=damping,output=output,
         electric_faces=faces,mechanical_end_work=end_work,
-        acceleration_options=acceleration_options,load_program=load_program)
+        acceleration_options=acceleration_options,load_program=load_program,
+        initial_path=src,loads_path=load_path)
 
 
 def _write_json(path,data):
@@ -464,8 +470,7 @@ def _store_state(output,step,state,surface):
     _write_npz(output/f"STEP_{step:04d}.npz",**payload)
 
 
-def run(path,*,validate_only):
-    items=load_case(path)
+def _run_loaded_case(items,*,validate_only,resume=False):
     surface=items["surface"]
     opts=items["opts"]
     result=dict(method=METHOD,schema=SCHEMA,
@@ -491,34 +496,26 @@ def run(path,*,validate_only):
         mvi_separated_term_norms(items["factors"]).tolist())
     result["rank_reduction_performed"]=False
 
-    # Only an explicit --run or explicit final dispatch reaches this point.
+    # Directory creation and exclusive process lock are owned by run().
     output=items["output"]
-    output.mkdir(parents=True,exist_ok=False)
-    _write_json(output/"CASE.json",items["case"])
-    result.update(status="IN_PROGRESS",accepted_steps=0,time_s=0.)
-    _write_json(output/"RUN_SUMMARY.json",result)
+    manifest=input_manifest(items["path"],items["initial_path"],
+                            items["loads_path"])
+    result["input_manifest"]=manifest
+    if not resume:
+        _write_json(output/"CASE.json",items["case"])
+        result.update(status="IN_PROGRESS",accepted_steps=0,time_s=0.)
+        _write_json(output/"RUN_SUMMARY.json",result)
     program=items["load_program"]
     mechanical,charge=program.at(0.)
     face_specs=items["electric_faces"]
-    # The integrated history is a physical observable, independent of
-    # generalized CUF coefficient naming and of the chosen time solver.
+    # Append a committed physical observation after its NPZ has been
+    # written. The summary is the LAST per-step commit marker.
     history_path=output/"PHYSICAL_RADIAL_HISTORY.csv"
-    history_rows=[]
 
     def record_physical_step(step,state):
         q=surface.reconstruct(state.factors)[:surface.n_mechanical]
-        history_rows.append(radial_history_row(
-            surface,q,step=step,time_s=state.time_s))
-        import csv
-        temporary=history_path.with_name(history_path.name+".pending")
-        try:
-            with temporary.open("w",encoding="utf-8",newline="") as stream:
-                writer=csv.DictWriter(stream,fieldnames=tuple(history_rows[0]))
-                writer.writeheader()
-                writer.writerows(history_rows)
-            temporary.replace(history_path)
-        finally:
-            temporary.unlink(missing_ok=True)
+        row=radial_history_row(surface,q,step=step,time_s=state.time_s)
+        append_history_row(history_path,row)
 
     def electric_face_diagnostic(factors):
         if not surface.electrical_on:
@@ -565,31 +562,44 @@ def run(path,*,validate_only):
                     surface,density_kg_m3=items["density"],
                     mass_damping_rate_per_s=items["damping"]),
                 program=items["program"],eta_s=items["eta"])
-            initial=close_mvi_instantaneous_state(
-                configuration,items["factors"],items["initial"]["velocity"],
-                time_s=0.,field_scales=scales,energy_scale_j=energy,
-                mechanical_load=mechanical,free_charge=charge,
-                electric_settings=settings,
-                max_acceleration_coordinates=opts["max_acceleration_coordinates"],
-                **items["acceleration_options"])
-            if initial.state is None:
-                raise RuntimeError("COUPLED_MVI_INITIAL_"+initial.status)
-            state=initial.state
-            if state.factors.rank!=items["factors"].rank:
-                raise RuntimeError("COUPLED_MVI_RANK_CHANGED")
-            result["initial_separated_term_norms"]=(
-                mvi_separated_term_norms(state.factors).tolist())
-            result["initial_discrete_green"]=_dynamic_green_audit(
-                surface,configuration,state,mechanical,charge)
-            result["initial_electric_faces"]=electric_face_diagnostic(
-                state.factors)
-            _store_state(output,0,state,surface)
-            record_physical_step(0,state)
+            if resume:
+                state,prior=prepare_resume(
+                    output,items["case"],manifest,surface=surface,
+                    configuration=configuration,steps=opts["steps"],
+                    dt_s=opts["dt_s"],input_rank=items["factors"].rank)
+                first_step=prior["accepted_steps"]+1
+                result=prior
+                result.pop("error_type",None)
+                result.pop("detail",None)
+                result["status"]="IN_PROGRESS"
+                _write_json(output/"RUN_SUMMARY.json",result)
+            else:
+                initial=close_mvi_instantaneous_state(
+                    configuration,items["factors"],items["initial"]["velocity"],
+                    time_s=0.,field_scales=scales,energy_scale_j=energy,
+                    mechanical_load=mechanical,free_charge=charge,
+                    electric_settings=settings,
+                    max_acceleration_coordinates=opts["max_acceleration_coordinates"],
+                    **items["acceleration_options"])
+                if initial.state is None:
+                    raise RuntimeError("COUPLED_MVI_INITIAL_"+initial.status)
+                state=initial.state
+                if state.factors.rank!=items["factors"].rank:
+                    raise RuntimeError("COUPLED_MVI_RANK_CHANGED")
+                result["initial_separated_term_norms"]=(
+                    mvi_separated_term_norms(state.factors).tolist())
+                result["initial_discrete_green"]=_dynamic_green_audit(
+                    surface,configuration,state,mechanical,charge)
+                result["initial_electric_faces"]=electric_face_diagnostic(
+                    state.factors)
+                _store_state(output,0,state,surface)
+                record_physical_step(0,state)
+                first_step=1
             driver=(configuration if opts["integrator"]=="NEWMARK"
                     else NativeCoupledMVIBathe(configuration)
                     if opts["integrator"]=="BATHE"
                     else NativeCoupledMVIGauss2(configuration))
-            for step in range(1,opts["steps"]+1):
+            for step in range(first_step,opts["steps"]+1):
                 cooperate(output)
                 common=dict(field_scales=scales,energy_scale_j=energy,
                             settings=settings)
@@ -636,14 +646,41 @@ def run(path,*,validate_only):
         raise
 
 
+def run(path,*,validate_only,resume=False):
+    """Run under an exclusive output lock; resume only on explicit request.
+
+    Validation never creates or changes a result directory. The original
+    CASE and source NPZ fingerprints are rechecked on every restart.
+    """
+    if type(resume) is not bool:
+        raise TypeError("COUPLED_MVI_RESUME_REQUIRES_BOOLEAN")
+    if resume and validate_only:
+        raise ValueError("COUPLED_MVI_RESUME_REQUIRES_RUN")
+    items=load_case(path,allow_existing_output=resume)
+    if resume and items["opts"]["kind"]!="DYNAMIC":
+        raise ValueError("COUPLED_MVI_RESUME_REQUIRES_DYNAMIC_CASE")
+    if validate_only:
+        return _run_loaded_case(items,validate_only=True)
+    output=items["output"]
+    if resume:
+        if not output.is_dir():
+            raise ValueError("COUPLED_MVI_CHECKPOINT_OUTPUT_DIRECTORY_MISSING")
+    else:
+        output.mkdir(parents=True,exist_ok=False)
+    with exclusive_run_lock(output):
+        return _run_loaded_case(items,validate_only=False,resume=resume)
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--case",type=Path,required=True)
     group=parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--validate-only",action="store_true")
     group.add_argument("--run",action="store_true")
+    group.add_argument("--resume",action="store_true")
     args=parser.parse_args()
-    print(json.dumps(run(args.case,validate_only=args.validate_only),indent=2))
+    print(json.dumps(run(args.case,validate_only=args.validate_only,
+                         resume=args.resume),indent=2))
 
 
 if __name__=="__main__":
