@@ -25,5 +25,7 @@ jobs:
           python-version: "3.11"
       - name: Install numerical dependencies
         run: python -m pip install numpy scipy
+      # Check the explicitly chosen independent strong linear solver;
+      # this is not a scientific G3D source benchmark.
       - name: Physical small nonzero-loaded KL strong MKR and rank-1 MVI
         run: python -u ci/native_coupled_loaded_kl_smoke.py
