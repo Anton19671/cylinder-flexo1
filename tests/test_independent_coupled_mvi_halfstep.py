@@ -204,3 +204,21 @@ def test_duplicate_or_zero_angular_modes_not_silently_replaced(rank):
                                    surface.reconstruct(start),atol=1.e-14)
         np.testing.assert_array_equal(out.x,start.x)
         np.testing.assert_array_equal(out.y,start.y)
+
+
+@pytest.mark.parametrize("rank",range(1,9))
+def test_term_diagnostics_keep_every_rank_slot_even_if_dormant(rank):
+    from independent_mvi.coupled_surface import mvi_separated_term_norms
+    nx,ns=11,9
+    x=np.zeros((3,rank,nx))
+    y=np.zeros((3,rank,ns))
+    y[:]=1.
+    x[:,0,1:-1]=.2
+    fac=CoupledMVIFactors(x,y)
+    mode=mvi_separated_term_norms(fac)
+    assert mode.shape==(3,rank)
+    np.testing.assert_allclose(mode[:,0],
+        .2*np.sqrt(nx-2)*np.sqrt(ns),rtol=1e-14)
+    if rank>1:
+        np.testing.assert_array_equal(mode[:,1:],0.)
+    assert fac.rank==rank
