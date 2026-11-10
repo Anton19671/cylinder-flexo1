@@ -27,3 +27,5 @@ jobs:
         run: python -m pip install numpy scipy pytest
       - name: Verify exact rank preserving linear MVI QR endpoint and no SVD
         run: python -m pytest -q tests/test_independent_mvi_linear_qr_no_svd.py
+      - name: Verify older independent variational Gauss oscillator energy
+        run: python -m pytest -q 'tests/test_independent_temporal_scientific.py::test_undamped_oscillator_energy_is_conserved_to_roundoff[GAUSS_IRK4-ScalarVariational]'
