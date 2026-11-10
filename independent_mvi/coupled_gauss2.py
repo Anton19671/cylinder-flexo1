@@ -103,9 +103,14 @@ class NativeCoupledMVIGauss2:
                 stage_field_tolerance=1.e-8,
                 endpoint_rank_tolerance=1.e-9,
                 max_acceleration_coordinates=256,
+                acceleration_options=None,
                 on_iteration=None,cancelled=None):
         config=self.configuration
         surface=config.surface
+        if acceleration_options is None:
+            acceleration_options={}
+        if not isinstance(acceleration_options,dict):
+            raise ValueError("MVI_GAUSS_ACCELERATION_OPTIONS_INVALID")
         q,v0,a0=config._validate_state(state)
         dt=_positive(dt_s,"MVI Gauss step")
         times=state.time_s+dt*GAUSS_C
@@ -246,6 +251,7 @@ class NativeCoupledMVIGauss2:
             mechanical_load=end_load,free_charge=end_charge,
             electric_settings=settings,
             max_acceleration_coordinates=max_acceleration_coordinates,
+            **acceleration_options,
             on_iteration=on_iteration,cancelled=cancelled)
         if endpoint.state is None:
             return result("MVI_GAUSS_ENDPOINT_"+endpoint.status,
