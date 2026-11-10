@@ -137,9 +137,12 @@ def test_physical_free_charge_has_same_sign_as_enthalpy_first_variation():
 def test_polynomial_coupled_fourth_order_with_free_slopes_and_single_gauge():
     """Solve a tiny manufactured coupled 4th/2nd order system.
 
-    W=0.5*q_xx**2 - 0.5*p_x**2 + c*q_xx*p_x. Exact polynomials
-    have q=0, q_xx=p_x=0 at both ends, but q_x=(1,-1).
-    Both flux and double traction therefore vanish without fixing slopes.
+    W=0.5*q_xx**2 - 0.5*(p_x**2+p_s**2)+c*q_xx*p_x.
+    The circumferential electric contribution is ESSENTIAL: otherwise
+    each theta node carries its own independent constant-potential mode
+    and a single global mean gauge cannot fix a unique electric state.
+    Exact polynomials have q=0, q_xx=p_x=p_s=0 at both ends, while
+    q_x=(1,-1); slopes remain physically free.
     """
     g = DirectStrongGrid(9, 4, 1., 2.)
     x = np.arange(g.nx)*g.dx
@@ -161,8 +164,9 @@ def test_polynomial_coupled_fourth_order_with_free_slopes_and_single_gauge():
     def equations(q, p):
         qxx = direct_coefficient_derivative(q,2,0,g)
         px = direct_coefficient_derivative(p,1,0,g)
+        ps = direct_coefficient_derivative(p,0,1,g)
         mc = np.stack((np.zeros_like(q), qxx+c*px))
-        ec = np.stack((np.zeros_like(p), -px+c*qxx, np.zeros_like(p)))
+        ec = np.stack((np.zeros_like(p), -px+c*qxx, -ps))
         balance = direct_strong_jet_balance(mc, (("q",0,0),("qxx",2,0)),
             g, ec, mechanical_load=load, electrical_charge=charge)
         rows = assemble_physical_end_rows(balance, q, g, axial_orders=(2,),
