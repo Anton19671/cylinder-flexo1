@@ -1,0 +1,29 @@
+name: Native MVI rank-2 loaded nonaxisymmetric shell
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "ci/native_coupled_mvi_rank2_nonaxisymmetric_smoke.py"
+      - ".github/workflows/native-mvi-rank2-loaded-smoke.yml"
+permissions:
+  contents: read
+jobs:
+  mvi-nonaxisymmetric:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONPATH: ".:independent_mkr:independent_mvi:mechanics:numerics:flexoelectric:physics:interface"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install numerical dependencies
+        run: python -m pip install numpy scipy
+      - name: Execute real nonaxisymmetric physical rank-2 MVI Newmark load
+        run: python -u ci/native_coupled_mvi_rank2_nonaxisymmetric_smoke.py
