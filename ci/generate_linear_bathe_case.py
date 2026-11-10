@@ -7,6 +7,7 @@ The opt-in Bathe solver and its nonlinear/electric pathways are untouched.
 from __future__ import annotations
 import argparse
 import json
+import math
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -20,8 +21,16 @@ def make_case(theory,method,rank,steps,dt_s,output_folder):
         raise ValueError("BATHE_MVI_RANK_OUT_OF_RANGE")
     if method=="FDM" and rank is not None:
         raise ValueError("BATHE_FDM_CANNOT_HAVE_MVI_RANK")
-    if type(steps) is not int or steps<1 or not (0<dt_s<=.005):
+    if (type(steps) is not int or steps < 1 or
+            isinstance(dt_s, bool) or not isinstance(dt_s, (int, float)) or
+            not math.isfinite(dt_s) or not 0 < dt_s <= .005):
         raise ValueError("BATHE_CONTROL_INVALID_TIME_GRID")
+    # Keep generated output paths confined to the declared output tree.
+    if (not isinstance(output_folder, str) or not output_folder or
+            output_folder in (".", "..") or
+            Path(output_folder).name != output_folder or
+            "/" in output_folder or "\\" in output_folder):
+        raise ValueError("BATHE_CONTROL_INVALID_OUTPUT_FOLDER")
     case=json.loads(BASE.read_text(encoding="utf-8"))
     case["theory"]=theory if not theory.startswith("CUF_") else "CUF"
     if theory.startswith("CUF_"):
