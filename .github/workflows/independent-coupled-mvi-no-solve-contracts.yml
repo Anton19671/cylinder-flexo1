@@ -13,6 +13,7 @@ on:
       - "tests/test_independent_coupled_mvi_*.py"
       - ".github/workflows/independent-coupled-mvi-no-solve-contracts.yml"
 # Recheck after fixed-rank Gauss stage interpolation correction.
+# Rerun invariant axisymmetric Gauss rank-one stage subspace control.
 permissions:
   contents: read
 jobs:
