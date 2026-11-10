@@ -46,8 +46,21 @@ for _value in (GAUSS_C,GAUSS_A,GAUSS_B,GAUSS_A2_INV):
     _value.setflags(write=False)
 
 
+def _gauss_stage_coefficient_scale(dt):
+    """Require finite inverse-time-squared collocation coefficients."""
+    dt2=dt*dt
+    if dt2==0. or not math.isfinite(dt2):
+        raise ValueError("MVI_GAUSS_UNREPRESENTABLE_STAGE_COEFFICIENTS")
+    # Compare without dividing first: floating overflow is deterministic
+    # even when dt itself is positive and finite.
+    if dt2 < float(np.max(np.abs(GAUSS_A2_INV)))/np.finfo(float).max:
+        raise ValueError("MVI_GAUSS_UNREPRESENTABLE_STAGE_COEFFICIENTS")
+    return dt2
+
+
 def mvi_gauss_stage_kinematics(q_stages,q0,v0,dt_s):
     dt=_positive(dt_s,"MVI Gauss step")
+    dt2=_gauss_stage_coefficient_scale(dt)
     q0=np.asarray(q0,float)
     v0=np.asarray(v0,float)
     qs=np.asarray(q_stages,float)
@@ -57,7 +70,7 @@ def mvi_gauss_stage_kinematics(q_stages,q0,v0,dt_s):
         raise ValueError("MVI_GAUSS_INVALID_MECHANICAL_STAGES")
     rhs=qs-q0[None]-dt*GAUSS_C.reshape(2,1,1,1)*v0[None]
     a=np.einsum("ij,j...->i...",GAUSS_A2_INV,rhs,
-                optimize=True)/dt**2
+                optimize=True)/dt2
     v=v0[None]+dt*np.einsum("ij,j...->i...",GAUSS_A,a,
                             optimize=True)
     if not np.isfinite(a).all() or not np.isfinite(v).all():
@@ -205,6 +218,7 @@ class NativeCoupledMVIGauss2:
             raise ValueError("MVI_GAUSS_ACCELERATION_OPTIONS_INVALID")
         q,v0,a0=config._validate_state(state)
         dt=_positive(dt_s,"MVI Gauss step")
+        _gauss_stage_coefficient_scale(dt)
         times=state.time_s+dt*GAUSS_C
         t_end=state.time_s+dt
         if not math.isfinite(t_end) or not (
