@@ -62,10 +62,17 @@ class CoupledTabulatedLoadLaw:
     def factors_at(self,time_s):
         if (isinstance(time_s,(bool,np.bool_)) or
                 not isinstance(time_s,(int,float,np.integer,np.floating)) or
-                not math.isfinite(float(time_s)) or
-                not 0.<=time_s<=self.times_s[-1]):
+                not math.isfinite(float(time_s))):
             raise ValueError("MVI_LOAD_TIME_OUTSIDE_TABULATION")
         t=float(time_s)
+        horizon=float(self.times_s[-1])
+        # Cumulative dt and predeclared n*dt may differ by a few ULPs.
+        # Admit only that roundoff, never extrapolate physical loads.
+        tolerance=32.*np.finfo(float).eps*max(
+            abs(t),abs(horizon),np.finfo(float).tiny)
+        if t < -tolerance or t > horizon+tolerance:
+            raise ValueError("MVI_LOAD_TIME_OUTSIDE_TABULATION")
+        t=min(max(t,0.),horizon)
         return (float(np.interp(t,self.times_s,self.mechanical_scale)),
                 float(np.interp(t,self.times_s,self.electric_scale)))
 
