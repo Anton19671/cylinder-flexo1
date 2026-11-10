@@ -18,6 +18,7 @@ import json
 import math
 from pathlib import Path
 
+from cylinder_native_run_control import cooperate
 from cylinder_paths import activate
 activate()
 import numpy as np
@@ -465,6 +466,7 @@ def run(path,*,validate_only):
                     if opts["integrator"]=="BATHE"
                     else NativeCoupledMVIGauss2(configuration))
             for step in range(1,opts["steps"]+1):
+                cooperate(output)
                 common=dict(field_scales=scales,energy_scale_j=energy,
                             settings=settings)
                 if opts["integrator"]=="NEWMARK":
