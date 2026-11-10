@@ -17,6 +17,7 @@ SCHEMAS={
     "INDEPENDENT_MKR_STATIC_SEVEN_MODELS_V1":"INDEPENDENT_MKR",
     "INDEPENDENT_MVI_STATIC_SEVEN_MODELS_V1":"INDEPENDENT_MVI",
     "INDEPENDENT_MVI_COUPLED_RESEARCH_V1":"INDEPENDENT_MVI",
+    "INDEPENDENT_MKR_COUPLED_RESEARCH_V1":"INDEPENDENT_MKR",
 }
 STATIC_SCHEMAS=frozenset((
     "INDEPENDENT_MKR_STATIC_SEVEN_MODELS_V1",
@@ -48,6 +49,9 @@ def _load_native(path):
 def _own_runner(method,schema=None):
     """Select only the explicitly named method and calculation kind."""
     if method=="INDEPENDENT_MKR":
+        if schema=="INDEPENDENT_MKR_COUPLED_RESEARCH_V1":
+            from independent_mkr import run_coupled_research
+            return run_coupled_research
         if schema in STATIC_SCHEMAS:
             from independent_mkr import run_static
             return run_static
@@ -75,7 +79,9 @@ def validate_independent_case(case_file):
         raise RuntimeError("INDEPENDENT_CASE_METHOD_SCHEMA_MISMATCH")
     return dict(result,solver_backend=method,calculation_kind=(
                     "STATIC" if (case["schema"] in STATIC_SCHEMAS or
-                    case["schema"]=="INDEPENDENT_MVI_COUPLED_RESEARCH_V1"
+                    case["schema"] in (
+                        "INDEPENDENT_MVI_COUPLED_RESEARCH_V1",
+                        "INDEPENDENT_MKR_COUPLED_RESEARCH_V1")
                     and case["solver"]["kind"]=="STATIC") else "DYNAMIC"),
                 theory=(result["physics"]["theory"]
                         if "physics" in result else result["theory"]),
