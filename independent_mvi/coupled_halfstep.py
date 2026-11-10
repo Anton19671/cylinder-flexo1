@@ -219,6 +219,45 @@ def _active_field_ids(surface, active_fields):
     return fields
 
 
+def _floating_reduced_null(surface,working,axis,components,indices,
+                           sizes,scales):
+    """Only remove an EXACT constant-potential null direction if present.
+
+    A constant physical psi0 can be formed from a frozen partner iff the
+    frozen partner's row span contains the constant 1-vector. The
+    unknown-factor increment along that constant is then annihilated
+    by the ONE physical mean gauge. No approximate null is removed.
+    """
+    if not surface.floating_gauge:
+        return None
+    c=surface.n_mechanical
+    if c not in components:
+        return None
+    partner=(working.y[c] if axis=="X" else working.x[c])
+    n=partner.shape[1]
+    ones=np.ones(n)
+    gram=partner@partner.T
+    try:
+        if np.linalg.cond(gram)>1.e11:
+            return None
+        weights=np.linalg.solve(gram,partner@ones)
+    except np.linalg.LinAlgError:
+        return None
+    if np.linalg.norm(weights@partner-ones)>1.e-10*np.sqrt(n):
+        return None
+    direction=np.zeros(sum(sizes))
+    start=sum(sizes[k] for k,field in enumerate(components) if
+              components.index(field)<components.index(c))
+    length=len(indices[c])
+    direction[start:start+working.rank*length]=(
+        np.broadcast_to(weights[:,None],
+                        (working.rank,length)).ravel()/scales[c])
+    mag=np.linalg.norm(direction)
+    if not np.isfinite(mag) or mag<=0:
+        raise ValueError("MVI_FLOATING_GAUGE_DIRECTION_INVALID")
+    return direction/mag
+
+
 def solve_coupled_mvi_halfstep(
         surface: NativeCoupledMVISurface, factors: CoupledMVIFactors, *,
         axis: str, program: CoupledMVIEndProgram,
@@ -264,6 +303,13 @@ def solve_coupled_mvi_halfstep(
         raise ValueError("MVI_EMPTY_HALFSTEP_FIELD")
     origin=np.concatenate([active[c][:,indices[c]].ravel()/scales[c]
                            for c in components])
+    gauge_null=_floating_reduced_null(
+        surface,working,axis,components,indices,sizes,scales)
+
+    def projected(vector):
+        if gauge_null is None:
+            return vector
+        return vector-gauge_null*np.dot(gauge_null,vector)
 
     def unpack(z):
         if z.shape!=(count,) or not np.isfinite(z).all():
@@ -290,6 +336,14 @@ def solve_coupled_mvi_halfstep(
                           for c in components])
         if not np.isfinite(g).all():
             raise ValueError("MVI_NONFINITE_HALFSTEP_STATIONARITY")
+        if gauge_null is not None:
+            # This component is exactly a physical constant gauge shift,
+            # not a direction along which electrostatic work can change.
+            leakage=abs(float(np.dot(gauge_null,g)))
+            reference=max(1.,float(np.linalg.norm(g)))
+            if leakage>1.e-7*reference:
+                raise ValueError("MVI_FLOATING_GAUGE_WORK_NOT_INVARIANT")
+            g=projected(g)
         return f,g
 
     def result(converged,status,it,z,g,history):
@@ -318,9 +372,14 @@ def solve_coupled_mvi_halfstep(
         direction=np.asarray(direction,dtype=float)
         if direction.shape!=(count,) or not np.isfinite(direction).all():
             raise np.linalg.LinAlgError("MVI_KRYLOV_NONFINITE_DIRECTION")
+        if gauge_null is not None:
+            parallel=float(np.dot(gauge_null,direction))
+            direction=projected(direction)
+        else:
+            parallel=0.
         vmax=float(np.max(np.abs(direction),initial=0.))
         if vmax==0.:
-            return np.zeros_like(direction)
+            return gauge_null*parallel if gauge_null is not None else np.zeros_like(direction)
         h=settings.difference_step*(1.+float(np.max(np.abs(z))))/vmax
         for _ in range(settings.max_halvings+1):
             try:
@@ -331,8 +390,10 @@ def solve_coupled_mvi_halfstep(
                     raise
                 h*=.5
                 continue
-            action=(gp-gm)/(2*h)
+            action=projected((gp-gm)/(2*h))
             if np.isfinite(action).all():
+                if gauge_null is not None:
+                    return action+gauge_null*parallel
                 return action
             h*=.5
         raise np.linalg.LinAlgError("MVI_HALFSTEP_DIRECTIONAL_PROBE_FAILED")
@@ -375,7 +436,7 @@ def solve_coupled_mvi_halfstep(
                           settings.tolerance_scaled)
                 if float(np.linalg.norm(correction))>2.*bound:
                     raise np.linalg.LinAlgError("MVI_GMRES_LINEARIZATION_NOT_MET")
-            direction=delta
+            direction=projected(delta)
         except InterruptedError:
             return result(False,"MVI_HALFSTEP_CANCELLED",
                           iteration-1,z,g,history)
