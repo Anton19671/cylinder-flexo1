@@ -194,3 +194,62 @@ external-reference verification**. Boundary microfree/electrical source
 closure, rank sufficiency, mesh and time refinement, and scientific
 comparison remain independently required. The tests added here mock
 the time integrators; no loaded physical shell run was launched.
+
+
+## 2026-11-10: resumable long independent MVI time integration
+
+The opt-in coupled MVI dynamic research runner now accepts up to
+**100,000 explicitly specified time steps** (formerly 120); this is an
+input capacity, **not** a claim of acceptable runtime or verified accuracy.
+The physical integrators and rank-R X/Y solution remain unchanged.
+
+Launch a NEW job with the same research schema:
+
+    python -m independent_mvi.run_coupled_research --case CASE.json --run
+
+If the job stops AFTER at least one committed state and BEFORE completion,
+resume **with the unchanged CASE.json and original initial/load NPZ files**:
+
+    python -m independent_mvi.run_coupled_research --case CASE.json --resume
+
+A resume is never implicit. A new `--run` refuses an existing result folder.
+`--validate-only` remains non-solving and never creates output; it cannot
+be mixed with `--resume`. STATIC resume is unsupported.
+
+The output folder contains `STEP_0000.npz` (the initial closed
+mechanical/electric/acceleration state), `STEP_NNNN.npz` for each accepted
+time step, `PHYSICAL_RADIAL_HISTORY.csv`, `RUN_SUMMARY.json`,
+`CASE.json` and a writer-only `RUN_LOCK`.
+
+The restart implementation:
+- exclusively locks one output directory; a second writer fails rather
+  than silently overwriting data, and the OS releases the lock on crash;
+- stores SHA-256 of the **original CASE and NPZ bytes** in the first
+  run summary; any input mutation makes restart fail;
+- uses `RUN_SUMMARY.accepted_steps` as the commit marker;
+- loads the exact accepted rank-R factors, velocity, acceleration and
+  physical electric/mechanical states without solving earlier steps;
+- verifies reconstructed physical CUF U/V/W surface fields at all
+  three thickness stations and checks the physical time of the step;
+- checks the CSV history already contains every committed step and
+  truncates only records written beyond the last commit marker;
+- deletes only specifically named, uncommitted `STEP_NNNN.npz` files
+  above that marker, preserving all accepted results and unrelated files;
+- appends new physical-history CSV rows in O(1) time per step, avoiding
+  a full rewrite of the history at each iteration;
+- refuses corrupted, incompatible, completed or non-dynamic checkpoints,
+  without changing the saved scientific results or summary.
+
+There is no automatic interpolation, no rank reduction, no MKR fallback,
+no reinterpretation of modified source data and no fabricated acceptance.
+The time integrator is restarted from the *full physical state* of the
+previously accepted step.
+
+The added no-solve tests simulate a failure at step 2, verify continued
+acceptance of steps 2-3 without a repeated initial closure, exercise
+changed input and corrupted NPZ rejection, and check orphan cleanup.
+A 3,000-step case is **validated only**; no long loaded shell calculation
+has been performed in this conversation.
+
+Scientific accuracy, higher-order natural boundary physics, robust loaded
+dynamics for all ranks, and independent references remain unverified.
