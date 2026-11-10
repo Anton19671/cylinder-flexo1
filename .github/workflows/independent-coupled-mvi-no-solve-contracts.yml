@@ -1,3 +1,4 @@
+# Algebra-only tests; no loaded cylinder, no physical time-history.
 name: Independent coupled MVI algebra and method isolation (no shell runs)
 on:
   workflow_dispatch:
