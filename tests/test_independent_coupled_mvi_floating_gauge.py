@@ -169,3 +169,21 @@ def test_floating_constant_gauge_does_not_make_x_newton_singular(
     assert abs(surf.floating_gauge_integral(result.factors))<2.e-13
     assert np.max(np.abs(surf.reconstruct(result.factors)[c]))<2.e-6
     assert result.history[-1]["linear_solver"]==linear_solver
+
+
+def test_floating_gauge_constant_null_check_never_uses_svd(monkeypatch):
+    surf,seed=make_surface(0)
+    program=CoupledMVIEndProgram("IMMOBILE_PARALLEL_ENDS",
+                                 "INSULATED_FLOATING")
+    def forbidden_svd(*args,**kwargs):
+        pytest.fail("SVD is forbidden in independent MVI gauge code")
+    monkeypatch.setattr(np.linalg,"svd",forbidden_svd)
+    working=normalized_mvi_factors(surf,seed,program,"X")
+    components=tuple(range(surf.n_fields))
+    free=program.free_axial_indices(surf)
+    sizes=[working.rank*len(ids) for ids in free]
+    null=_floating_reduced_null(
+        surf,working,"X",components,free,sizes,
+        np.ones(surf.n_fields))
+    assert null is not None
+    assert np.linalg.norm(null)==pytest.approx(1.)
