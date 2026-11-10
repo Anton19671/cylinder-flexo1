@@ -110,6 +110,25 @@ class CoupledMVIFactors:
         return self.x.shape[1]
 
 
+def mvi_separated_term_norms(factors: CoupledMVIFactors):
+    """Each ORIGINAL rank slot's unweighted outer-product field norm.
+
+    This is diagnostic only. Do NOT infer an 'effective rank', delete
+    zero slots, or treat near-zero contributions as justification for
+    stopping the requested rank-R alternating iterations. Cancellation
+    between slots is possible and a QR coordinate change can redistribute
+    their individual magnitudes without changing the physical field.
+    """
+    if not isinstance(factors,CoupledMVIFactors):
+        raise TypeError("MVI_OWN_FACTORS_REQUIRED")
+    xnorm=np.linalg.norm(factors.x,axis=2)
+    ynorm=np.linalg.norm(factors.y,axis=2)
+    values=xnorm*ynorm
+    if values.shape!=factors.x.shape[:2] or not np.isfinite(values).all():
+        raise ValueError("MVI_NONFINITE_SEPARATED_TERM_NORMS")
+    return values.copy()
+
+
 @dataclass(frozen=True)
 class CoupledMVIWork:
     energy_j: float
@@ -397,5 +416,5 @@ class NativeCoupledMVISurface:
 
 
 __all__=("THEORIES","MECHANICAL_MULTI","ELECTRIC_MULTI",
-         "CoupledMVISurfaceGrid","CoupledMVIFactors","CoupledMVIWork",
+         "CoupledMVISurfaceGrid","CoupledMVIFactors","mvi_separated_term_norms","CoupledMVIWork",
          "NativeCoupledMVISurface")
