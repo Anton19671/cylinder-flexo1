@@ -1,0 +1,29 @@
+name: Older independent linear MVI SVD-free algebra contracts
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "independent_mvi/linear_models.py"
+      - "tests/test_independent_mvi_linear_qr_no_svd.py"
+      - ".github/workflows/independent-mvi-linear-no-svd.yml"
+permissions:
+  contents: read
+jobs:
+  mvi-qr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    env:
+      PYTHONPATH: ".:independent_mvi:independent_mkr:mechanics:numerics:flexoelectric:physics:interface:tests"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install numerical tests
+        run: python -m pip install numpy scipy pytest
+      - name: Verify exact rank preserving linear MVI QR endpoint and no SVD
+        run: python -m pytest -q tests/test_independent_mvi_linear_qr_no_svd.py
