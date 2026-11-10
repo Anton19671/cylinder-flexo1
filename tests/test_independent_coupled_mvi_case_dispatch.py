@@ -258,3 +258,101 @@ def test_old_coupled_case_omitting_faces_remains_compatible(tmp_path):
         np.zeros_like(parsed["load"]["free_charge"]))
     assert parsed["electric_faces"]=={"inner":None,"outer":None}
     assert not (tmp_path/"output").exists()
+
+
+@pytest.mark.parametrize("integrator",("NEWMARK","BATHE","GAUSS_IRK4"))
+def test_native_runner_delivers_tabulated_forcing_to_actual_stage_times(
+        tmp_path,monkeypatch,integrator):
+    """Full CASE routing and output with numerical drivers mocked: no solve."""
+    import csv
+    from types import SimpleNamespace
+    from independent_mvi.coupled_newmark import CoupledMVIDynamicState
+    from independent_mvi.coupled_initial import MVIAccelerationResult
+
+    case,document=make_case(
+        tmp_path,theory="CUF_TE3",kind="DYNAMIC",integrator=integrator)
+    document["load_time_law"]=dict(
+        kind="TABULATED_LINEAR",
+        time_s=[0.,.005,.01,.02],
+        mechanical_scale=[0.,.3,1.,0.])
+    case.write_text(json.dumps(document))
+    n=12
+    np.savez_compressed(
+        tmp_path/"loads.npz",
+        mechanical_load=np.ones((n,9,5)))
+    events=[]
+
+    def initial(config,factors,velocity,**kwargs):
+        events.append(("INITIAL",0.,float(np.mean(kwargs["mechanical_load"]))))
+        state=CoupledMVIDynamicState(0.,factors,velocity,np.zeros_like(velocity))
+        return MVIAccelerationResult(
+            state,"MVI_INITIAL_EQUILIBRIUM_CLOSED",None,None)
+
+    monkeypatch.setattr(native,"close_mvi_instantaneous_state",initial)
+    monkeypatch.setattr(native,"_dynamic_green_audit",lambda *a,**kw:{})
+    def fake_advance(self,state,dt_s,*,loads_at=None,
+                     mechanical_load=None,free_charge=None,**kwargs):
+        if loads_at is None:
+            load=mechanical_load
+            events.append((integrator,state.time_s+dt_s,float(np.mean(load))))
+        else:
+            from independent_mvi.coupled_gauss2 import GAUSS_C
+            from independent_mvi.coupled_bathe import BATHE_GAMMA
+            samples=(
+                (state.time_s+BATHE_GAMMA*dt_s,state.time_s+dt_s)
+                if integrator=="BATHE" else
+                tuple(state.time_s+c*dt_s for c in GAUSS_C)
+                +(state.time_s+dt_s,))
+            for time in samples:
+                load,charge=loads_at(time)
+                assert charge is None
+                events.append((integrator,time,float(np.mean(load))))
+        future=CoupledMVIDynamicState(
+            state.time_s+dt_s,state.factors,state.velocity,state.acceleration)
+        return SimpleNamespace(state=future,status="MOCK_ACCEPTED")
+
+    if integrator=="NEWMARK":
+        monkeypatch.setattr(native.NativeCoupledMVINewmark,"advance",fake_advance)
+    elif integrator=="BATHE":
+        monkeypatch.setattr(native.NativeCoupledMVIBathe,"advance",fake_advance)
+    else:
+        monkeypatch.setattr(native.NativeCoupledMVIGauss2,"advance",fake_advance)
+    result=native.run(case,validate_only=False)
+    assert result["accepted_steps"]==2
+    assert result["time_dependent_loads"] is True
+    times=np.array(document["load_time_law"]["time_s"])
+    scales=np.array(document["load_time_law"]["mechanical_scale"])
+    assert events
+    for _method,t,observed in events:
+        assert observed==pytest.approx(np.interp(t,times,scales),abs=2.e-14)
+    with (tmp_path/"output"/"PHYSICAL_RADIAL_HISTORY.csv").open() as stream:
+        rows=list(csv.DictReader(stream))
+    assert len(rows)==3
+    assert [int(row["step"]) for row in rows]==[0,1,2]
+    with np.load(tmp_path/"output"/"STEP_0002.npz") as result_npz:
+        assert result_npz["physical_z_stations_m"].shape==(3,)
+        assert result_npz["physical_uvw_stations_m"].shape==(3,3,9,5)
+    # The independent physical calculation was never invoked.
+
+
+def test_dynamic_time_law_is_preflight_only_and_does_not_create_output(tmp_path):
+    case,document=make_case(tmp_path,theory="CUF_TE4")
+    document["load_time_law"]=dict(
+        kind="TABULATED_LINEAR",time_s=[0.,.01,.02],
+        mechanical_scale=[0.,1.,0.])
+    case.write_text(json.dumps(document))
+    result=native.run(case,validate_only=True)
+    assert result["time_dependent_loads"] is True
+    assert result["physical_steps_computed"]==0
+    assert not (tmp_path/"output").exists()
+
+
+def test_static_case_cannot_silently_accept_dynamic_load_law(tmp_path):
+    case,document=make_case(tmp_path,kind="STATIC")
+    document["load_time_law"]=dict(
+        kind="TABULATED_LINEAR",time_s=[0.,.01],
+        mechanical_scale=[0.,1.])
+    case.write_text(json.dumps(document))
+    with pytest.raises(ValueError,match="STATIC_FORBIDS_TIME_DEPENDENT_LOAD"):
+        native.run(case,validate_only=True)
+    assert not (tmp_path/"output").exists()
