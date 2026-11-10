@@ -215,10 +215,23 @@ class SolverGUI(tk.Tk):
         self.time_integrator=tk.StringVar(self,value=TIME_INTEGRATOR_CHOICES[0])
         self.time_integrator.trace_add("write",lambda *_:self._refresh_time_integrator_controls())
         self._build_ui()
+        # Keep all existing solver tabs and result controls unchanged.
+        # The separate native nonlinear MKR/MVI window is explicitly opt-in.
+        menu=self.nametowidget(self["menu"]) if self["menu"] else tk.Menu(self)
+        native_menu=tk.Menu(menu,tearoff=False)
+        native_menu.add_command(
+            label="Нативные МКР/МВИ — связанный G3D/Gz CASE",
+            command=self._open_native_research)
+        menu.add_cascade(label="Нативный решатель",menu=native_menu)
+        self.configure(menu=menu)
         self._install_global_edit_bindings()
         self._refresh_visibility()
         self.after(150,self._poll_log_queue)
         self.after(500,self._poll_progress_files)
+
+    def _open_native_research(self):
+        from cylinder_native_research_gui import open_native_research_window
+        open_native_research_window(self)
 
     def _install_global_edit_bindings(self):
         """Windows-friendly edit shortcuts + right-click menu for all input widgets.
