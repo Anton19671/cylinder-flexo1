@@ -93,13 +93,13 @@ def fit_mvi_endpoint_field(surface: NativeCoupledMVISurface,
     # The mechanical and electric modes have different physical units.
     # A global norm across all of them could conceal a poorly reconstructed
     # small-amplitude component behind a large displacement or voltage.
-    # Use one dimensionless reference per component from the requested
-    # field or the seed; any zero target/seed mode is already exact.
-    seed_field=surface.reconstruct(seed)
-    scales=np.maximum(
-        np.linalg.norm(target.reshape(surface.n_fields,-1),axis=1),
-        np.linalg.norm(seed_field.reshape(surface.n_fields,-1),axis=1))
-    scales=np.maximum(scales,1.e-30)
+    # Measure fidelity against the REQUESTED endpoint, never against a
+    # much larger seed. Otherwise a large but admissible Gauss-stage seed
+    # can hide a completely inaccurate small endpoint response.
+    # The subnormal floor exists only for exactly zero target components:
+    # those must reconstruct to zero within numerical roundoff.
+    scales=np.linalg.norm(target.reshape(surface.n_fields,-1),axis=1)
+    scales=np.maximum(scales,np.finfo(float).tiny)
 
     def component_errors(factors):
         difference=surface.reconstruct(factors)-target
