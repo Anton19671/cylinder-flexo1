@@ -120,7 +120,7 @@ def _relax_gauss_fixed_rank_stage(surface,old,proposed,weight,program):
                     # break fixed-rank X/Y stage continuation.
                     prior_x=np.linalg.solve(
                         gram,proposed.y[c]@previous.T)
-                    defect=np.linalg.norm(prior_x@proposed.y[c]-previous)
+                    defect=np.linalg.norm(prior_x.T@proposed.y[c]-previous)
                     scale=max(np.linalg.norm(previous),1.e-30)
                     exact=bool(defect<=1.e-10*scale)
             except np.linalg.LinAlgError:
