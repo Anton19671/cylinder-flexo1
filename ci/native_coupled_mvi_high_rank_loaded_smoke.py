@@ -18,8 +18,10 @@ def run_one(folder,rank):
     nx,ns=11,9
     angle=2.*np.pi*np.arange(ns)/ns
     x=np.zeros((3,rank,nx))
-    y=np.broadcast_to(
-        np.stack((np.ones(ns),np.cos(angle))), (3,rank,ns)).copy()
+    family=[np.ones(ns)]
+    for k in range(1,5):
+        family.extend((np.cos(k*angle),np.sin(k*angle)))
+    y=np.broadcast_to(np.stack(family[:rank]),(3,rank,ns)).copy()
     forcing=np.zeros((3,nx,ns))
     forcing[2]=(-600.*(1.+.2*np.cos(angle)))[None,:]
     np.savez_compressed(folder/"initial.npz",
@@ -65,7 +67,7 @@ def run_one(folder,rank):
         q=np.asarray(data["mechanical"])
         a=np.asarray(data["acceleration"])
         assert data["x_profiles"].shape==(3,rank,nx)
-        assert data["y_profiles"].shape==(3,2,ns)
+        assert data["y_profiles"].shape==(3,rank,ns)
         if not (np.isfinite(q).all() and np.isfinite(a).all()):
             raise AssertionError("nonfinite rank-R loaded field")
         midpoint=q[2,nx//2]
