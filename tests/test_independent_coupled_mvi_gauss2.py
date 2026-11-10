@@ -239,3 +239,24 @@ def test_gauss_endpoint_rejects_finite_inputs_with_nonfinite_output():
     accelerations=np.zeros_like(velocities)
     with pytest.raises(ValueError,match="MVI_GAUSS_ENDPOINT_NONFINITE_PHYSICAL_STATE"):
         gauss.mvi_gauss_endpoint(q0,v0,velocities,accelerations,1.e308)
+
+
+@pytest.mark.parametrize("dt",(1.e-200,1.e-160))
+def test_gauss_rejects_unrepresentable_stage_coefficients_before_solver(
+        monkeypatch,dt):
+    surf,solver,state=configured()
+    def forbidden(*args,**kwargs):
+        raise AssertionError("GAUSS_SHOULD_NOT_EVALUATE_UNREPRESENTABLE_DT")
+    monkeypatch.setattr(gauss,"solve_coupled_mvi_static",forbidden)
+    with pytest.raises(ValueError,match="UNREPRESENTABLE_STAGE_COEFFICIENTS"):
+        solver.advance(state,dt,
+                       field_scales=np.ones(surf.n_fields),energy_scale_j=1.,
+                       loads_at=forbidden)
+    assert state.time_s==0.
+
+
+def test_gauss_stage_kinematics_rejects_nonrepresentable_dt_directly():
+    q=np.zeros((3,9,5))
+    stages=np.stack((q,q))
+    with pytest.raises(ValueError,match="UNREPRESENTABLE_STAGE_COEFFICIENTS"):
+        gauss.mvi_gauss_stage_kinematics(stages,q,q,1.e-200)
