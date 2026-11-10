@@ -73,7 +73,7 @@ def test_all_requested_dormant_modes_activate_under_nonzero_multimode_work(rank)
     assert output.converged,output.status
     assert output.factors.rank==rank
     assert output.sweeps>=2
-    np.testing.assert_allclose(surface.reconstruct(output),
+    np.testing.assert_allclose(surface.reconstruct(output.factors),
                                target,atol=2.e-8,rtol=2.e-8)
     contributions=mvi_separated_term_norms(output.factors)
     assert contributions.shape==(surface.n_fields,rank)
