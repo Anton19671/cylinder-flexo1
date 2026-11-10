@@ -45,6 +45,19 @@ def _trace_roundoff_limit(component):
     return 64.*np.finfo(float).eps*max(amplitude,np.finfo(float).tiny)
 
 
+def _target_qr_angular_partner(target_free, rank):
+    """Restart a singular angular partner without SVD or reducing rank.
+
+    Only a rank-R angular *seed* is constructed. Its reconstructed
+    field is still checked against the full target before acceptance.
+    Inactive modes remain allocated: no zero rank slot is discarded.
+    """
+    q,_=np.linalg.qr(target_free.T,mode="reduced")
+    if q.shape[1]<rank or not np.isfinite(q).all():
+        raise np.linalg.LinAlgError("MVI_ENDPOINT_QR_PARTNER_UNAVAILABLE")
+    return q[:,:rank].T.copy()
+
+
 def fit_mvi_endpoint_field(surface: NativeCoupledMVISurface,
                            seed: CoupledMVIFactors,
                            field, program: CoupledMVIEndProgram, *,
@@ -122,18 +135,33 @@ def fit_mvi_endpoint_field(surface: NativeCoupledMVISurface,
             # truncation, no pseudo-inverse or method substitution.
             try:
                 gram=B@B.T
-                if not np.isfinite(gram).all() or np.linalg.cond(gram,p=1)>1.e12:
-                    return MVIRankEndpointFit(
-                        None,False,"MVI_ENDPOINT_FACTOR_SINGULAR",
-                        float("inf"),iteration)
+                if (not np.isfinite(gram).all() or
+                        np.linalg.cond(gram,p=1)>1.e12):
+                    # A dormant angular slot makes its Gram singular,
+                    # even when the requested physical endpoint has a
+                    # perfectly valid representation of rank <= R.
+                    # Reinitialize the full R slots by QR of the target.
+                    B=_target_qr_angular_partner(T,seed.rank)
+                    y[c]=B
+                    gram=B@B.T
                 Anew=np.linalg.solve(gram,(T@B.T).T)
                 x[c]=0.
                 x[c][:,ids]=Anew
+                # An exact rank-1 field is also valid at declared rank
+                # 2..8. Do not invert its necessarily singular X Gram.
+                if (float(np.linalg.norm(x[c]@y[c]-target[c]))/
+                        scales[c]<=relative_tolerance):
+                    continue
                 gram=Anew@Anew.T
-                if not np.isfinite(gram).all() or np.linalg.cond(gram,p=1)>1.e12:
-                    return MVIRankEndpointFit(
-                        None,False,"MVI_ENDPOINT_FACTOR_SINGULAR",
-                        float("inf"),iteration)
+                if (not np.isfinite(gram).all() or
+                        np.linalg.cond(gram,p=1)>1.e12):
+                    # The current X span cannot determine all Y slots.
+                    # QR gives another full-size seed; the outer field
+                    # acceptance test remains mandatory.
+                    y[c]=_target_qr_angular_partner(T,seed.rank)
+                    x[c]=0.
+                    x[c][:,ids]=T@y[c].T
+                    continue
                 y[c]=np.linalg.solve(gram,Anew@T)
             except np.linalg.LinAlgError:
                 return MVIRankEndpointFit(
