@@ -6,11 +6,11 @@ Never calls MKR, a reference variational spatial solve, full-grid Newton,
 SVD, a pseudoinverse, or a rank-changing correction.
 
 Supported boundary subset is EXPLICIT: every mechanical generalized
-displacement coefficient is immobile at both axial ends. Electric ON
-requires all potential polynomial modes grounded at the left axial end
-(optionally also the right); this physically fixes the potential datum
-and does NOT claim insulated-end/source gauge equivalence. Higher-order
-microfree closure is still unverified: this is not a production solver.
+displacement coefficient is immobile at both axial ends. Electric modes
+may be grounded at the left or both ends OR use a single global floating
+potential gauge with naturally insulated axial ends. The latter removes
+only the exact constant-mode null direction representable by the frozen
+X/Y partner. Higher-order microfree closure is still unverified.
 """
 from __future__ import annotations
 
@@ -246,8 +246,7 @@ def _floating_reduced_null(surface,working,axis,components,indices,
     if np.linalg.norm(weights@partner-ones)>1.e-10*np.sqrt(n):
         return None
     direction=np.zeros(sum(sizes))
-    start=sum(sizes[k] for k,field in enumerate(components) if
-              components.index(field)<components.index(c))
+    start=sum(sizes[:components.index(c)])
     length=len(indices[c])
     direction[start:start+working.rank*length]=(
         np.broadcast_to(weights[:,None],
