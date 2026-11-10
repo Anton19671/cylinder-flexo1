@@ -148,3 +148,48 @@ def test_endpoint_acceleration_closure_failure_rejects_step(monkeypatch):
         state,.02,field_scales=np.ones(surf.n_fields),energy_scale_j=1.)
     assert result.state is None
     assert result.status=="MVI_GAUSS_ENDPOINT_MVI_ACCELERATION_MASS_NOT_SOLVED"
+
+
+@pytest.mark.parametrize("rank",range(1,9))
+def test_gauss_rank_preserving_relaxation_in_same_angular_span(rank):
+    """Exact physical interpolation from Gram solve, no SVD or rank change."""
+    rng=np.random.default_rng(923+rank)
+    surface=NativeCoupledMVISurface(
+        "KL",G3DMaterial(90.,.24,.01,0.,0.,0.),
+        grid=CoupledMVISurfaceGrid(11,9,1.2,2.),
+        thickness_m=.3,n_gauss=2)
+    nx,ns=surface.grid.nx,surface.grid.ns
+    theta=2.*np.pi*np.arange(ns)/ns
+    family=[np.ones(ns)]
+    for k in range(1,5):
+        family.extend((np.cos(k*theta),np.sin(k*theta)))
+    angular=np.broadcast_to(
+        np.array(family[:rank]),(surface.n_fields,rank,ns)).copy()
+    x0=np.zeros((surface.n_fields,rank,nx))
+    x1=np.zeros_like(x0)
+    x0[:,:,1:-1]=rng.normal(size=(surface.n_fields,rank,nx-2))*.001
+    x1[:,:,1:-1]=rng.normal(size=(surface.n_fields,rank,nx-2))*.001
+    old=CoupledMVIFactors(x0,angular)
+    proposed=CoupledMVIFactors(x1,angular)
+    program=CoupledMVIEndProgram("IMMOBILE_PARALLEL_ENDS","OFF")
+    weight=.25
+    output=gauss._relax_gauss_fixed_rank_stage(
+        surface,old,proposed,weight,program)
+    assert output.rank==rank
+    actual=surface.reconstruct(output)
+    expected=(1.-weight)*surface.reconstruct(old)+weight*surface.reconstruct(proposed)
+    np.testing.assert_allclose(actual,expected,rtol=2e-11,atol=2e-12)
+    np.testing.assert_array_equal(output.x[:,:,0],0.)
+    np.testing.assert_array_equal(output.x[:,:,-1],0.)
+
+
+def test_gauss_relaxation_never_changes_rank():
+    surface,_,_=configured()
+    x=np.zeros((surface.n_fields,2,surface.grid.nx))
+    y=np.ones((surface.n_fields,2,surface.grid.ns))
+    old=CoupledMVIFactors(x[:,:1],y[:,:1])
+    proposed=CoupledMVIFactors(x,y)
+    program=CoupledMVIEndProgram("IMMOBILE_PARALLEL_ENDS","OFF")
+    with pytest.raises(ValueError,match="RANK_CHANGED"):
+        gauss._relax_gauss_fixed_rank_stage(
+            surface,old,proposed,.25,program)
