@@ -27,11 +27,11 @@ class StrongNewtonSettings:
     relative_linear_tolerance: float = 1e-8
     scaled_absolute_tolerance: float = 1e-8
     line_search_halvings: int = 15
-    linear_solver: str = "MATRIX_FREE_GMRES"
+    linear_solver: str = "AUTO"
     dense_lu_dof_limit: int = 384
 
     def __post_init__(self):
-        if self.linear_solver not in ("MATRIX_FREE_GMRES","DENSE_LU"):
+        if self.linear_solver not in ("AUTO","MATRIX_FREE_GMRES","DENSE_LU"):
             raise ValueError("DIRECT_STRONG_UNKNOWN_LINEAR_SOLVER")
         if (type(self.dense_lu_dof_limit) is not int or
                 not 1<=self.dense_lu_dof_limit<=2048):
@@ -246,7 +246,9 @@ def solve_strong_nonlinear_equations(
                     step *= .5
             raise ValueError('DIRECT_STRONG_INVALID_TANGENT_PROBE')
         try:
-            if settings.linear_solver=="DENSE_LU":
+            if (settings.linear_solver=="DENSE_LU" or
+                    settings.linear_solver=="AUTO" and
+                    count<=settings.dense_lu_dof_limit):
                 if count>settings.dense_lu_dof_limit:
                     raise ValueError("DIRECT_STRONG_DENSE_LU_DOF_LIMIT")
                 # Distinct physical STRONG Jacobian: explicit columns
