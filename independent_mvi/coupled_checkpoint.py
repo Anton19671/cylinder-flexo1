@@ -153,8 +153,12 @@ def _read_committed_history(path,accepted,dt_s):
         reader=csv.DictReader(stream)
         fieldnames=reader.fieldnames
         rows=list(reader)
-    if (not fieldnames or "step" not in fieldnames or
-            "time_s" not in fieldnames or len(rows)<=accepted):
+    expected_cols=("step","time_s","axial_node","circumferential_node",
+                   "middle_w_m","inner_w_m","outer_w_m",
+                   "maximum_abs_middle_w_m","maximum_abs_inner_w_m",
+                   "maximum_abs_outer_w_m")
+    if (not fieldnames or set(fieldnames)!=set(expected_cols) or
+            len(fieldnames)!=len(expected_cols) or len(rows)<=accepted):
         raise ValueError("COUPLED_MVI_CHECKPOINT_HISTORY_INCOMPLETE")
     committed=rows[:accepted+1]
     for i,row in enumerate(committed):
@@ -164,6 +168,16 @@ def _read_committed_history(path,accepted,dt_s):
         except (ValueError,TypeError,KeyError) as exc:
             raise ValueError("COUPLED_MVI_CHECKPOINT_HISTORY_INVALID") from exc
         if stored_step!=i or not _time_close(stored_time,i*dt_s,dt_s):
+            raise ValueError("COUPLED_MVI_CHECKPOINT_HISTORY_INVALID")
+        try:
+            xnode=int(row["axial_node"])
+            snode=int(row["circumferential_node"])
+            floats=(row[key] for key in expected_cols[4:])
+            valid=all((entry=="" or math.isfinite(float(entry)))
+                      for entry in floats)
+        except (ValueError,TypeError,KeyError) as exc:
+            raise ValueError("COUPLED_MVI_CHECKPOINT_HISTORY_INVALID") from exc
+        if xnode<0 or snode<0 or not valid:
             raise ValueError("COUPLED_MVI_CHECKPOINT_HISTORY_INVALID")
     return fieldnames,committed,len(rows)>accepted+1
 
