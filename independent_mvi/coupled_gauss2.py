@@ -72,11 +72,15 @@ def mvi_gauss_endpoint(q0,v0,velocity,acceleration,dt_s):
     q0=np.asarray(q0,float)
     v0=np.asarray(v0,float)
     if (v.shape!=(2,*q0.shape) or a.shape!=v.shape or
-            q0.shape!=v0.shape or not np.isfinite(v).all() or
+            q0.shape!=v0.shape or not np.isfinite(q0).all() or
+            not np.isfinite(v0).all() or not np.isfinite(v).all() or
             not np.isfinite(a).all()):
         raise ValueError("MVI_GAUSS_ENDPOINT_KINEMATICS_INVALID")
-    return (q0+dt*np.einsum("i,i...->...",GAUSS_B,v,optimize=True),
-            v0+dt*np.einsum("i,i...->...",GAUSS_B,a,optimize=True))
+    q_end=q0+dt*np.einsum("i,i...->...",GAUSS_B,v,optimize=True)
+    v_end=v0+dt*np.einsum("i,i...->...",GAUSS_B,a,optimize=True)
+    if not np.isfinite(q_end).all() or not np.isfinite(v_end).all():
+        raise ValueError("MVI_GAUSS_ENDPOINT_NONFINITE_PHYSICAL_STATE")
+    return q_end,v_end
 
 
 @dataclass(frozen=True)
