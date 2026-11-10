@@ -119,14 +119,28 @@ class NativeCoupledMVIBathe:
                 lambda event:on_iteration(dict(stage=stage,**event)))
 
         delta=BATHE_GAMMA*dt
+        # A positive time increment alone does not guarantee finite
+        # implicit coefficients (the 1/dt**2 terms can overflow).
+        # Validate BOTH Bathe stage scales before evaluating any load
+        # or material weak work.
+        acceleration_factor1=4./(delta*delta) if delta*delta else float("inf")
+        c1=(1.-BATHE_GAMMA)/(BATHE_GAMMA*dt)
+        c2=-1./((1.-BATHE_GAMMA)*BATHE_GAMMA*dt)
+        c3=(2.-BATHE_GAMMA)/((1.-BATHE_GAMMA)*dt)
+        acceleration_factor2=c3*c3
+        if not all(math.isfinite(vv) for vv in
+                   (acceleration_factor1,c1,c2,c3,acceleration_factor2)):
+            raise ValueError("MVI_BATHE_UNREPRESENTABLE_TIME_COEFFICIENTS")
         initial_q=q[:surf.n_mechanical]
         predictor1=initial_q+delta*v+delta**2*a/4.
         velocity1=v+delta*a/2.
+        if not (np.isfinite(predictor1).all() and np.isfinite(velocity1).all()):
+            raise ValueError("MVI_BATHE_NONFINITE_FIRST_PREDICTOR")
         load1,charge1=loads(t1)
         first,first_result=self._solve_stage(
             state.factors,predictor=predictor1,
             velocity_predictor=velocity1,
-            acceleration_factor=4./delta**2,velocity_factor=delta/2.,
+            acceleration_factor=acceleration_factor1,velocity_factor=delta/2.,
             time_s=t1,field_scales=field_scales,
             energy_scale_j=energy_scale_j,mechanical_load=load1,
             free_charge=charge1,settings=settings,
@@ -137,19 +151,18 @@ class NativeCoupledMVIBathe:
                 None,None,first_result,None,t2,
                 "MVI_BATHE_FIRST_"+first_result.status)
 
-        c1=(1.-BATHE_GAMMA)/(BATHE_GAMMA*dt)
-        c2=-1./((1.-BATHE_GAMMA)*BATHE_GAMMA*dt)
-        c3=(2.-BATHE_GAMMA)/((1.-BATHE_GAMMA)*dt)
         first_q=surf.reconstruct(first.factors)[:surf.n_mechanical]
         displacement_history=c1*initial_q+c2*first_q
         velocity_history=c1*v+c2*first.velocity
         predictor2=-(c3*displacement_history+velocity_history)/c3**2
         velocity2=-velocity_history/c3
+        if not (np.isfinite(predictor2).all() and np.isfinite(velocity2).all()):
+            raise ValueError("MVI_BATHE_NONFINITE_SECOND_PREDICTOR")
         load2,charge2=loads(t2)
         final,final_result=self._solve_stage(
             first.factors,predictor=predictor2,
             velocity_predictor=velocity2,
-            acceleration_factor=c3**2,velocity_factor=1./c3,
+            acceleration_factor=acceleration_factor2,velocity_factor=1./c3,
             time_s=t2,field_scales=field_scales,
             energy_scale_j=energy_scale_j,mechanical_load=load2,
             free_charge=charge2,settings=settings,
