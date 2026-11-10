@@ -1,0 +1,29 @@
+name: Native coupled MKR MVI tiny physical smoke (not a benchmark)
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "ci/native_coupled_zero_physical_smoke.py"
+      - ".github/workflows/native-coupled-physical-smoke.yml"
+permissions:
+  contents: read
+jobs:
+  physical-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONPATH: ".:independent_mkr:independent_mvi:mechanics:numerics:flexoelectric:physics:interface"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install numerical dependencies
+        run: python -m pip install numpy scipy
+      - name: Minimal physical zero-equilibrium G3D MKR/MVI execution
+        run: python ci/native_coupled_zero_physical_smoke.py
