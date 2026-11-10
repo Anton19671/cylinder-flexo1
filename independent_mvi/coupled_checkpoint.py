@@ -38,6 +38,11 @@ def _hash_file(path):
     return digest.hexdigest()
 
 
+def accepted_state_sha256(folder,step):
+    """Hash every byte of the accepted state NPZ, including v and a."""
+    return _hash_file(Path(folder)/f"STEP_{step:04d}.npz")
+
+
 def input_manifest(case_path,initial_path,loads_path):
     """Hash the exact CASE and both NPZ inputs, without interpreting them."""
     return dict(
@@ -202,6 +207,18 @@ def prepare_resume(output,case,manifest,*,surface,configuration,steps,dt_s,
     if not _time_close(float(summary.get("time_s",-1.)),
                        accepted*dt_s,dt_s):
         raise ValueError("COUPLED_MVI_CHECKPOINT_SUMMARY_TIME_MISMATCH")
+    # The committed NPZ includes not only physical q/phi but also the
+    # velocity and acceleration needed to restart an implicit integrator.
+    # Shape/reconstruction checks alone cannot detect tampered v/a.
+    expected_hash=summary.get("last_state_sha256")
+    if not isinstance(expected_hash,str) or len(expected_hash)!=64:
+        raise ValueError("COUPLED_MVI_CHECKPOINT_STATE_FINGERPRINT_MISSING")
+    try:
+        stored_hash=accepted_state_sha256(output,accepted)
+    except OSError as exc:
+        raise ValueError("COUPLED_MVI_CHECKPOINT_STATE_FILE_MISSING") from exc
+    if stored_hash!=expected_hash:
+        raise ValueError("COUPLED_MVI_CHECKPOINT_STATE_FINGERPRINT_MISMATCH")
     state=load_committed_state(
         output,accepted,surface,configuration,dt_s)
     if state.factors.rank!=input_rank:
@@ -234,5 +251,6 @@ def append_history_row(path,row):
         os.fsync(stream.fileno())
 
 
-__all__=("input_manifest","exclusive_run_lock","load_committed_state",
+__all__=("input_manifest","accepted_state_sha256",
+         "exclusive_run_lock","load_committed_state",
          "prepare_resume","append_history_row")
