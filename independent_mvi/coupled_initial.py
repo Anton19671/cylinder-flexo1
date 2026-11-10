@@ -22,6 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 import numpy as np
+from scipy.sparse.linalg import LinearOperator, gmres
 
 from independent_mvi.coupled_halfstep import (
     CoupledMVIEndProgram, _check_end_factors, _checked_lu_newton, _scales,
@@ -50,6 +51,11 @@ def close_mvi_instantaneous_state(
         electric_settings=CoupledMVISweepSettings(),
         max_acceleration_coordinates=256,
         min_mass_reciprocal_condition=1.e-12,
+        acceleration_linear_solver="AUTO",
+        acceleration_dense_limit=192,
+        acceleration_krylov_restart=32,
+        acceleration_krylov_maxiter=200,
+        acceleration_krylov_relative_tolerance=1.e-8,
         on_iteration=None, cancelled=None):
     """Close phi and a at prescribed q/v; fail closed without partial state."""
     if not isinstance(configuration,NativeCoupledMVINewmark):
@@ -59,8 +65,27 @@ def close_mvi_instantaneous_state(
     _scales(surface,field_scales,energy_scale_j)
     if not isinstance(electric_settings,CoupledMVISweepSettings):
         raise TypeError("CoupledMVISweepSettings required")
-    if type(max_acceleration_coordinates) is not int or max_acceleration_coordinates<1:
+    if (type(max_acceleration_coordinates) is not int or
+            not 1<=max_acceleration_coordinates<=300000):
         raise ValueError("MVI_ACCELERATION_COORDINATE_LIMIT_INVALID")
+    if acceleration_linear_solver not in (
+            "AUTO","DENSE_LU","MATRIX_FREE_GMRES"):
+        raise ValueError("MVI_ACCELERATION_LINEAR_SOLVER_INVALID")
+    for label,value in (
+            ("DENSE_LIMIT",acceleration_dense_limit),
+            ("KRYLOV_RESTART",acceleration_krylov_restart),
+            ("KRYLOV_MAXITER",acceleration_krylov_maxiter)):
+        if type(value) is not int or value<1:
+            raise ValueError("MVI_ACCELERATION_"+label+"_INVALID")
+    if isinstance(acceleration_krylov_relative_tolerance,
+                  (bool,np.bool_)):
+        raise ValueError("MVI_ACCELERATION_KRYLOV_TOLERANCE_INVALID")
+    try:
+        accuracy=float(acceleration_krylov_relative_tolerance)
+    except (TypeError,ValueError,OverflowError) as exc:
+        raise ValueError("MVI_ACCELERATION_KRYLOV_TOLERANCE_INVALID") from exc
+    if not math.isfinite(accuracy) or not 0<accuracy<.1:
+        raise ValueError("MVI_ACCELERATION_KRYLOV_TOLERANCE_INVALID")
     if not isinstance(min_mass_reciprocal_condition,(int,float)) or (
             not math.isfinite(min_mass_reciprocal_condition) or
             min_mass_reciprocal_condition<0 or min_mass_reciprocal_condition>=1):
@@ -76,10 +101,11 @@ def close_mvi_instantaneous_state(
     if cancelled is not None and cancelled():
         return MVIAccelerationResult(None,"MVI_INITIAL_CANCELLED",None,None)
 
-    # A dense mass solve is impossible when its explicitly declared
-    # coordinate budget is exceeded. Reject BEFORE local constitutive
-    # evaluation: malformed high-gradient trial fields must never mask
-    # this deterministic resource preflight.
+    # This is the declared physical mass-coordinate BUDGET, not a
+    # requirement to allocate a dense mass matrix. Above the explicit
+    # small dense threshold the independent MVI inertia acts as a
+    # matrix-free Krylov operator. Reject budget violations before
+    # any local material evaluation.
     free_count=sum(len(free[c])*surface.grid.ns
                    for c in range(surface.n_mechanical))
     if free_count>max_acceleration_coordinates:
@@ -126,25 +152,81 @@ def close_mvi_instantaneous_state(
     rhs=np.array([base[c,i,j] for c,i,j in coords],float)
     if not np.isfinite(rhs).all():
         raise ValueError("MVI_ACCELERATION_NONFINITE_STATIC_FORCE")
-    mass=np.empty((n,n))
-    for column,(c,i,j) in enumerate(coords):
+
+    # Only the inertial MASS equation is solved in nodal accelerations.
+    # Mechanical displacements stay exactly the original rank-R MVI
+    # factors. No spatial displacement Newton, no MKR or SVD fallback.
+    components=np.fromiter((c for c,i,j in coords),dtype=int,count=n)
+    axial=np.fromiter((i for c,i,j in coords),dtype=int,count=n)
+    circum=np.fromiter((j for c,i,j in coords),dtype=int,count=n)
+    def action(values):
         if cancelled is not None and cancelled():
-            return MVIAccelerationResult(None,"MVI_INITIAL_CANCELLED",
-                                         None,electric_status)
+            raise InterruptedError("MVI_INITIAL_CANCELLED")
+        values=np.asarray(values,dtype=float)
+        if values.shape!=(n,) or not np.isfinite(values).all():
+            raise np.linalg.LinAlgError("MVI_MASS_INVALID_KRYLOV_VECTOR")
         trial=np.zeros_like(q)
-        trial[c,i,j]=1.
+        trial[components,axial,circum]=values
         physical=configuration.inertia.apply(q,v,trial)-bias
-        mass[:,column]=[physical[k,x,y] for k,x,y in coords]
-    if not np.isfinite(mass).all():
-        raise ValueError("MVI_ACCELERATION_NONFINITE_MASS_OPERATOR")
-    if np.linalg.norm(mass,1)==0:
-        return MVIAccelerationResult(None,"MVI_ACCELERATION_MASS_SINGULAR",
-                                     0.,electric_status)
+        result=physical[components,axial,circum]
+        if not np.isfinite(result).all():
+            raise np.linalg.LinAlgError("MVI_MASS_NONFINITE_OPERATOR")
+        return result
+
+    method=(acceleration_linear_solver
+            if acceleration_linear_solver!="AUTO" else
+            "DENSE_LU" if n<=acceleration_dense_limit
+            else "MATRIX_FREE_GMRES")
+    if method=="DENSE_LU" and n>acceleration_dense_limit:
+        return MVIAccelerationResult(
+            None,"MVI_ACCELERATION_DENSE_METHOD_LIMIT",None,electric_status)
     try:
-        delta=_checked_lu_newton(mass,rhs,min_mass_reciprocal_condition)
+        if method=="DENSE_LU":
+            mass=np.empty((n,n))
+            for column in range(n):
+                if cancelled is not None and cancelled():
+                    raise InterruptedError("MVI_INITIAL_CANCELLED")
+                unit=np.zeros(n)
+                unit[column]=1.
+                mass[:,column]=action(unit)
+            if not np.isfinite(mass).all():
+                raise ValueError("MVI_ACCELERATION_NONFINITE_MASS_OPERATOR")
+            if np.linalg.norm(mass,1)==0:
+                return MVIAccelerationResult(
+                    None,"MVI_ACCELERATION_MASS_SINGULAR",0.,electric_status)
+            delta=_checked_lu_newton(
+                mass,rhs,min_mass_reciprocal_condition)
+        else:
+            operator=LinearOperator((n,n),matvec=action,dtype=float)
+            delta,info=gmres(
+                operator,-rhs,atol=0.,
+                rtol=accuracy,
+                restart=min(n,acceleration_krylov_restart),
+                maxiter=acceleration_krylov_maxiter)
+            if info!=0 or not np.isfinite(delta).all():
+                return MVIAccelerationResult(
+                    None,"MVI_ACCELERATION_KRYLOV_NOT_SOLVED",
+                    None,electric_status)
+    except InterruptedError:
+        return MVIAccelerationResult(
+            None,"MVI_INITIAL_CANCELLED",None,electric_status)
     except np.linalg.LinAlgError:
-        return MVIAccelerationResult(None,"MVI_ACCELERATION_MASS_NOT_SOLVED",
-                                     None,electric_status)
+        return MVIAccelerationResult(
+            None,"MVI_ACCELERATION_MASS_NOT_SOLVED",None,electric_status)
+    # The accepted correction must actually close the SAME physical
+    # nodal inertial equations. An approximate Krylov exit is not
+    # sufficient by itself.
+    try:
+        correction=action(delta)+rhs
+    except InterruptedError:
+        return MVIAccelerationResult(
+            None,"MVI_INITIAL_CANCELLED",None,electric_status)
+    bound=1.e-8*max(1.,float(np.max(np.abs(rhs),initial=0.)))
+    if (not np.isfinite(correction).all() or
+            float(np.max(np.abs(correction),initial=0.))>bound):
+        return MVIAccelerationResult(
+            None,"MVI_ACCELERATION_EQUILIBRIUM_NOT_MET",
+            None,electric_status)
     acceleration=np.zeros_like(q)
     for value,(c,i,j) in zip(delta,coords):
         acceleration[c,i,j]=value
