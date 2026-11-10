@@ -22,7 +22,23 @@ def _confirmed_success(summary):
     flag=summary.get("converged")
     if type(flag) is bool:
         return flag
-    if summary.get("status")!="CONVERGED":
+    status=summary.get("status")
+    if status in ("EXPERIMENTAL_COMPLETED_UNCERTIFIED",
+                  "EXPERIMENTAL_STATIONARY_UNCERTIFIED"):
+        # "Completed" is a numerical workflow status, NOT a claim that
+        # the G3D/Gz physical boundary closure has been certified.
+        if summary.get("solver_backend") not in (
+                "INDEPENDENT_MKR","INDEPENDENT_MVI"):
+            return False
+        if summary.get("scientific_accuracy_certified") is not False:
+            return False
+        accepted=summary.get("accepted_steps")
+        if status=="EXPERIMENTAL_STATIONARY_UNCERTIFIED":
+            return type(accepted) is int and accepted==1
+        expected=summary.get("steps")
+        return (type(expected) is int and expected>0
+                and type(accepted) is int and accepted==expected)
+    if status!="CONVERGED":
         return False
     if summary.get("calculation_kind")=="STATIC":
         return summary.get("solver_backend") in (
