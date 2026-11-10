@@ -122,3 +122,55 @@ def test_endpoint_rejects_small_nonzero_fixed_trace():
     result=fit_mvi_endpoint_field(surf,seed,target,ends)
     assert result.factors is None
     assert result.status=="MVI_ENDPOINT_ESSENTIAL_TRACE_CONFLICT"
+
+
+@pytest.mark.parametrize("rank",range(1,9))
+def test_endpoint_qr_restores_dormant_rank_slots_without_svd(rank,monkeypatch):
+    # 11 axial nodes give 9 free coordinates, and 9 angular nodes support
+    # all requested ranks through R=8. This is factor algebra, not physics.
+    grid=CoupledMVISurfaceGrid(11,9,1.3,2.)
+    surf=NativeCoupledMVISurface(
+        "KL",G3DMaterial(80.,.22,.03,0.,0.,0.),
+        grid=grid,thickness_m=.2,n_gauss=2)
+    zeros_x=np.zeros((surf.n_fields,rank,11))
+    zeros_y=np.zeros((surf.n_fields,rank,9))
+    seed=CoupledMVIFactors(zeros_x,zeros_y)
+    target=np.zeros(surf.shape)
+    axial=np.sin(np.pi*np.arange(11)/10.)
+    angular=np.cos(2.*np.pi*np.arange(9)/9.)
+    target[0]=axial[:,None]*angular[None,:]*1.e-6
+    ends=CoupledMVIEndProgram("IMMOBILE_PARALLEL_ENDS","OFF")
+    monkeypatch.setattr(np.linalg,"svd",
+                        lambda *a,**kw:pytest.fail("SVD in MVI endpoint"))
+    result=fit_mvi_endpoint_field(
+        surf,seed,target,ends,relative_tolerance=1.e-10,
+        max_iterations=30)
+    assert result.accepted,result.status
+    assert result.factors is not None
+    assert result.factors.rank==rank
+    np.testing.assert_allclose(
+        surf.reconstruct(result.factors),target,rtol=1.e-9,atol=1.e-14)
+    np.testing.assert_array_equal(result.factors.x[:,:,0],0.)
+    np.testing.assert_array_equal(result.factors.x[:,:,-1],0.)
+
+
+def test_endpoint_qr_restart_does_not_accept_unrepresentable_rank():
+    grid=CoupledMVISurfaceGrid(11,9,1.3,2.)
+    surf=NativeCoupledMVISurface(
+        "KL",G3DMaterial(80.,.22,.03,0.,0.,0.),
+        grid=grid,thickness_m=.2,n_gauss=2)
+    seed=CoupledMVIFactors(
+        np.zeros((surf.n_fields,1,11)),
+        np.zeros((surf.n_fields,1,9)))
+    target=np.zeros(surf.shape)
+    axial=np.arange(11,dtype=float)
+    theta=2*np.pi*np.arange(9)/9
+    target[0]=(np.sin(np.pi*axial/10)[:,None]*np.cos(theta)[None,:]
+               +np.sin(2*np.pi*axial/10)[:,None]*np.sin(theta)[None,:])
+    ends=CoupledMVIEndProgram("IMMOBILE_PARALLEL_ENDS","OFF")
+    result=fit_mvi_endpoint_field(
+        surf,seed,target,ends,relative_tolerance=1.e-10,
+        max_iterations=25)
+    assert not result.accepted
+    assert result.factors is None
+    assert result.status=="MVI_RANK_R_ENDPOINT_NOT_REPRESENTABLE"
