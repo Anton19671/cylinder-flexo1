@@ -527,6 +527,9 @@ def _run_loaded_case(items,*,validate_only,resume=False):
     scales=items["field_scales"]
     energy=items["energy_scale"]
     settings=items["settings"]
+    # A rejected restart must NEVER overwrite a previously committed
+    # summary with failure metadata from this new invocation.
+    checkpoint_validated=not resume
     try:
         if opts["kind"]=="STATIC":
             answer=solve_coupled_mvi_static(
@@ -568,6 +571,7 @@ def _run_loaded_case(items,*,validate_only,resume=False):
                     configuration=configuration,steps=opts["steps"],
                     dt_s=opts["dt_s"],input_rank=items["factors"].rank)
                 first_step=prior["accepted_steps"]+1
+                checkpoint_validated=True
                 result=prior
                 result.pop("error_type",None)
                 result.pop("detail",None)
@@ -640,6 +644,10 @@ def _run_loaded_case(items,*,validate_only,resume=False):
         _write_json(output/"RUN_SUMMARY.json",result)
         return result
     except Exception as exc:
+        if not checkpoint_validated:
+            # Preserve all previously accepted results unchanged if a
+            # checkpoint, input hash, output history or rank fails audit.
+            raise
         result.update(status="FAILED",error_type=type(exc).__name__,
                       detail=str(exc),scientific_accuracy_certified=False)
         _write_json(output/"RUN_SUMMARY.json",result)
