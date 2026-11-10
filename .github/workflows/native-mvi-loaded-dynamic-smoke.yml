@@ -5,6 +5,9 @@ on:
     branches: [main]
     paths:
       - "ci/native_coupled_mvi_loaded_dynamic_smoke.py"
+      - "independent_mvi/coupled_gauss2.py"
+      - "independent_mvi/coupled_halfstep.py"
+      - "independent_mvi/coupled_rank_endpoint.py"
       - ".github/workflows/native-mvi-loaded-dynamic-smoke.yml"
 permissions:
   contents: read
