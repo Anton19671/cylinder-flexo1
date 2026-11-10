@@ -93,8 +93,8 @@ def solve_coupled_mvi_static(
         mechanical_load=None,free_charge=None,
         settings=CoupledMVISweepSettings(),
         on_iteration=None,cancelled=None,work_evaluator=None,
-        active_fields=None):
-    """Explicit Y then X halfsteps; no rank growth or hidden full-node correction.
+        active_fields=None,axis_sequence=("Y","X")):
+    """Explicit independent frozen-partner halfsteps, no rank growth.
 
     A successful result means *projected* stationarity only. A publication-
     quality solution requires additional independent checks and microfree
@@ -110,6 +110,8 @@ def solve_coupled_mvi_static(
         raise TypeError("cancelled must be callable")
     if work_evaluator is not None and not callable(work_evaluator):
         raise TypeError("work_evaluator must be callable")
+    if axis_sequence not in (("Y","X"),("X",)):
+        raise ValueError("MVI_STATIC_INVALID_AXIS_SEQUENCE")
     _check_end_factors(surface,factors,program)
     _active_field_ids(surface,active_fields)
     _scales(surface,field_scales,energy_scale_j)
@@ -129,7 +131,7 @@ def solve_coupled_mvi_static(
             return finish(False,"MVI_COUPLED_CANCELLED",sweep-1,float("inf"),
                           float("inf"))
         candidate=accepted
-        for axis in ("Y","X"):
+        for axis in axis_sequence:
             response=solve_coupled_mvi_halfstep(
                 surface,candidate,axis=axis,program=program,
                 field_scales=field_scales,energy_scale_j=energy_scale_j,
