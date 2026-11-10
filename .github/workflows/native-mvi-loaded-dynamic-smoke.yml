@@ -10,6 +10,7 @@ on:
       - "independent_mvi/coupled_rank_endpoint.py"
       - ".github/workflows/native-mvi-loaded-dynamic-smoke.yml"
 # Recheck after fixed-rank Gauss stage interpolation correction.
+# Rerun invariant axisymmetric Gauss rank-one stage subspace control.
 permissions:
   contents: read
 jobs:
