@@ -179,6 +179,30 @@ def test_orphan_future_npz_and_csv_are_trimmed_at_restart(
         assert float(archive["time_s"])==pytest.approx(.002)
 
 
+def test_changed_committed_history_rejected_without_overwriting(
+        tmp_path,monkeypatch):
+    path=build(tmp_path)
+    mock_drivers(monkeypatch,fail_at=2)
+    with pytest.raises(RuntimeError):
+        native.run(path,validate_only=False)
+    out=tmp_path/"output"
+    old=(out/"RUN_SUMMARY.json").read_bytes()
+    history_path=out/"PHYSICAL_RADIAL_HISTORY.csv"
+    with history_path.open(newline="",encoding="utf-8") as stream:
+        reader=csv.DictReader(stream)
+        cols=tuple(reader.fieldnames)
+        rows=list(reader)
+    rows[1]["middle_w_m"]="999."
+    with history_path.open("w",newline="",encoding="utf-8") as stream:
+        writer=csv.DictWriter(stream,fieldnames=cols)
+        writer.writeheader()
+        writer.writerows(rows)
+    with pytest.raises(ValueError,match="CHECKPOINT_HISTORY_FIELD_MISMATCH"):
+        native.run(path,validate_only=False,resume=True)
+    assert (out/"RUN_SUMMARY.json").read_bytes()==old
+    assert (out/"STEP_0001.npz").exists()
+
+
 def test_existing_output_without_resume_is_rejected(tmp_path,monkeypatch):
     path=build(tmp_path)
     mock_drivers(monkeypatch,fail_at=2)
