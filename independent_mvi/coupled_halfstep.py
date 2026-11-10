@@ -165,12 +165,27 @@ def normalized_mvi_factors(surface, factors, program, axis):
     x=factors.x.copy()
     y=factors.y.copy()
     for c,ids in enumerate(free):
+        # A zero or linearly dependent frozen partner is NOT a reason
+        # to erase any of the user's rank-R profiles. In particular,
+        # QR(0) returns arbitrary Q and zero R: normalizing an all-zero
+        # X seed in a Y-halfstep would destroy every prescribed Y mode
+        # before the first X iteration could activate it.
+        #
+        # Normalize only a FULL ROW RANK frozen family; otherwise keep
+        # the original rank-R coordinates unchanged. This uses QR only,
+        # never an SVD rank estimate or an automatic rank reduction.
         if axis=="X":
             Q,R=np.linalg.qr(y[c].T,mode="reduced")
+            size=float(np.linalg.norm(R,ord="fro"))
+            if size==0. or float(np.min(np.abs(np.diag(R))))<=1.e-12*size:
+                continue
             y[c]=Q.T
             x[c]=R@x[c]
         else:
             Q,R=np.linalg.qr(x[c][:,ids].T,mode="reduced")
+            size=float(np.linalg.norm(R,ord="fro"))
+            if size==0. or float(np.min(np.abs(np.diag(R))))<=1.e-12*size:
+                continue
             x[c]=0.
             x[c][:,ids]=Q.T
             y[c]=R@y[c]
