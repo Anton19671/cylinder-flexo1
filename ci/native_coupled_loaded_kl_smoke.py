@@ -56,7 +56,7 @@ def work_mkr(root):
                       electric="OFF",axial_orders=[1,1,2]),
         solver=dict(kind="STATIC",integrator=None,dt_s=None,
                     steps=0,max_dofs=512,max_iterations=12,
-                    linear_solver="DENSE_LU",dense_lu_dof_limit=384,
+                    linear_solver="AUTO",dense_lu_dof_limit=384,
                     mechanical_state_scale=1.e-4,
                     mechanical_equation_scale=1.e4,
                     electrical_state_scale=None,
