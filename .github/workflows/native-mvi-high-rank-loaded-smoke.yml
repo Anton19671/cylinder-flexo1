@@ -6,6 +6,7 @@ on:
     paths:
       - "ci/native_coupled_mvi_high_rank_loaded_smoke.py"
       - ".github/workflows/native-mvi-high-rank-loaded-smoke.yml"
+# Recheck actual loaded high-rank MVI after preserving dormant XY modes.
 permissions:
   contents: read
 jobs:
