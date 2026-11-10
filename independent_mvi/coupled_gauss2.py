@@ -140,6 +140,43 @@ def _relax_gauss_fixed_rank_stage(surface,old,proposed,weight,program):
     return relaxed
 
 
+def _gauss_axisymmetric_rank1_subspace(surface,factors,q,v,a,forcing):
+    """Exact invariant rank-one circumferential mode; no rank truncation.
+
+    Each angular factor is a nonzero constant and all physical
+    mechanical/electrical loads, initial states and generalized end
+    work must be circumferentially constant. Then each Gauss stage
+    stays in the shared Y span and only native X needs updating.
+    """
+    if factors.rank!=1:
+        return False
+    y=factors.y[:,0,:]
+    if np.any(np.max(np.abs(y),axis=1)<=1.e-14):
+        return False
+
+    def invariant(data):
+        if data is None:
+            return True
+        arr=np.asarray(data,dtype=float)
+        if not np.isfinite(arr).all():
+            return False
+        deviation=float(np.max(np.abs(arr-arr[...,0:1]),initial=0.))
+        scale=float(np.max(np.abs(arr),initial=0.))
+        return deviation<=1.e-12*max(scale,1.e-30)
+
+    if not invariant(y):
+        return False
+    if any(not invariant(field) for field in (q,v,a)):
+        return False
+    if any(not invariant(piece) for pair in forcing for piece in pair):
+        return False
+    end=getattr(surface,"mechanical_end_work",None)
+    if end is not None and any(
+            not invariant(array) for array in (end.left,end.right)):
+        return False
+    return True
+
+
 class NativeCoupledMVIGauss2:
     def __init__(self,configuration: NativeCoupledMVINewmark):
         if not isinstance(configuration,NativeCoupledMVINewmark):
@@ -196,6 +233,8 @@ class NativeCoupledMVIGauss2:
             return answer[0],answer[1]
 
         forcing=(loads(times[0]),loads(times[1]))
+        shared_angular_basis=_gauss_axisymmetric_rank1_subspace(
+            surface,state.factors,q,v0,a0,forcing)
         mechanical0=q[:surface.n_mechanical]
         factors=[state.factors,state.factors]
         last_solvers=()
@@ -248,6 +287,8 @@ class NativeCoupledMVIGauss2:
                     field_scales=field_scales,energy_scale_j=energy_scale_j,
                     mechanical_load=load,free_charge=charge,
                     settings=settings,work_evaluator=stage_work,
+                    axis_sequence=(("X",) if shared_angular_basis
+                                   else ("Y","X")),
                     cancelled=cancelled,
                     on_iteration=(None if on_iteration is None else
                         lambda entry,index=index,sweep=sweep:
