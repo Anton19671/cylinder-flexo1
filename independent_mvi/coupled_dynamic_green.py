@@ -149,6 +149,10 @@ def audit_mvi_dynamic_discrete_green(
     total_coeff+=viscosity_coeff
     total_work=_work_from_coefficients(surface,factors,total_coeff)
     expected_nodal=np.asarray(conservative.nodal_gradient).copy()
+    if conservative.external_end_gradient is not None:
+        # Compare ONLY material/volume local jets here. Prescribed end
+        # work already has an exact separate SBP trace lifting.
+        expected_nodal-=conservative.external_end_gradient
     expected_nodal[:surface.n_mechanical]+=actual_inertia+actual_kv
     consistency=float(np.max(np.abs(expected_nodal-
                                    total_work.nodal_gradient),initial=0.))
