@@ -159,6 +159,7 @@ def test_floating_constant_gauge_does_not_make_x_newton_singular(
     result=solve_coupled_mvi_halfstep(
         surf,seed,axis="X",program=program,
         field_scales=np.ones(surf.n_fields),energy_scale_j=1.,
+        active_fields=(c,),
         settings=CoupledMVIHalfstepSettings(
             max_iterations=6,max_coordinates=256,
             linear_solver=linear_solver,
