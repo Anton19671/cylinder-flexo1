@@ -122,7 +122,7 @@ def fit_mvi_endpoint_field(surface: NativeCoupledMVISurface,
             # truncation, no pseudo-inverse or method substitution.
             try:
                 gram=B@B.T
-                if not np.isfinite(gram).all() or np.linalg.cond(gram,1)>1.e12:
+                if not np.isfinite(gram).all() or np.linalg.cond(gram,p=1)>1.e12:
                     return MVIRankEndpointFit(
                         None,False,"MVI_ENDPOINT_FACTOR_SINGULAR",
                         float("inf"),iteration)
@@ -130,7 +130,7 @@ def fit_mvi_endpoint_field(surface: NativeCoupledMVISurface,
                 x[c]=0.
                 x[c][:,ids]=Anew
                 gram=Anew@Anew.T
-                if not np.isfinite(gram).all() or np.linalg.cond(gram,1)>1.e12:
+                if not np.isfinite(gram).all() or np.linalg.cond(gram,p=1)>1.e12:
                     return MVIRankEndpointFit(
                         None,False,"MVI_ENDPOINT_FACTOR_SINGULAR",
                         float("inf"),iteration)
