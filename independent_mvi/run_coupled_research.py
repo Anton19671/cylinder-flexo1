@@ -67,6 +67,9 @@ SOLVER_KEYS=frozenset((
 OPTIONAL_LINEAR_KEYS=frozenset((
     "linear_solver","dense_coordinate_limit","krylov_restart",
     "krylov_maxiter","krylov_relative_tolerance",
+    "acceleration_linear_solver","acceleration_dense_limit",
+    "acceleration_krylov_restart","acceleration_krylov_maxiter",
+    "acceleration_krylov_relative_tolerance",
 ))
 CASE_KEYS=frozenset((
     "schema","physics","grid","boundary","solver","rank",
@@ -175,7 +178,7 @@ def load_case(path):
     if type(opts["max_sweeps"]) is not int or not 1<=opts["max_sweeps"]<=500:
         raise ValueError("COUPLED_MVI_MAX_SWEEPS_INVALID")
     if (type(opts["max_acceleration_coordinates"]) is not int or
-            not 1<=opts["max_acceleration_coordinates"]<=4096):
+            not 1<=opts["max_acceleration_coordinates"]<=300000):
         raise ValueError("COUPLED_MVI_ACCELERATION_CAP_INVALID")
     field_scales=np.asarray(opts["field_scales"],dtype=float)
     if (field_scales.shape!=(surface.n_fields,) or
@@ -255,7 +258,7 @@ def load_case(path):
         raise ValueError("COUPLED_MVI_OUTPUT_ALREADY_EXISTS")
     from independent_mvi.coupled_halfstep import CoupledMVIHalfstepSettings
     cap=opts["max_halfstep_coordinates"]
-    if type(cap) is not int or not 1<=cap<=4096:
+    if type(cap) is not int or not 1<=cap<=300000:
         raise ValueError("COUPLED_MVI_HALFSTEP_CAP_INVALID")
     # Every field carries rank*ns active angular factors in Y and
     # rank*available-axial factors in X. Report the needed cap before
@@ -274,6 +277,39 @@ def load_case(path):
         raise ValueError(
             "COUPLED_MVI_HALFSTEP_CAP_TOO_SMALL_FOR_RANK_AND_GRID: "
             +str(max(needed_x,needed_y)))
+    # The acceleration cap is only a physical nodal-coordinate safety
+    # budget; the matrix-free mass operator never allocates cap**2.
+    acceleration_options=dict(
+        acceleration_linear_solver=opts.get(
+            "acceleration_linear_solver","AUTO"),
+        acceleration_dense_limit=opts.get("acceleration_dense_limit",192),
+        acceleration_krylov_restart=opts.get(
+            "acceleration_krylov_restart",32),
+        acceleration_krylov_maxiter=opts.get(
+            "acceleration_krylov_maxiter",200),
+        acceleration_krylov_relative_tolerance=opts.get(
+            "acceleration_krylov_relative_tolerance",1.e-8),
+    )
+    # Reject invalid choices BEFORE starting or creating output.
+    if acceleration_options["acceleration_linear_solver"] not in (
+            "AUTO","DENSE_LU","MATRIX_FREE_GMRES"):
+        raise ValueError("COUPLED_MVI_ACCELERATION_BACKEND_INVALID")
+    for name in ("acceleration_dense_limit","acceleration_krylov_restart",
+                 "acceleration_krylov_maxiter"):
+        value=acceleration_options[name]
+        if type(value) is not int or value<1:
+            raise ValueError("COUPLED_MVI_"+name.upper()+"_INVALID")
+    tol=acceleration_options["acceleration_krylov_relative_tolerance"]
+    if (isinstance(tol,(bool,np.bool_)) or
+            not isinstance(tol,(int,float)) or
+            not math.isfinite(float(tol)) or not 0<float(tol)<.1):
+        raise ValueError("COUPLED_MVI_ACCELERATION_KRYLOV_TOLERANCE_INVALID")
+    if opts["kind"]=="DYNAMIC":
+        nacc=sum(len(free[c])*surface.grid.ns
+                 for c in range(surface.n_mechanical))
+        if (acceleration_options["acceleration_linear_solver"]=="DENSE_LU"
+                and nacc>acceleration_options["acceleration_dense_limit"]):
+            raise ValueError("COUPLED_MVI_DENSE_ACCELERATION_LIMIT_EXCEEDED")
     settings=CoupledMVISweepSettings(
         max_sweeps=opts["max_sweeps"],
         halfstep=CoupledMVIHalfstepSettings(
@@ -289,7 +325,8 @@ def load_case(path):
         program=program,load=loads,opts=opts,settings=settings,
         field_scales=field_scales,energy_scale=energy_scale,
         density=density,eta=eta,damping=damping,output=output,
-        electric_faces=faces,mechanical_end_work=end_work)
+        electric_faces=faces,mechanical_end_work=end_work,
+        acceleration_options=acceleration_options)
 
 
 def _write_json(path,data):
@@ -452,7 +489,8 @@ def run(path,*,validate_only):
                 time_s=0.,field_scales=scales,energy_scale_j=energy,
                 mechanical_load=mechanical,free_charge=charge,
                 electric_settings=settings,
-                max_acceleration_coordinates=opts["max_acceleration_coordinates"])
+                max_acceleration_coordinates=opts["max_acceleration_coordinates"],
+                **items["acceleration_options"])
             if initial.state is None:
                 raise RuntimeError("COUPLED_MVI_INITIAL_"+initial.status)
             state=initial.state
@@ -478,6 +516,8 @@ def run(path,*,validate_only):
                         loads_at=lambda _t:(mechanical,charge),**common,
                         **({"max_acceleration_coordinates":
                             opts["max_acceleration_coordinates"]}
+                           if opts["integrator"]=="GAUSS_IRK4" else {}),
+                        **({"acceleration_options":items["acceleration_options"]}
                            if opts["integrator"]=="GAUSS_IRK4" else {}))
                 if advance.state is None:
                     raise RuntimeError("COUPLED_MVI_TIME_STEP_"+advance.status)
