@@ -359,10 +359,11 @@ class IndependentVariationalModel:
             work=B.T@rhs[k]
             if not np.any(work):
                 continue
-            U,_,_=np.linalg.svd(work,full_matrices=False)
-            if U.shape[1]<self.rank:
+            Q,_,_=linalg.qr(work,mode="economic",pivoting=True,
+                             check_finite=True)
+            if Q.shape[1]<self.rank:
                 raise RuntimeError("MVI_DRIVE_RANK_EXCEEDS_ADMISSIBLE_AXIAL_SPACE")
-            X[k]=(B@U[:,:self.rank]).T
+            X[k]=(B@Q[:,:self.rank]).T
         return X,Y
 
     @staticmethod
@@ -585,13 +586,19 @@ class IndependentVariationalModel:
             if np.linalg.norm(field[k]-B@projected)>tolerance*max(
                     np.linalg.norm(field[k]),1.e-30):
                 raise RuntimeError("MVI_GAUSS_ENDPOINT_CONSTRAINT_FAILURE")
-            U,s,V=np.linalg.svd(projected,full_matrices=False)
-            if np.linalg.norm(s[self.rank:])>tolerance*max(
-                    np.linalg.norm(s),1.e-30):
+            Q,R,piv=linalg.qr(projected,mode="economic",pivoting=True,
+                              check_finite=True)
+            # Pivoted QR is an exact algebraic factorization: no SVD,
+            # pseudoinverse or hidden enlargement of the MVI rank.
+            number=min(self.rank,Q.shape[1])
+            angular=np.zeros((number,self.case.ns))
+            angular[:,piv]=R[:number]
+            reconstructed=Q[:,:number]@angular
+            if np.linalg.norm(projected-reconstructed)>tolerance*max(
+                    np.linalg.norm(projected),1.e-30):
                 raise RuntimeError("MVI_GAUSS_ENDPOINT_RANK_FAILURE")
-            number=min(self.rank,len(s))
-            X[k,:number]=(B@U[:,:number]).T*np.sqrt(s[:number,None])
-            Y[k,:number]=V[:number]*np.sqrt(s[:number,None])
+            X[k,:number]=(B@Q[:,:number]).T
+            Y[k,:number]=angular
         return X,Y
 
     def step_gauss_irk4(self,q,v,a,t,dt_s=.002,previous=None,
