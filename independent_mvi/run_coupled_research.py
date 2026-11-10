@@ -26,6 +26,7 @@ import numpy as np
 from flexo_gradient_g3d import G3DMaterial
 from independent_mvi.coupled_surface import (
     CoupledMVISurfaceGrid, CoupledMVIFactors, NativeCoupledMVISurface,
+    mvi_separated_term_norms,
 )
 from independent_mvi.coupled_halfstep import (
     CoupledMVIEndProgram, _check_end_factors,
@@ -439,6 +440,13 @@ def run(path,*,validate_only):
     if validate_only:
         return result
 
+    # Never interpret a dormant rank slot as permission to reduce R.
+    # These per-slot terms are coordinate-dependent diagnostics; every
+    # accepted state is still represented at the user's requested R.
+    result["initial_separated_term_norms"]=(
+        mvi_separated_term_norms(items["factors"]).tolist())
+    result["rank_reduction_performed"]=False
+
     # Only an explicit --run or explicit final dispatch reaches this point.
     output=items["output"]
     output.mkdir(parents=True,exist_ok=False)
@@ -472,6 +480,10 @@ def run(path,*,validate_only):
             result["discrete_green"]=_green_audit(
                 surface,answer.factors,mechanical,charge)
             result["electric_faces"]=electric_face_diagnostic(answer.factors)
+            if answer.factors.rank!=items["factors"].rank:
+                raise RuntimeError("COUPLED_MVI_RANK_CHANGED")
+            result["last_separated_term_norms"]=(
+                mvi_separated_term_norms(answer.factors).tolist())
             _write_npz(output/"STATIC_ACCEPTED.npz",
                 x_profiles=answer.factors.x,y_profiles=answer.factors.y,
                 mechanical=q[:surface.n_mechanical],
@@ -494,6 +506,10 @@ def run(path,*,validate_only):
             if initial.state is None:
                 raise RuntimeError("COUPLED_MVI_INITIAL_"+initial.status)
             state=initial.state
+            if state.factors.rank!=items["factors"].rank:
+                raise RuntimeError("COUPLED_MVI_RANK_CHANGED")
+            result["initial_separated_term_norms"]=(
+                mvi_separated_term_norms(state.factors).tolist())
             result["initial_discrete_green"]=_dynamic_green_audit(
                 surface,configuration,state,mechanical,charge)
             result["initial_electric_faces"]=electric_face_diagnostic(
@@ -524,6 +540,8 @@ def run(path,*,validate_only):
                 if advance.state.factors.rank!=items["factors"].rank:
                     raise RuntimeError("COUPLED_MVI_RANK_CHANGED")
                 state=advance.state
+                result["last_separated_term_norms"]=(
+                    mvi_separated_term_norms(state.factors).tolist())
                 result["last_discrete_green"]=_dynamic_green_audit(
                     surface,configuration,state,mechanical,charge)
                 result["last_electric_faces"]=electric_face_diagnostic(
