@@ -6,6 +6,7 @@ on:
     paths:
       - "ci/native_coupled_mvi_all_ranks_physical_smoke.py"
       - ".github/workflows/native-mvi-ranks-physical-smoke.yml"
+# Recheck after fixed-rank Gauss stage interpolation correction.
 permissions:
   contents: read
 jobs:
