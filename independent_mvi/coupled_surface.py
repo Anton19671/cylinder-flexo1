@@ -133,7 +133,7 @@ class NativeCoupledMVISurface:
 
     def __init__(self,theory,material,*,grid:CoupledMVISurfaceGrid,
                  thickness_m,n_gauss=12,geometry_model="GREEN_LAGRANGE",
-                 potential_order=None):
+                 potential_order=None,floating_gauge=False):
         if theory not in THEORIES:
             raise ValueError("MVI theory must be KL/FSDT/REDDY/CUF_TE1..4")
         if not isinstance(material,G3DMaterial):
@@ -151,6 +151,18 @@ class NativeCoupledMVISurface:
             raise ValueError("active potential requires explicit order 0..4")
         if not electricity and potential_order is not None:
             raise ValueError("electricity OFF requires potential_order=None")
+        if type(floating_gauge) is not bool or (floating_gauge and not electricity):
+            raise ValueError("MVI_FLOATING_GAUGE_REQUIRES_ELECTRICAL_MODEL")
+        self.floating_gauge=floating_gauge
+        if floating_gauge:
+            from cuf_g3d_weak import gauge_moments
+            moments=gauge_moments(radius_m=grid.radius_m,
+                                   thickness_m=h,
+                                   potential_order=potential_order)
+            moments.setflags(write=False)
+            self._floating_moments=moments
+        else:
+            self._floating_moments=None
         self.theory=theory
         self.material=material
         self.grid=grid
@@ -194,9 +206,43 @@ class NativeCoupledMVISurface:
             raise ValueError("MVI factors must match fields, rank and surface grid")
         return factors
 
+    def _floating_offset(self,raw):
+        """One global electrostatic datum, separate from rank-R X/Y fields.
+
+        The physical shell-volume mean of phi is zero:
+          sum_m I_m int_surface(psi_m) = 0.
+        The scalar correction acts ONLY on psi_0. It is NOT an electric
+        shape mode and never consumes another MVI rank.
+        """
+        if not self.floating_gauge:
+            return 0.
+        e=raw[self.n_mechanical:]
+        if e.shape!=(self.n_electric,self.grid.nx,self.grid.ns):
+            raise ValueError("MVI_FLOATING_GAUGE_FIELD_SHAPE_INVALID")
+        integral=float(np.einsum("m,mij,ij->",
+              self._floating_moments,e,self.grid.weights,optimize=True))
+        denominator=float(self._floating_moments[0]*
+                           np.sum(self.grid.weights))
+        offset=-integral/denominator
+        if not math.isfinite(offset):
+            raise ValueError("MVI_FLOATING_GAUGE_OFFSET_NONFINITE")
+        return offset
+
     def reconstruct(self,factors):
         self._check_factors(factors)
-        return np.einsum("cri,crj->cij",factors.x,factors.y,optimize=True)
+        field=np.einsum("cri,crj->cij",factors.x,factors.y,optimize=True)
+        if self.floating_gauge:
+            field[self.n_mechanical]+=self._floating_offset(field)
+        return field
+
+    def floating_gauge_integral(self,factors):
+        """Global shell-volume potential integral in V*m^3."""
+        if not self.floating_gauge:
+            raise ValueError("MVI_FLOATING_GAUGE_NOT_ACTIVE")
+        field=self.reconstruct(factors)
+        return float(np.einsum(
+            "m,mij,ij->",self._floating_moments,
+            field[self.n_mechanical:],self.grid.weights,optimize=True))
 
     def _surface_derivatives(self,factors):
         """Represented jets and derivative factors, independent of MKR stencils."""
@@ -207,6 +253,9 @@ class NativeCoupledMVISurface:
             for j,D in enumerate(self._ds_power)}
         fields={(a,b):np.einsum("cri,crj->cij",xd[a],yd[b],optimize=True)
                 for a,b in self.multi}
+        if self.floating_gauge:
+            fields[(0,0)][self.n_mechanical]+=self._floating_offset(
+                fields[(0,0)])
         return xd,yd,fields
 
     def _point(self,fields,i,j):
@@ -247,6 +296,16 @@ class NativeCoupledMVISurface:
         else:
             load_e=_shape(free_charge,(self.n_electric,*shape),
                           "generalized electric free charge")
+        if self.floating_gauge:
+            # The global constant-potential variation is a genuine
+            # physical compatibility condition, not an equation that
+            # can be satisfied by a gauge Lagrange multiplier.
+            charge=load_e[0]*weights
+            net=float(np.sum(charge))
+            gross=float(np.sum(np.abs(charge)))
+            if gross>0. and abs(net)>5.e-11*gross:
+                raise ValueError(
+                    "MVI_FLOATING_GAUGE_INCOMPATIBLE_TOTAL_FREE_CHARGE")
         coeff=np.zeros((self.n_fields,len(self.multi),*shape))
         density=np.zeros(shape)
         for i in range(self.grid.nx):
