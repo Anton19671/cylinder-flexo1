@@ -226,3 +226,16 @@ def test_manifest_records_exact_original_bytes(tmp_path):
     assert set(stamps)=={
         "case_sha256","initial_npz_sha256","loads_npz_sha256"}
     assert all(len(x)==64 for x in stamps.values())
+
+
+def test_long_time_grid_accepts_only_roundoff_not_missing_step():
+    from independent_mvi.coupled_checkpoint import _time_close
+    dt=.002
+    time=0.
+    for k in range(1,100001):
+        time+=dt
+    reference=100000*dt
+    assert _time_close(time,reference,dt)
+    assert not _time_close(reference+dt,reference,dt)
+    assert not _time_close(reference+.02*dt,reference,dt)
+    assert not _time_close(float("nan"),reference,dt)
