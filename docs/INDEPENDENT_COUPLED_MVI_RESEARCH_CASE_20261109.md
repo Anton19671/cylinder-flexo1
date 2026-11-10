@@ -133,3 +133,64 @@ cylinder time-history/loaded benchmark.
 Actions result has been observed. The independent MVI coupled research
 route remains experimental pending source higher-order boundary and
 electric face-condition validation.
+
+
+## 2026-11-10: time-dependent CASE forcing and physical CUF thickness history
+
+The **opt-in independent coupled MVI research runner** now accepts one
+optional top-level `load_time_law` object for DYNAMIC cases:
+
+    "load_time_law": {
+      "kind": "TABULATED_LINEAR",
+      "time_s": [0.0, 0.005, 0.01, 0.02],
+      "mechanical_scale": [0.0, 0.3, 1.0, 0.0],
+      "electric_scale": [1.0, 0.8, 0.2, 0.0]
+    }
+
+All entries are finite dimensionless multipliers, with strictly increasing
+physical times in seconds, starting at zero. The tabulation must cover
+`solver.steps * solver.dt_s`. The optional electric multiplier defaults
+to the mechanical multiplier if electricity is ON; it is forbidden when
+electricity is OFF. No extrapolation is performed. The tabulation is
+linearly interpolated in **time only**; spatial nodal shape is preserved.
+For STATIC, specifying `load_time_law` is an error.
+
+The mechanical source from `loads_npz.mechanical_load` and the electric
+volume source from `loads_npz.free_charge` are multiplied independently.
+**Physical inner/outer face CHARGE is not scaled by the volume source law:**
+the separate `electric_faces` contribution stays constant, respecting its
+own prescribed boundary work. The floating gauge total free-charge test
+covers every tabulation knot before any output directory is made.
+
+- Initial electric/acceleration closure uses physical sources at `t=0`.
+- Newmark uses the source at its physical END time.
+- Bathe uses the source separately at `t+gamma*dt` and `t+dt`.
+- Gauss IRK4 uses the source at both Gauss collocation nodes and for
+  its separate END electric/acceleration closure.
+- Omitted `load_time_law` preserves the previous constant-load behavior.
+
+### Physical displacement output
+
+Each accepted dynamic `STEP_NNNN.npz` for CUF TE1..TE4 now includes
+`physical_z_stations_m` shape `(3,)` and
+`physical_uvw_stations_m` shape `(3,3,nx,ns)`. Axes are:
+`[inner/middle/outer, U/V/W, axial-node, circumferential-node]`.
+The three thickness levels are `-h/2, 0, +h/2`.
+
+Recovery uses the **actual active** weak-form thickness basis
+`F_k(z)=(2*z/h)^k`, not the incompatible dimensional `z^k` legacy
+provider. In particular, `W(outer)=sum_k W_k` and
+`W(inner)=sum_k (-1)^k W_k`; neither is generally `W_0`.
+Static accepted CUF NPZ now contains the same physical stations.
+
+The dynamic runner exports `PHYSICAL_RADIAL_HISTORY.csv` containing
+the time index and physical radial displacement at the axial midpoint
+(`nx//2`) and angular node zero, plus the maximum absolute radial
+value on each CUF face. For KL/FSDT/Reddy only the reference-surface
+`W` is filled: no fictitious CUF thickness recovery is asserted.
+
+The generated fields and histories are **diagnostic numeric outputs, not
+external-reference verification**. Boundary microfree/electrical source
+closure, rank sufficiency, mesh and time refinement, and scientific
+comparison remain independently required. The tests added here mock
+the time integrators; no loaded physical shell run was launched.
