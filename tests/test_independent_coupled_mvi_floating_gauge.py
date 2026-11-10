@@ -127,3 +127,44 @@ def test_floating_gauge_rejects_grounded_program():
     with pytest.raises(ValueError,match="REQUIRES_INSULATED_ENDS"):
         CoupledMVIEndProgram("IMMOBILE_PARALLEL_ENDS",
                              "GROUNDED_LEFT").validate(surf)
+
+
+@pytest.mark.parametrize("linear_solver",("DENSE_LU","MATRIX_FREE_GMRES"))
+def test_floating_constant_gauge_does_not_make_x_newton_singular(
+        monkeypatch,linear_solver):
+    from independent_mvi.coupled_surface import CoupledMVIWork
+    from independent_mvi.coupled_halfstep import (
+        CoupledMVIHalfstepSettings,solve_coupled_mvi_halfstep,
+    )
+    surf,seed=make_surface(0)
+    program=CoupledMVIEndProgram("IMMOBILE_PARALLEL_ENDS",
+                                 "INSULATED_FLOATING")
+    c=surf.n_mechanical
+    area=surf.grid.weights
+
+    def synthetic_gauge_invariant_work(factors,**kwargs):
+        physical=surf.reconstruct(factors)
+        nodal=np.zeros(surf.shape)
+        nodal[c]=physical[c]*area
+        assert abs(np.sum(nodal[c]))<1.e-12
+        return CoupledMVIWork(
+            .5*float(np.sum(physical[c]*nodal[c])),
+            physical[:surf.n_mechanical],
+            physical[surf.n_mechanical:],
+            np.einsum("cij,crj->cri",nodal,factors.y,optimize=True),
+            np.einsum("cij,cri->crj",nodal,factors.x,optimize=True),
+            factors.rank,nodal_gradient=nodal)
+
+    monkeypatch.setattr(surf,"weak_work",synthetic_gauge_invariant_work)
+    result=solve_coupled_mvi_halfstep(
+        surf,seed,axis="X",program=program,
+        field_scales=np.ones(surf.n_fields),energy_scale_j=1.,
+        settings=CoupledMVIHalfstepSettings(
+            max_iterations=6,max_coordinates=256,
+            linear_solver=linear_solver,
+            tolerance_scaled=1.e-8))
+    assert result.converged, result.status
+    assert result.factors.rank==seed.rank
+    assert abs(surf.floating_gauge_integral(result.factors))<2.e-13
+    assert np.max(np.abs(surf.reconstruct(result.factors)[c]))<2.e-6
+    assert result.history[-1]["linear_solver"]==linear_solver
