@@ -157,3 +157,17 @@ def test_bathe_rejects_nonfinite_first_predictor_before_loads(monkeypatch):
     with pytest.raises(ValueError,match="NONFINITE_FIRST_PREDICTOR"):
         solver.advance(modified,10.,field_scales=np.ones(surf.n_fields),
                        energy_scale_j=1.,loads_at=forbidden)
+
+
+@pytest.mark.parametrize("dt",(1.e160,1.e200))
+def test_bathe_rejects_giant_dt_zero_coefficient_before_material(
+        monkeypatch,dt):
+    import independent_mvi.coupled_bathe as module
+    surf,solver,state=configured()
+    def forbidden(*args,**kw):
+        raise AssertionError("MVI_BATHE_MUST_NOT_SOLVE_UNREPRESENTABLE_DT")
+    monkeypatch.setattr(module,"solve_coupled_mvi_static",forbidden)
+    with pytest.raises(ValueError,match="UNREPRESENTABLE_TIME_COEFFICIENTS"):
+        solver.advance(state,dt,field_scales=np.ones(surf.n_fields),
+                       energy_scale_j=1.,loads_at=forbidden)
+    assert state.time_s==0.
