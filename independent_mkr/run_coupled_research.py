@@ -280,7 +280,7 @@ def load_case(filename):
                 settings=StrongNewtonSettings(
                     max_dofs=opts["max_dofs"],
                     max_iterations=opts["max_iterations"],
-                    linear_solver=opts.get("linear_solver","MATRIX_FREE_GMRES"),
+                    linear_solver=opts.get("linear_solver","AUTO"),
                     dense_lu_dof_limit=opts.get("dense_lu_dof_limit",384)),
                 seed=seed,sources=sources,opts=opts,output=output,
                 qscale=qscale,rscale=rscale,escale=escale,
