@@ -23,7 +23,7 @@ from dataclasses import dataclass
 import math
 import numpy as np
 
-from independent_mvi.coupled_halfstep import _scales
+from independent_mvi.coupled_halfstep import _scales, _check_end_factors
 from independent_mvi.coupled_newmark import (
     CoupledMVIDynamicState, NativeCoupledMVINewmark, _positive,
 )
@@ -31,7 +31,7 @@ from independent_mvi.coupled_static import (
     CoupledMVISweepSettings, CoupledMVISweepResult,
     _projected_norms, solve_coupled_mvi_static,
 )
-from independent_mvi.coupled_surface import CoupledMVIWork
+from independent_mvi.coupled_surface import CoupledMVIWork, CoupledMVIFactors
 from independent_mvi.coupled_rank_endpoint import fit_mvi_endpoint_field
 from independent_mvi.coupled_initial import close_mvi_instantaneous_state
 
@@ -90,6 +90,53 @@ class CoupledMVIGaussStep:
     endpoint_rank_error: float=float("inf")
 
 
+def _relax_gauss_fixed_rank_stage(surface,old,proposed,weight,program):
+    """Damp the second GAUSS stage without changing its exact rank.
+
+    When old and proposed circumferential spans agree, the physical
+    interpolation is EXACT in the proposed Y span, using only Gram/LU
+    solves (no SVD or rank growth). Otherwise interpolate the actual
+    X/Y coordinates; the final joint full-work check still gates
+    acceptance of that candidate.
+    """
+    if not 0<weight<=1 or not math.isfinite(weight):
+        raise ValueError("MVI_GAUSS_INVALID_STAGE_RELAXATION")
+    if old.rank!=proposed.rank:
+        raise ValueError("MVI_GAUSS_STAGE_RANK_CHANGED")
+    if weight==1:
+        return proposed
+    x=proposed.x.copy()
+    y=proposed.y.copy()
+    for c in range(surface.n_fields):
+        previous=np.einsum("ri,rj->ij",old.x[c],old.y[c],
+                           optimize=True)
+        gram=proposed.y[c]@proposed.y[c].T
+        exact=False
+        if np.isfinite(gram).all():
+            try:
+                if np.linalg.cond(gram,p=1)<1.e11:
+                    prior_x=np.linalg.solve(
+                        gram,proposed.y[c]@previous.T).T
+                    defect=np.linalg.norm(prior_x@proposed.y[c]-previous)
+                    scale=max(np.linalg.norm(previous),1.e-30)
+                    exact=bool(defect<=1.e-10*scale)
+            except np.linalg.LinAlgError:
+                pass
+        if exact:
+            x[c]=(1.-weight)*prior_x+weight*proposed.x[c]
+        else:
+            # Two arbitrary rank-R surfaces need not have rank-R sum.
+            # Coordinate continuation stays exactly rank-R and makes no
+            # claim that the physical field is a convex interpolation.
+            x[c]=(1.-weight)*old.x[c]+weight*proposed.x[c]
+            y[c]=(1.-weight)*old.y[c]+weight*proposed.y[c]
+    relaxed=CoupledMVIFactors(x,y)
+    _check_end_factors(surface,relaxed,program)
+    if not np.isfinite(surface.reconstruct(relaxed)).all():
+        raise ValueError("MVI_GAUSS_NONFINITE_RELAXED_STAGE")
+    return relaxed
+
+
 class NativeCoupledMVIGauss2:
     def __init__(self,configuration: NativeCoupledMVINewmark):
         if not isinstance(configuration,NativeCoupledMVINewmark):
@@ -99,7 +146,8 @@ class NativeCoupledMVIGauss2:
     def advance(self,state:CoupledMVIDynamicState,dt_s, *,
                 field_scales,energy_scale_j,loads_at=None,
                 settings=CoupledMVISweepSettings(),
-                max_stage_sweeps=12,
+                max_stage_sweeps=36,
+                stage_coupling_relaxation=.25,
                 stage_field_tolerance=1.e-8,
                 endpoint_rank_tolerance=1.e-9,
                 max_acceleration_coordinates=256,
@@ -122,6 +170,11 @@ class NativeCoupledMVIGauss2:
             raise TypeError("CoupledMVISweepSettings required")
         if type(max_stage_sweeps) is not int or max_stage_sweeps<1:
             raise ValueError("MVI_GAUSS_STAGE_SWEEP_LIMIT_INVALID")
+        if (isinstance(stage_coupling_relaxation,(bool,np.bool_)) or
+                not isinstance(stage_coupling_relaxation,(int,float)) or
+                not math.isfinite(stage_coupling_relaxation) or
+                not 0<stage_coupling_relaxation<=1):
+            raise ValueError("MVI_GAUSS_INVALID_STAGE_RELAXATION")
         for label,value in (("stage field tolerance",stage_field_tolerance),
                             ("rank tolerance",endpoint_rank_tolerance)):
             if isinstance(value,(bool,np.bool_)) or not (
@@ -201,7 +254,19 @@ class NativeCoupledMVIGauss2:
                 if not stage.converged:
                     last_solvers=tuple(solved)
                     return result("MVI_GAUSS_STAGE_"+str(index+1)+"_"+stage.status)
-                factors[index]=stage.factors
+                if index==1:
+                    # Strongly inertial two-stage Gauss A^2 inverse has
+                    # off-diagonal GS amplification exactly -3. The
+                    # direct sequential stage fixed point can DIVERGE
+                    # while each frozen-stage Newton solve converges.
+                    # One-quarter damping gives 1+(-3-1)/4=0 in this
+                    # limiting case. The exact Gauss tableau and final
+                    # *joint* physical stationarity gate are unchanged.
+                    factors[index]=_relax_gauss_fixed_rank_stage(
+                        surface,factors[index],stage.factors,
+                        stage_coupling_relaxation,config.program)
+                else:
+                    factors[index]=stage.factors
             last_solvers=tuple(solved)
             current=mechanical_fields(factors)
             change=float(np.linalg.norm(current-previous)/
@@ -218,7 +283,8 @@ class NativeCoupledMVIGauss2:
             if on_iteration is not None:
                 on_iteration(dict(gauss_sweep=sweep,
                                   gauss_joint_nodal=final_norm,
-                                  gauss_stage_change=change))
+                                  gauss_stage_change=change,
+                                  gauss_coupling_relaxation=stage_coupling_relaxation))
             if (change<=stage_field_tolerance and
                     final_norm<=settings.halfstep.tolerance_scaled):
                 converged=True
