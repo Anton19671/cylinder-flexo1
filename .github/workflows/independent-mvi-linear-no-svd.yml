@@ -8,6 +8,7 @@ on:
       - "tests/test_independent_mvi_linear_qr_no_svd.py"
       - ".github/workflows/independent-mvi-linear-no-svd.yml"
 # Verify full collocation equilibrium is required before Gauss stage acceptance.
+# Recheck Gauss oscillator with separately scaled inertial/elastic physical work.
 permissions:
   contents: read
 jobs:
