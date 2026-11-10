@@ -238,7 +238,9 @@ def _floating_reduced_null(surface,working,axis,components,indices,
     ones=np.ones(n)
     gram=partner@partner.T
     try:
-        if np.linalg.cond(gram)>1.e11:
+        # NumPy cond() without p computes singular values internally.
+        # Explicit 1-norm uses the Gram inverse, never SVD.
+        if np.linalg.cond(gram,p=1)>1.e11:
             return None
         weights=np.linalg.solve(gram,partner@ones)
     except np.linalg.LinAlgError:
