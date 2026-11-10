@@ -128,8 +128,10 @@ class NativeCoupledMVIBathe:
         c2=-1./((1.-BATHE_GAMMA)*BATHE_GAMMA*dt)
         c3=(2.-BATHE_GAMMA)/((1.-BATHE_GAMMA)*dt)
         acceleration_factor2=c3*c3
-        if not all(math.isfinite(vv) for vv in
-                   (acceleration_factor1,c1,c2,c3,acceleration_factor2)):
+        if (not all(math.isfinite(vv) for vv in
+                    (acceleration_factor1,c1,c2,c3,acceleration_factor2))
+                or acceleration_factor1<=0. or acceleration_factor2<=0.
+                or c3<=0. or c1==0. or c2==0.):
             raise ValueError("MVI_BATHE_UNREPRESENTABLE_TIME_COEFFICIENTS")
         initial_q=q[:surf.n_mechanical]
         predictor1=initial_q+delta*v+delta**2*a/4.
