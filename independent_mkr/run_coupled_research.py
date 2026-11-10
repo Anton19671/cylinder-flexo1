@@ -89,7 +89,7 @@ def _npz(path,required,optional=()):
     return data
 
 
-def _face_charge(surface,spec):
+def _face_charge(surface,spec,potential_order):
     """MKR-owned physical face charge -> normalized TE electric coefficients.
 
     sigma is physical C/m^2 on real cylindrical faces with area
@@ -105,7 +105,7 @@ def _face_charge(surface,spec):
             raise ValueError("MKR_FACE_CHARGE_WITH_ELECTRICITY_OFF")
         return None
     shape=(surface.grid.nx,surface.grid.ns)
-    order=int(surface._case_potential_order)
+    order=potential_order
     result=np.zeros((order+1,*shape))
     for side,n in (("inner",-1),("outer",1)):
         item=spec[side]
@@ -162,7 +162,7 @@ def load_case(filename):
             raise ValueError("MKR_COUPLED_POTENTIAL_ORDER_REQUIRED")
     elif p["potential_order"] is not None:
         raise ValueError("MKR_COUPLED_ELECTRIC_OFF_REQUIRES_NULL_ORDER")
-    model._case_potential_order=potential_order=p["potential_order"]
+    potential_order=p["potential_order"]
     b=_strict(case["boundary"],("mechanical","electric","axial_orders"),
               "MKR_BOUNDARY")
     opts=_strict(case["solver"],SOLVER_KEYS,"MKR_SOLVER")
@@ -241,12 +241,12 @@ def load_case(filename):
         raw=sources.get("electrical_charge",np.zeros(e_shape))
         if raw.shape!=e_shape:
             raise ValueError("MKR_ELECTRIC_CHARGE_SHAPE_INVALID")
-        face=_face_charge(model,case.get("electric_faces"))
+        face=_face_charge(model,case.get("electric_faces"),potential_order)
         sources["electrical_charge"]=raw+(face if face is not None else 0.)
     elif "electrical_charge" in sources:
         raise ValueError("MKR_ELECTRIC_CHARGE_WHEN_OFF")
     elif case.get("electric_faces") is not None:
-        _face_charge(model,case["electric_faces"])
+        _face_charge(model,case["electric_faces"],potential_order)
     output=case["output_dir"]
     if not isinstance(output,str) or not output.strip():
         raise ValueError("MKR_OUTPUT_PATH_INVALID")
@@ -318,7 +318,9 @@ def run(filename,*,validate_only):
         solver_backend="INDEPENDENT_MKR",
         theory=model.theory,geometry_model=model.geometry_model,
         gradient_model=model.material.gradient_model,
-        kind=opts["kind"],integrator=opts["integrator"],
+        kind=opts["kind"],calculation_kind=opts["kind"],
+        integrator=opts["integrator"],steps=opts["steps"],
+        requested_steps=opts["steps"],
         time_s=0.,physical_steps_computed=0,
         output_dir=str(args["output"]),
         spatial_method="DIRECT_STRONG_MKR_NO_MVI_SPATIAL_REUSE")
