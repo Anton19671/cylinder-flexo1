@@ -29,6 +29,7 @@ from cylinder_native_mkr_newmark import NativeNewmarkState,NativeStrongNewmark
 from cylinder_native_mkr_initial import initialize_consistent_native_mkr
 from cylinder_native_mkr_bathe import NativeStrongBathe
 from cylinder_native_mkr_gauss2 import NativeStrongGauss2
+from cylinder_native_mkr_face_recovery import recover_native_mkr_face_induction
 
 SCHEMA="INDEPENDENT_MKR_COUPLED_RESEARCH_V1"
 METHOD="MKR_DIRECT_STRONG_COUPLED_RESEARCH"
@@ -338,6 +339,11 @@ def run(filename,*,validate_only):
             settings=args["settings"])
     seed=args["seed"]
     engine=args["engine"]
+    def face_diagnostic(q,p):
+        if not model.electrical_on:
+            return {"electrical_enabled":False}
+        return recover_native_mkr_face_induction(
+            model,q,p,face_specification=args["case"].get("electric_faces"))
     try:
         if opts["kind"]=="STATIC":
             answer=model.solve(
@@ -351,6 +357,8 @@ def run(filename,*,validate_only):
                 **kw)
             if not answer.converged:
                 raise RuntimeError("MKR_STATIC_"+answer.status)
+            summary["electric_faces"]=face_diagnostic(
+                answer.mechanical,answer.electrical)
             _npz_save(out/"STATIC_ACCEPTED.npz",
                       mechanical=answer.mechanical,
                       **({"electrical":answer.electrical}
@@ -366,6 +374,8 @@ def run(filename,*,validate_only):
             if closed.state is None:
                 raise RuntimeError("MKR_INITIAL_"+closed.nonlinear.status)
             state=closed.state
+            summary["initial_electric_faces"]=face_diagnostic(
+                state.mechanical,state.electrical)
             _save_state(out/"STEP_0000.npz",state)
             driver=(engine if opts["integrator"]=="NEWMARK"
                     else NativeStrongBathe(engine)
@@ -383,6 +393,8 @@ def run(filename,*,validate_only):
                             else next_step.nonlinear.status)
                     raise RuntimeError("MKR_STEP_"+status)
                 state=next_step.state
+                summary["last_electric_faces"]=face_diagnostic(
+                    state.mechanical,state.electrical)
                 _save_state(out/f"STEP_{k:04d}.npz",state)
                 summary.update(accepted_steps=k,physical_steps_computed=k,
                                time_s=float(state.time_s))
