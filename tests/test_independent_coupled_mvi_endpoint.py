@@ -174,3 +174,34 @@ def test_endpoint_qr_restart_does_not_accept_unrepresentable_rank():
     assert not result.accepted
     assert result.factors is None
     assert result.status=="MVI_RANK_R_ENDPOINT_NOT_REPRESENTABLE"
+
+
+def test_oversized_seed_cannot_hide_small_nonrepresentable_endpoint():
+    surf,initial,ends=build(rank=1)
+    # The seed is many orders larger than the desired endpoint. Rank one
+    # cannot represent the two independent x/s modes of the small target.
+    seed=CoupledMVIFactors(initial.x*1.e9,initial.y)
+    target=np.zeros(surf.shape)
+    x=np.arange(surf.grid.nx,dtype=float)
+    theta=2.*np.pi*np.arange(surf.grid.ns)/surf.grid.ns
+    target[0]=1.e-6*(
+        np.sin(np.pi*x/8.)[:,None]*np.cos(theta)[None,:]
+        +np.sin(2.*np.pi*x/8.)[:,None]*np.sin(theta)[None,:])
+    result=fit_mvi_endpoint_field(
+        surf,seed,target,ends,relative_tolerance=1.e-8,max_iterations=30)
+    assert not result.accepted
+    assert result.factors is None
+    assert result.status=="MVI_RANK_R_ENDPOINT_NOT_REPRESENTABLE"
+
+
+def test_rank_endpoint_error_uses_physical_target_scale():
+    surf,initial,ends=build(rank=1)
+    target=surf.reconstruct(initial)*1.e-9
+    result=fit_mvi_endpoint_field(
+        surf,initial,target,ends,relative_tolerance=1.e-9,
+        max_iterations=30)
+    assert result.accepted,result.status
+    actual=surf.reconstruct(result.factors)
+    for c in range(surf.n_fields):
+        reference=np.linalg.norm(target[c])
+        assert np.linalg.norm(actual[c]-target[c])<=1.e-9*reference
