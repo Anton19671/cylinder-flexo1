@@ -46,7 +46,8 @@ from independent_mvi.coupled_physical_recovery import (
     recover_cuf_displacements, radial_history_row,
 )
 from independent_mvi.coupled_checkpoint import (
-    input_manifest, exclusive_run_lock, prepare_resume, append_history_row,
+    input_manifest, accepted_state_sha256, exclusive_run_lock,
+    prepare_resume, append_history_row,
 )
 from independent_mvi.coupled_discrete_green import coupled_mvi_discrete_green_identity
 from independent_mvi.coupled_dynamic_green import audit_mvi_dynamic_discrete_green
@@ -598,6 +599,8 @@ def _run_loaded_case(items,*,validate_only,resume=False):
                     state.factors)
                 _store_state(output,0,state,surface)
                 record_physical_step(0,state)
+                result["last_state_sha256"]=accepted_state_sha256(output,0)
+                _write_json(output/"RUN_SUMMARY.json",result)
                 first_step=1
             driver=(configuration if opts["integrator"]=="NEWMARK"
                     else NativeCoupledMVIBathe(configuration)
@@ -635,6 +638,7 @@ def _run_loaded_case(items,*,validate_only,resume=False):
                     state.factors)
                 _store_state(output,step,state,surface)
                 record_physical_step(step,state)
+                result["last_state_sha256"]=accepted_state_sha256(output,step)
                 result.update(accepted_steps=step,
                               physical_steps_computed=step,
                               time_s=float(state.time_s))
