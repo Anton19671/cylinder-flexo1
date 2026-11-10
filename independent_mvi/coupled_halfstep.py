@@ -44,7 +44,10 @@ class CoupledMVIEndProgram:
         if self.mechanical != "IMMOBILE_PARALLEL_ENDS":
             raise ValueError("MVI_REQUIRES_EXPLICIT_IMMOBILE_PARALLEL_ENDS")
         if surface.electrical_on:
-            if self.electric not in ("GROUNDED_LEFT","GROUNDED_BOTH"):
+            if surface.floating_gauge:
+                if self.electric!="INSULATED_FLOATING":
+                    raise ValueError("MVI_FLOATING_GAUGE_REQUIRES_INSULATED_ENDS")
+            elif self.electric not in ("GROUNDED_LEFT","GROUNDED_BOTH"):
                 raise ValueError("MVI_FLOATING_ELECTRIC_GAUGE_NOT_IMPLEMENTED")
         elif self.electric != "OFF":
             raise ValueError("MVI_ELECTRIC_PROGRAM_MUST_BE_OFF")
@@ -56,6 +59,8 @@ class CoupledMVIEndProgram:
         for c in range(surface.n_fields):
             if c<surface.n_mechanical or self.electric=="GROUNDED_BOTH":
                 free.append(np.arange(1,nx-1,dtype=int))
+            elif self.electric=="INSULATED_FLOATING":
+                free.append(np.arange(nx,dtype=int))
             else:
                 free.append(np.arange(1,nx,dtype=int))
         return tuple(free)
