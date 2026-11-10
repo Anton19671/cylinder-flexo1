@@ -127,3 +127,33 @@ def test_bathe_viscosity_is_applied_on_both_stages_without_electric_inertia(monk
                           energy_scale_j=1.)
     assert result.state is not None
     assert len(stages)==2
+
+
+@pytest.mark.parametrize("dt",(1.e-200,1.e-155,1.e-140))
+def test_bathe_rejects_unrepresentable_implicit_coefficients_before_loads(
+        monkeypatch,dt):
+    import independent_mvi.coupled_bathe as module
+    surf,solver,state=configured()
+    def forbidden(*args,**kw):
+        raise AssertionError("MVI_BATHE_MUST_NOT_SOLVE_UNREPRESENTABLE_DT")
+    monkeypatch.setattr(module,"solve_coupled_mvi_static",forbidden)
+    with pytest.raises(ValueError,match="UNREPRESENTABLE_TIME_COEFFICIENTS"):
+        solver.advance(state,dt,field_scales=np.ones(surf.n_fields),
+                       energy_scale_j=1.,loads_at=forbidden)
+    assert state.time_s==0.
+
+
+def test_bathe_rejects_nonfinite_first_predictor_before_loads(monkeypatch):
+    import independent_mvi.coupled_bathe as module
+    surf,solver,state=configured()
+    # The time coefficients remain finite, but q + dt*v overflows.
+    velocity=np.zeros_like(state.velocity)
+    velocity[:,1:-1,:]=1.e308
+    modified=CoupledMVIDynamicState(
+        state.time_s,state.factors,velocity,state.acceleration)
+    def forbidden(*args,**kw):
+        raise AssertionError("MVI_BATHE_MUST_NOT_SOLVE_NONFINITE_PREDICTOR")
+    monkeypatch.setattr(module,"solve_coupled_mvi_static",forbidden)
+    with pytest.raises(ValueError,match="NONFINITE_FIRST_PREDICTOR"):
+        solver.advance(modified,10.,field_scales=np.ones(surf.n_fields),
+                       energy_scale_j=1.,loads_at=forbidden)
