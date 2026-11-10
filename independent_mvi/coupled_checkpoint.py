@@ -97,10 +97,20 @@ def _check_stored_field(actual,expected,label):
 
 
 def _time_close(actual,expected,dt):
-    return (math.isfinite(actual) and
-            abs(actual-expected)<=max(
-                128*_F64.eps*max(abs(actual),abs(expected),_F64.tiny),
-                1.e-11*abs(dt)))
+    """Tolerate accumulated IEEE addition roundoff, never a whole step.
+
+    The state advances by repeated additions of dt while the CASE time
+    stamp is step*dt. A worst-case accumulated-ULP bound grows with the
+    declared step number, so a correct long history must not be rejected
+    at 10^4-10^5 steps solely for floating-point summation drift.
+    """
+    if not (math.isfinite(actual) and math.isfinite(expected)
+            and math.isfinite(dt) and dt>0.):
+        return False
+    count=max(1,int(round(expected/dt)))
+    magnitude=max(abs(actual),abs(expected),abs(dt))
+    roundoff=16*_F64.eps*count*magnitude
+    return abs(actual-expected)<=min(.01*dt,max(roundoff,1.e-11*dt))
 
 
 def load_committed_state(folder,step,surface,configuration,dt_s):
