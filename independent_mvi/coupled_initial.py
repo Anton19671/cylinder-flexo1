@@ -36,6 +36,20 @@ from independent_mvi.coupled_static import (
 from independent_mvi.coupled_surface import CoupledMVIFactors
 
 
+def _mass_equilibrium_bound(reference, relative_tolerance=1.e-8):
+    """Relative physical mass-balance gate, also for sub-unit weak forces.
+
+    An artificial max(1, force) can accept an O(1e-8) force error even
+    when the actual applied force is orders of magnitude smaller.
+    The tiny positive floor only makes the exactly-zero case well-defined.
+    """
+    values=np.asarray(reference,dtype=float)
+    if not np.isfinite(values).all():
+        raise ValueError("MVI_ACCELERATION_NONFINITE_FORCE_SCALE")
+    amplitude=float(np.max(np.abs(values),initial=0.))
+    return relative_tolerance*max(amplitude,np.finfo(float).tiny)
+
+
 @dataclass(frozen=True)
 class MVIAccelerationResult:
     state: CoupledMVIDynamicState | None
@@ -221,7 +235,7 @@ def close_mvi_instantaneous_state(
     except InterruptedError:
         return MVIAccelerationResult(
             None,"MVI_INITIAL_CANCELLED",None,electric_status)
-    bound=1.e-8*max(1.,float(np.max(np.abs(rhs),initial=0.)))
+    bound=_mass_equilibrium_bound(rhs)
     if (not np.isfinite(correction).all() or
             float(np.max(np.abs(correction),initial=0.))>bound):
         return MVIAccelerationResult(
@@ -232,8 +246,8 @@ def close_mvi_instantaneous_state(
         acceleration[c,i,j]=value
     full_action=base+configuration.inertia.apply(q,v,acceleration)-bias
     defect=max((abs(full_action[c,i,j]) for c,i,j in coords),default=0.)
-    scale=max(1.,max((abs(base[c,i,j]) for c,i,j in coords),default=0.))
-    if defect>1.e-8*scale:
+    scale=_mass_equilibrium_bound(rhs)
+    if defect>scale:
         return MVIAccelerationResult(None,"MVI_ACCELERATION_EQUILIBRIUM_NOT_MET",
                                      None,electric_status)
     state=CoupledMVIDynamicState(float(time_s),current,v,acceleration)
