@@ -1,0 +1,29 @@
+name: Native MVI seven-theory real dynamic one-step smoke
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "ci/native_coupled_mvi_all_dynamic_smoke.py"
+      - ".github/workflows/native-mvi-all-dynamic-smoke.yml"
+permissions:
+  contents: read
+jobs:
+  native-mvi-dynamics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      PYTHONPATH: ".:independent_mkr:independent_mvi:mechanics:numerics:flexoelectric:physics:interface"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install numerical dependencies
+        run: python -m pip install numpy scipy
+      - name: Real physical MVI all seven theories one-step Newmark Bathe Gauss
+        run: python -u ci/native_coupled_mvi_all_dynamic_smoke.py
