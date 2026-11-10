@@ -1,4 +1,4 @@
-name: Native MVI loaded one-step physical dynamic control
+name: Native MVI loaded three-integrator physical dynamic control
 on:
   workflow_dispatch:
   push:
@@ -25,5 +25,5 @@ jobs:
           python-version: "3.11"
       - name: Install physical numerical dependencies
         run: python -m pip install numpy scipy
-      - name: Physically loaded KL rank-one independent MVI Newmark
+      - name: Physically loaded KL rank-one independent MVI Newmark Bathe Gauss
         run: python -u ci/native_coupled_mvi_loaded_dynamic_smoke.py
