@@ -27,8 +27,15 @@ class StrongNewtonSettings:
     relative_linear_tolerance: float = 1e-8
     scaled_absolute_tolerance: float = 1e-8
     line_search_halvings: int = 15
+    linear_solver: str = "MATRIX_FREE_GMRES"
+    dense_lu_dof_limit: int = 384
 
     def __post_init__(self):
+        if self.linear_solver not in ("MATRIX_FREE_GMRES","DENSE_LU"):
+            raise ValueError("DIRECT_STRONG_UNKNOWN_LINEAR_SOLVER")
+        if (type(self.dense_lu_dof_limit) is not int or
+                not 1<=self.dense_lu_dof_limit<=2048):
+            raise ValueError("DIRECT_STRONG_DENSE_LU_LIMIT_INVALID")
         for key in ('max_dofs', 'max_iterations', 'line_search_halvings'):
             val = getattr(self, key)
             if type(val) is not int or val < (0 if key == 'line_search_halvings' else 1):
@@ -238,16 +245,38 @@ def solve_strong_nonlinear_equations(
                         raise
                     step *= .5
             raise ValueError('DIRECT_STRONG_INVALID_TANGENT_PROBE')
-        jvp = LinearOperator((count,count), matvec=apply, dtype=float)
         try:
-            delta, info = gmres(jvp,-fun,atol=0.,rtol=settings.relative_linear_tolerance,
-                                restart=min(40,count),maxiter=max(10,count//2))
+            if settings.linear_solver=="DENSE_LU":
+                if count>settings.dense_lu_dof_limit:
+                    raise ValueError("DIRECT_STRONG_DENSE_LU_DOF_LIMIT")
+                # Distinct physical STRONG Jacobian: explicit columns
+                # of the same direct-form field equations, not a weak
+                # MVI Hessian, approximate inverse or pseudoinverse.
+                jacobian=np.column_stack([
+                    apply(np.eye(1,count,k).ravel())
+                    for k in range(count)])
+                if not np.isfinite(jacobian).all():
+                    raise ValueError("DIRECT_STRONG_NONFINITE_DENSE_JACOBIAN")
+                try:
+                    delta=np.linalg.solve(jacobian,-fun)
+                    info=0
+                except np.linalg.LinAlgError:
+                    return finish(z,iteration-1,False,
+                                  "SINGULAR_STRONG_TANGENT",norm)
+            else:
+                jvp=LinearOperator((count,count),matvec=apply,dtype=float)
+                delta,info=gmres(
+                    jvp,-fun,atol=0.,
+                    rtol=settings.relative_linear_tolerance,
+                    restart=min(40,count),maxiter=max(10,count//2))
         except ValueError as exc:
-            if str(exc) != 'DIRECT_STRONG_INVALID_TANGENT_PROBE':
+            if str(exc)!="DIRECT_STRONG_INVALID_TANGENT_PROBE":
                 raise
-            return finish(z,iteration-1,False,'INVALID_TANGENT_PERTURBATION',norm)
+            return finish(z,iteration-1,False,
+                          "INVALID_TANGENT_PERTURBATION",norm)
         if info or not np.isfinite(delta).all():
-            return finish(z,iteration-1,False,'LINEAR_TANGENT_NOT_SOLVED',norm)
+            return finish(z,iteration-1,False,
+                          "LINEAR_TANGENT_NOT_SOLVED",norm)
         accepted = False
         for halves in range(settings.line_search_halvings + 1):
             alpha = 2.**(-halves)
