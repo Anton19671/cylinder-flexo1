@@ -193,3 +193,26 @@ def test_gauss_relaxation_never_changes_rank():
     with pytest.raises(ValueError,match="RANK_CHANGED"):
         gauss._relax_gauss_fixed_rank_stage(
             surface,old,proposed,.25,program)
+
+
+def test_gauss_axisymmetric_one_mode_selects_exact_shared_angular_subspace():
+    surf,solver,state=configured()
+    shape=(surf.n_mechanical,surf.grid.nx,surf.grid.ns)
+    q=surf.reconstruct(state.factors)
+    zero=np.zeros(shape)
+    uniform=np.zeros(shape)
+    uniform[2]=-1000.
+    assert gauss._gauss_axisymmetric_rank1_subspace(
+        surf,state.factors,q,zero,zero,
+        ((uniform,None),(uniform,None)))
+    nonuniform=uniform.copy()
+    nonuniform[2,:,1]*=.7
+    assert not gauss._gauss_axisymmetric_rank1_subspace(
+        surf,state.factors,q,zero,zero,
+        ((uniform,None),(nonuniform,None)))
+    yy=state.factors.y.copy()
+    yy[:,:,1]*=.9
+    different=CoupledMVIFactors(state.factors.x,yy)
+    assert not gauss._gauss_axisymmetric_rank1_subspace(
+        surf,different,q,zero,zero,
+        ((uniform,None),(uniform,None)))
