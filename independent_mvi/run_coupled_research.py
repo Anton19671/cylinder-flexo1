@@ -231,7 +231,9 @@ def load_case(path):
     elif surface.electrical_on:
         # Omitted specification means zero free charge on both faces.
         faces={"inner":None,"outer":None}
-    if surface.floating_gauge:
+    if surface.floating_gauge and "load_time_law" not in case:
+        # With a dynamic load law, test EVERY knot below instead of
+        # rejecting the unscaled baseline at time zero.
         # A floating electrostatic problem is solvable only if net
         # generalized physical free charge is zero. Check the full
         # sum of volume and curvature-weighted face loads BEFORE any
