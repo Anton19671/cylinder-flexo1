@@ -123,3 +123,29 @@ def test_mass_equilibrium_gate_zero_force_is_finite():
     bound=initial._mass_equilibrium_bound(np.zeros(4))
     assert np.isfinite(bound) and bound>0
     assert bound<np.finfo(float).tiny
+
+
+def test_krylov_success_flag_cannot_accept_unbalanced_small_force(monkeypatch):
+    configuration,factors,velocity=build()
+    original_weak=configuration.surface.weak_work
+    def tiny_work(factors,**kwargs):
+        work=original_weak(factors,**kwargs)
+        small=work.nodal_gradient*1.e-12
+        return CoupledMVIWork(
+            work.energy_j,work.mechanical,work.electrical,
+            np.einsum("cij,crj->cri",small,factors.y),
+            np.einsum("cij,cri->crj",small,factors.x),
+            work.rank,nodal_gradient=small)
+    monkeypatch.setattr(configuration.surface,"weak_work",tiny_work)
+    # Simulate a Krylov implementation falsely reporting success with
+    # a zero correction. The physical mass-balance gate must reject it.
+    monkeypatch.setattr(initial,"gmres",
+                        lambda op,rhs,**kw:(np.zeros_like(rhs),0))
+    solved=close_mvi_instantaneous_state(
+        configuration,factors,velocity,time_s=0.,
+        field_scales=np.ones(configuration.surface.n_fields),
+        energy_scale_j=1.,max_acceleration_coordinates=220,
+        acceleration_linear_solver="MATRIX_FREE_GMRES",
+        acceleration_dense_limit=20)
+    assert solved.state is None
+    assert solved.status=="MVI_ACCELERATION_EQUILIBRIUM_NOT_MET"
