@@ -85,7 +85,7 @@ def test_only_exact_representable_constant_null_direction_is_removed(axis):
         changed_x=working.x.copy()
         changed_y=working.y.copy()
         offset=sum(sizes[:c])
-        changed_x[c,:,free[c]]+=direction[offset:offset+sizes[c]].reshape(
+        changed_x[c][:,free[c]]+=direction[offset:offset+sizes[c]].reshape(
             working.rank,len(free[c]))
         shifted=CoupledMVIFactors(changed_x,changed_y)
         np.testing.assert_allclose(
