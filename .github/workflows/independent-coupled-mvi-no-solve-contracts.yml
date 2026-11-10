@@ -1,4 +1,5 @@
 # Algebra-only tests; no loaded cylinder, no physical time-history.
+# Check generalized native MVI end work and outward-normal sign contracts.
 name: Independent coupled MVI algebra and method isolation (no shell runs)
 on:
   workflow_dispatch:
