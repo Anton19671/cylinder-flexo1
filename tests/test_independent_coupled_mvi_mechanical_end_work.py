@@ -51,10 +51,10 @@ def test_normal_slope_end_potential_has_exact_x_y_adjoint(theory):
     gx=np.einsum("cij,crj->cri",nodal,f.y)
     gy=np.einsum("cij,cri->crj",nodal,f.x)
     h=1e-7
-    num_x=(loads.potential_j(CoupledMVIFactors(f.x+h*dx,f.y))-
-           loads.potential_j(CoupledMVIFactors(f.x-h*dx,f.y)))/(2*h)
-    num_y=(loads.potential_j(CoupledMVIFactors(f.x,f.y+h*dy))-
-           loads.potential_j(CoupledMVIFactors(f.x,f.y-h*dy)))/(2*h)
+    num_x=(loads.potential(CoupledMVIFactors(f.x+h*dx,f.y))-
+           loads.potential(CoupledMVIFactors(f.x-h*dx,f.y)))/(2*h)
+    num_y=(loads.potential(CoupledMVIFactors(f.x,f.y+h*dy))-
+           loads.potential(CoupledMVIFactors(f.x,f.y-h*dy)))/(2*h)
     np.testing.assert_allclose(num_x,np.sum(gx*dx),rtol=2e-8,atol=1e-8)
     np.testing.assert_allclose(num_y,np.sum(gy*dy),rtol=2e-8,atol=1e-8)
 
@@ -96,7 +96,7 @@ def test_material_green_does_not_double_count_external_end_gradient():
     physical=_work_from_coefficients(surf,f,coeff)
     extension=surf.mechanical_end_work.nodal_gradient()
     fake=CoupledMVIWork(
-        physical.energy_j+surf.mechanical_end_work.potential_j(f),
+        physical.energy_j+surf.mechanical_end_work.potential(f),
         physical.mechanical,None,
         physical.gradient_x+np.einsum("cij,crj->cri",extension,f.y),
         physical.gradient_y+np.einsum("cij,cri->crj",extension,f.x),
