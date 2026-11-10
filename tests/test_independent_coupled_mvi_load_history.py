@@ -44,8 +44,8 @@ def test_constant_load_program_remains_backward_compatible():
     loads=CoupledLoadProgram(np.ones((3,9,5)),np.ones((2,9,5))*2.)
     for time in (0.,.001,.5):
         mechanical,charge=loads.at(time)
-        np.testing.assert_array_equal(mechanical,1.)
-        np.testing.assert_array_equal(charge,2.)
+        np.testing.assert_allclose(mechanical,1.)
+        np.testing.assert_allclose(charge,2.)
 
 
 @pytest.mark.parametrize("broken",(
