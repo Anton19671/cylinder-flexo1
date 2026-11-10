@@ -18,9 +18,9 @@ import json
 import math
 from pathlib import Path
 
-from cylinder_native_run_control import cooperate
 from cylinder_paths import activate
 activate()
+from cylinder_native_run_control import cooperate
 import numpy as np
 
 from flexo_gradient_g3d import G3DMaterial
