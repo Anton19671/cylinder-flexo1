@@ -35,6 +35,16 @@ class MVIRankEndpointFit:
     iterations: int
 
 
+def _trace_roundoff_limit(component):
+    """Only numerical roundoff is permissible on homogeneous fixed traces.
+
+    Scale by this component's actual maximum magnitude, not an artificial
+    unit displacement. This is independent of rank-fit acceptance tolerance.
+    """
+    amplitude=float(np.max(np.abs(component),initial=0.))
+    return 64.*np.finfo(float).eps*max(amplitude,np.finfo(float).tiny)
+
+
 def fit_mvi_endpoint_field(surface: NativeCoupledMVISurface,
                            seed: CoupledMVIFactors,
                            field, program: CoupledMVIEndProgram, *,
@@ -61,9 +71,7 @@ def fit_mvi_endpoint_field(surface: NativeCoupledMVISurface,
         # O(1e-9 m) nonzero support displacement for micrometre fields.
         # Permit only a component-scaled floating-point roundoff floor;
         # never relax the boundary using the endpoint fitting tolerance.
-        amplitude=float(np.max(np.abs(target[c]),initial=0.))
-        trace_roundoff=64.*np.finfo(float).eps*max(
-            amplitude,np.finfo(float).tiny)
+        trace_roundoff=_trace_roundoff_limit(target[c])
         if np.max(np.abs(target[c,fixed]),initial=0.)>trace_roundoff:
             return MVIRankEndpointFit(None,False,
                                       "MVI_ENDPOINT_ESSENTIAL_TRACE_CONFLICT",
