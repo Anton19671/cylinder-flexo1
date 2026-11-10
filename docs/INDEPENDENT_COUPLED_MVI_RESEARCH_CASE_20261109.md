@@ -253,3 +253,27 @@ has been performed in this conversation.
 
 Scientific accuracy, higher-order natural boundary physics, robust loaded
 dynamics for all ranks, and independent references remain unverified.
+
+
+### Checkpoint hardening (2026-11-10, subsequent commits)
+
+Every accepted dynamic `STEP_NNNN.npz` is now fingerprinted by SHA-256
+in `RUN_SUMMARY.last_state_sha256` **after** the whole NPZ and physical
+CSV row are written. On resume the last accepted NPZ is rehashed before
+reconstructing the field. This detects changes to mechanical/electric
+coefficients, physical face fields, **velocity and acceleration**; a
+changed checkpoint must never be silently accepted merely because its
+displacement product still matches the stored factors.
+
+The committed physical CSV history is also validated: column schema,
+step indices, physical times and finite values must be consistent, and
+its last accepted measured displacements must equal the reconstructed
+checkpoint observables to floating-point precision. Uncommitted trailing
+rows may be discarded only *after* all committed data pass validation.
+
+For long trajectories, the checkpoint time comparison accommodates
+floating-point accumulation from repeated `dt` additions, with a hard
+bound below 1% of a time step. It does not silently relabel a missing
+time step. Tests cover changed velocity/acceleration, corrupted physical
+history, and additive drift from 100,000 increments. These tests remain
+algebraic / mocked, without loaded physical shell calculations.
