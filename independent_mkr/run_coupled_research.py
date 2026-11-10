@@ -15,6 +15,7 @@ import json
 import math
 from pathlib import Path
 
+from cylinder_native_run_control import cooperate
 from cylinder_paths import activate
 activate()
 
@@ -369,6 +370,7 @@ def run(filename,*,validate_only):
                     if opts["integrator"]=="BATHE"
                     else NativeStrongGauss2(engine))
             for k in range(1,opts["steps"]+1):
+                cooperate(out)
                 if opts["integrator"]=="NEWMARK":
                     next_step=driver.advance(state,opts["dt_s"],**kw)
                 else:
