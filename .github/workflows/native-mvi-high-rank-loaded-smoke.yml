@@ -1,0 +1,29 @@
+name: Native MVI high ranks loaded nonaxisymmetric physical smoke
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "ci/native_coupled_mvi_high_rank_loaded_smoke.py"
+      - ".github/workflows/native-mvi-high-rank-loaded-smoke.yml"
+permissions:
+  contents: read
+jobs:
+  native-mvi-high-ranks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONPATH: ".:independent_mkr:independent_mvi:mechanics:numerics:flexoelectric:physics:interface"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install physical numerical dependencies
+        run: python -m pip install numpy scipy
+      - name: Physically loaded nonaxisymmetric MVI 3 5 8 independent Newmark steps
+        run: python -u ci/native_coupled_mvi_high_rank_loaded_smoke.py
