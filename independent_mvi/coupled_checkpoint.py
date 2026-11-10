@@ -24,7 +24,9 @@ import numpy as np
 
 from independent_mvi.coupled_newmark import CoupledMVIDynamicState
 from independent_mvi.coupled_surface import CoupledMVIFactors
-from independent_mvi.coupled_physical_recovery import recover_cuf_displacements
+from independent_mvi.coupled_physical_recovery import (
+    recover_cuf_displacements, radial_history_row,
+)
 
 _STATE_FILE=re.compile(r"^STEP_([0-9]+)\.npz$")
 _F64=np.finfo(float)
@@ -240,6 +242,29 @@ def prepare_resume(output,case,manifest,*,surface,configuration,steps,dt_s,
     history_path=output/"PHYSICAL_RADIAL_HISTORY.csv"
     fields,rows,excess=_read_committed_history(
         history_path,accepted,dt_s)
+    # Check the last COMMITTED history observation against the recovered
+    # physical checkpoint. A valid time index alone cannot validate a
+    # corrupted or swapped radial displacement history.
+    represented=surface.reconstruct(state.factors)[:surface.n_mechanical]
+    expected_row=radial_history_row(
+        surface,represented,step=accepted,time_s=state.time_s)
+    actual_row=rows[-1]
+    for name,expected in expected_row.items():
+        try:
+            if isinstance(expected,str):
+                correct=actual_row[name]==expected
+            elif name in ("step","axial_node","circumferential_node"):
+                correct=int(actual_row[name])==expected
+            else:
+                measured=float(actual_row[name])
+                correct=(math.isfinite(measured) and
+                         abs(measured-expected)<=max(
+                             128*_F64.eps*max(abs(expected),abs(measured)),
+                             np.nextafter(0.,1.)))
+        except (ValueError,TypeError,KeyError) as exc:
+            raise ValueError("COUPLED_MVI_CHECKPOINT_HISTORY_FIELD_MISMATCH") from exc
+        if not correct:
+            raise ValueError("COUPLED_MVI_CHECKPOINT_HISTORY_FIELD_MISMATCH")
 
     # Completed NPZ files beyond the summary marker were never committed.
     # Remove only exact method-owned state names, never unrelated files.
