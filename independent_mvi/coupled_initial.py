@@ -47,7 +47,10 @@ def _mass_equilibrium_bound(reference, relative_tolerance=1.e-8):
     if not np.isfinite(values).all():
         raise ValueError("MVI_ACCELERATION_NONFINITE_FORCE_SCALE")
     amplitude=float(np.max(np.abs(values),initial=0.))
-    return relative_tolerance*max(amplitude,np.finfo(float).tiny)
+    # np.finfo(float).tiny is the smallest NORMAL number: multiplying it
+    # by 1e-8 can still underflow in more restrictive FP environments.
+    # Preserve a strictly positive floor of one smallest subnormal ULP.
+    return max(relative_tolerance*amplitude,np.nextafter(0.,1.))
 
 
 @dataclass(frozen=True)
