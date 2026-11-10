@@ -115,8 +115,11 @@ def _relax_gauss_fixed_rank_stage(surface,old,proposed,weight,program):
         if np.isfinite(gram).all():
             try:
                 if np.linalg.cond(gram,p=1)<1.e11:
+                    # solve returns (rank,nx) directly; transposing
+                    # it would turn the rank-1 case into (nx,1) and
+                    # break fixed-rank X/Y stage continuation.
                     prior_x=np.linalg.solve(
-                        gram,proposed.y[c]@previous.T).T
+                        gram,proposed.y[c]@previous.T)
                     defect=np.linalg.norm(prior_x@proposed.y[c]-previous)
                     scale=max(np.linalg.norm(previous),1.e-30)
                     exact=bool(defect<=1.e-10*scale)
