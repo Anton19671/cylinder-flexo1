@@ -105,6 +105,14 @@ def coupled_mvi_discrete_green_identity(
     nodal=np.asarray(nodal,dtype=float)
     if not np.isfinite(nodal).all():
         raise ValueError("MVI_GREEN_NONFINITE_NODAL_FIRST_VARIATION")
+    # The Green identity concerns volume weak JETS. A prescribed external
+    # generalized end action is already a pure boundary variation and
+    # must not be counted as a constitutive/hyperstress jet again.
+    if work.external_end_gradient is not None:
+        external=np.asarray(work.external_end_gradient,dtype=float)
+        if external.shape!=surface.shape or not np.isfinite(external).all():
+            raise ValueError("MVI_GREEN_EXTERNAL_END_WORK_SHAPE_INVALID")
+        nodal=nodal-external
     _sbp_and_fourier_guard(surface,tolerance)
 
     dx=surface._dx_power
