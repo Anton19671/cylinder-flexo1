@@ -135,7 +135,24 @@ def test_corrupt_committed_state_rejected_without_summary_change(
         data={k:archive[k].copy() for k in archive.files}
     data["mechanical"][2,4,0]+=1.
     np.savez_compressed(file,**data)
-    with pytest.raises(ValueError,match="CHECKPOINT_MECHANICAL_MISMATCH"):
+    with pytest.raises(ValueError,match="CHECKPOINT_STATE_FINGERPRINT_MISMATCH"):
+        native.run(path,validate_only=False,resume=True)
+    assert (tmp_path/"output"/"RUN_SUMMARY.json").read_bytes()==original
+
+
+@pytest.mark.parametrize("part",("velocity","acceleration"))
+def test_tampered_dynamics_cannot_be_resumed(tmp_path,monkeypatch,part):
+    path=build(tmp_path)
+    mock_drivers(monkeypatch,fail_at=2)
+    with pytest.raises(RuntimeError):
+        native.run(path,validate_only=False)
+    original=(tmp_path/"output"/"RUN_SUMMARY.json").read_bytes()
+    file=tmp_path/"output"/"STEP_0001.npz"
+    with np.load(file,allow_pickle=False) as archive:
+        data={k:archive[k].copy() for k in archive.files}
+    data[part][0,4,0]+=1.e-7
+    np.savez_compressed(file,**data)
+    with pytest.raises(ValueError,match="CHECKPOINT_STATE_FINGERPRINT_MISMATCH"):
         native.run(path,validate_only=False,resume=True)
     assert (tmp_path/"output"/"RUN_SUMMARY.json").read_bytes()==original
 
