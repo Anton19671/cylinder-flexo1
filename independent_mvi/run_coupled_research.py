@@ -39,6 +39,12 @@ from independent_mvi.coupled_newmark import NativeCoupledMVINewmark
 from independent_mvi.coupled_bathe import NativeCoupledMVIBathe
 from independent_mvi.coupled_gauss2 import NativeCoupledMVIGauss2
 from independent_mvi.coupled_initial import close_mvi_instantaneous_state
+from independent_mvi.coupled_load_history import (
+    CoupledTabulatedLoadLaw, CoupledLoadProgram,
+)
+from independent_mvi.coupled_physical_recovery import (
+    recover_cuf_displacements, radial_history_row,
+)
 from independent_mvi.coupled_discrete_green import coupled_mvi_discrete_green_identity
 from independent_mvi.coupled_dynamic_green import audit_mvi_dynamic_discrete_green
 from independent_mvi.coupled_mechanical_end_work import compile_mechanical_end_work
@@ -130,7 +136,7 @@ def load_case(path):
     except (ValueError,OSError) as exc:
         raise ValueError("COUPLED_MVI_CASE_CANNOT_BE_READ") from exc
     if (not isinstance(raw,dict) or not CASE_KEYS.issubset(raw) or
-            set(raw)-CASE_KEYS-{"electric_faces","mechanical_end_work"}):
+            set(raw)-CASE_KEYS-{"electric_faces","mechanical_end_work","load_time_law"}):
         raise ValueError("COUPLED_MVI_CASE_KEYS_INVALID")
     case=raw
     if case["schema"]!=SCHEMA:
@@ -206,6 +212,10 @@ def load_case(path):
     if surface.electrical_on:
         expected_load.add("free_charge")
     loads=_read_npz(load_path,expected_load)
+    # Preserve the original volume-charge source: face charge is a
+    # distinct physical boundary input and never scales with the
+    # time-dependent volume-charge multiplier.
+    face_charge=None
     faces=case.get("electric_faces")
     if faces is not None:
         if not isinstance(faces,dict) or set(faces)!={"inner","outer"}:
@@ -216,7 +226,8 @@ def load_case(path):
         generalized=face_generalized_free_charge(
             surface,inner=faces["inner"],outer=faces["outer"])
         if generalized is not None:
-            loads["free_charge"]+=generalized
+            face_charge=np.asarray(generalized,dtype=float).copy()
+            loads["free_charge"]+=face_charge
     elif surface.electrical_on:
         # Omitted specification means zero free charge on both faces.
         faces={"inner":None,"outer":None}
@@ -237,6 +248,31 @@ def load_case(path):
         ("free_charge",(surface.n_electric,surface.grid.nx,surface.grid.ns))):
         if name in loads and loads[name].shape!=shape:
             raise ValueError("COUPLED_MVI_"+name.upper()+"_SHAPE_INVALID")
+    load_law=None
+    if "load_time_law" in case:
+        if opts["kind"]!="DYNAMIC":
+            raise ValueError("MVI_STATIC_FORBIDS_TIME_DEPENDENT_LOAD")
+        load_law=CoupledTabulatedLoadLaw.from_case(
+            case["load_time_law"],
+            horizon_s=float(opts["dt_s"])*opts["steps"],
+            electric_active=surface.electrical_on)
+    original_charge=(None if "free_charge" not in loads else
+                     loads["free_charge"] if face_charge is None
+                     else loads["free_charge"]-face_charge)
+    load_program=CoupledLoadProgram(
+        loads["mechanical_load"],original_charge,
+        face_charge=face_charge,law=load_law)
+    # A floating electric gauge requires charge compatibility at EVERY
+    # knot, not just in the initially supplied source fields.
+    if surface.floating_gauge and load_law is not None:
+        for knot in load_law.times_s:
+            _,charge_at=load_program.at(float(knot))
+            weights=surface.grid.weights
+            total=float(np.sum(charge_at[0]*weights))
+            absolute=float(np.sum(np.abs(charge_at[0])*weights))
+            if absolute>0. and abs(total)>5.e-11*absolute:
+                raise ValueError(
+                    "MVI_FLOATING_GAUGE_INCOMPATIBLE_TIME_VARYING_CHARGE")
     if opts["kind"]=="DYNAMIC":
         shape=(surface.n_mechanical,surface.grid.nx,surface.grid.ns)
         if init["velocity"].shape!=shape:
@@ -327,7 +363,7 @@ def load_case(path):
         field_scales=field_scales,energy_scale=energy_scale,
         density=density,eta=eta,damping=damping,output=output,
         electric_faces=faces,mechanical_end_work=end_work,
-        acceleration_options=acceleration_options)
+        acceleration_options=acceleration_options,load_program=load_program)
 
 
 def _write_json(path,data):
@@ -413,12 +449,17 @@ def _store_state(output,step,state,surface):
             np.isfinite(state.velocity).all() or not
             np.isfinite(state.acceleration).all()):
         raise ValueError("COUPLED_MVI_NONFINITE_ACCEPTED_FIELD")
-    _write_npz(output/f"STEP_{step:04d}.npz",
-               x_profiles=state.factors.x,y_profiles=state.factors.y,
-               mechanical=field[:surface.n_mechanical],
-               electrical=field[surface.n_mechanical:],
-               velocity=state.velocity,acceleration=state.acceleration,
-               time_s=np.array(state.time_s))
+    mechanical=field[:surface.n_mechanical]
+    recovered=recover_cuf_displacements(surface,mechanical)
+    payload=dict(x_profiles=state.factors.x,y_profiles=state.factors.y,
+                 mechanical=mechanical,
+                 electrical=field[surface.n_mechanical:],
+                 velocity=state.velocity,acceleration=state.acceleration,
+                 time_s=np.array(state.time_s))
+    if recovered is not None:
+        payload["physical_z_stations_m"]=recovered.z_stations_m
+        payload["physical_uvw_stations_m"]=recovered.displacement_stations_m
+    _write_npz(output/f"STEP_{step:04d}.npz",**payload)
 
 
 def run(path,*,validate_only):
@@ -436,7 +477,8 @@ def run(path,*,validate_only):
             items["mechanical_end_work"] is not None),
         steps=opts["steps"],output_dir=str(items["output"]),
         physical_steps_computed=0,
-        physical_boundary_closure_certified=False)
+        physical_boundary_closure_certified=False,
+        time_dependent_loads=bool(items["load_program"].law is not None))
     if validate_only:
         return result
 
@@ -453,9 +495,28 @@ def run(path,*,validate_only):
     _write_json(output/"CASE.json",items["case"])
     result.update(status="IN_PROGRESS",accepted_steps=0,time_s=0.)
     _write_json(output/"RUN_SUMMARY.json",result)
-    mechanical=items["load"]["mechanical_load"]
-    charge=items["load"].get("free_charge")
+    program=items["load_program"]
+    mechanical,charge=program.at(0.)
     face_specs=items["electric_faces"]
+    # The integrated history is a physical observable, independent of
+    # generalized CUF coefficient naming and of the chosen time solver.
+    history_path=output/"PHYSICAL_RADIAL_HISTORY.csv"
+    history_rows=[]
+
+    def record_physical_step(step,state):
+        q=surface.reconstruct(state.factors)[:surface.n_mechanical]
+        history_rows.append(radial_history_row(
+            surface,q,step=step,time_s=state.time_s))
+        import csv
+        temporary=history_path.with_name(history_path.name+".pending")
+        try:
+            with temporary.open("w",encoding="utf-8",newline="") as stream:
+                writer=csv.DictWriter(stream,fieldnames=tuple(history_rows[0]))
+                writer.writeheader()
+                writer.writerows(history_rows)
+            temporary.replace(history_path)
+        finally:
+            temporary.unlink(missing_ok=True)
 
     def electric_face_diagnostic(factors):
         if not surface.electrical_on:
@@ -484,10 +545,16 @@ def run(path,*,validate_only):
                 raise RuntimeError("COUPLED_MVI_RANK_CHANGED")
             result["last_separated_term_norms"]=(
                 mvi_separated_term_norms(answer.factors).tolist())
-            _write_npz(output/"STATIC_ACCEPTED.npz",
+            static_payload=dict(
                 x_profiles=answer.factors.x,y_profiles=answer.factors.y,
                 mechanical=q[:surface.n_mechanical],
                 electrical=q[surface.n_mechanical:])
+            recovered=recover_cuf_displacements(
+                surface,q[:surface.n_mechanical])
+            if recovered is not None:
+                static_payload["physical_z_stations_m"]=recovered.z_stations_m
+                static_payload["physical_uvw_stations_m"]=recovered.displacement_stations_m
+            _write_npz(output/"STATIC_ACCEPTED.npz",**static_payload)
             result.update(status="EXPERIMENTAL_STATIONARY_UNCERTIFIED",
                           accepted_steps=1,physical_steps_computed=1)
         else:
@@ -515,6 +582,7 @@ def run(path,*,validate_only):
             result["initial_electric_faces"]=electric_face_diagnostic(
                 state.factors)
             _store_state(output,0,state,surface)
+            record_physical_step(0,state)
             driver=(configuration if opts["integrator"]=="NEWMARK"
                     else NativeCoupledMVIBathe(configuration)
                     if opts["integrator"]=="BATHE"
@@ -523,13 +591,15 @@ def run(path,*,validate_only):
                 cooperate(output)
                 common=dict(field_scales=scales,energy_scale_j=energy,
                             settings=settings)
+                t_end=float(state.time_s+opts["dt_s"])
                 if opts["integrator"]=="NEWMARK":
+                    load_end,charge_end=program.at(t_end)
                     advance=driver.advance(state,opts["dt_s"],
-                        mechanical_load=mechanical,free_charge=charge,**common)
+                        mechanical_load=load_end,free_charge=charge_end,**common)
                 else:
                     advance=driver.advance(
                         state,opts["dt_s"],
-                        loads_at=lambda _t:(mechanical,charge),**common,
+                        loads_at=program.at,**common,
                         **({"max_acceleration_coordinates":
                             opts["max_acceleration_coordinates"]}
                            if opts["integrator"]=="GAUSS_IRK4" else {}),
@@ -540,6 +610,7 @@ def run(path,*,validate_only):
                 if advance.state.factors.rank!=items["factors"].rank:
                     raise RuntimeError("COUPLED_MVI_RANK_CHANGED")
                 state=advance.state
+                mechanical,charge=program.at(state.time_s)
                 result["last_separated_term_norms"]=(
                     mvi_separated_term_norms(state.factors).tolist())
                 result["last_discrete_green"]=_dynamic_green_audit(
@@ -547,6 +618,7 @@ def run(path,*,validate_only):
                 result["last_electric_faces"]=electric_face_diagnostic(
                     state.factors)
                 _store_state(output,step,state,surface)
+                record_physical_step(step,state)
                 result.update(accepted_steps=step,
                               physical_steps_computed=step,
                               time_s=float(state.time_s))
