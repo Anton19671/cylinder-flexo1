@@ -47,6 +47,7 @@ def fit_mvi_endpoint_field(surface: NativeCoupledMVISurface,
     if target.shape!=surface.shape or not np.isfinite(target).all():
         raise ValueError("MVI_ENDPOINT_FIELD_SHAPE_INVALID")
     if (isinstance(relative_tolerance,(bool,np.bool_)) or
+            not isinstance(relative_tolerance,(int,float,np.integer,np.floating)) or
             not np.isfinite(relative_tolerance) or
             not 0<relative_tolerance<1):
         raise ValueError("MVI_ENDPOINT_FIT_TOLERANCE_INVALID")
@@ -55,8 +56,15 @@ def fit_mvi_endpoint_field(surface: NativeCoupledMVISurface,
     for c,ids in enumerate(free):
         fixed=np.ones(surface.grid.nx,dtype=bool)
         fixed[ids]=False
-        if np.max(np.abs(target[c,fixed]),initial=0.)>(
-                relative_tolerance*max(1.,float(np.max(np.abs(target[c]))))):
+        # Essential traces are homogeneous physical conditions, not a
+        # relative fitting target. max(1, amplitude) silently admitted
+        # O(1e-9 m) nonzero support displacement for micrometre fields.
+        # Permit only a component-scaled floating-point roundoff floor;
+        # never relax the boundary using the endpoint fitting tolerance.
+        amplitude=float(np.max(np.abs(target[c]),initial=0.))
+        trace_roundoff=64.*np.finfo(float).eps*max(
+            amplitude,np.finfo(float).tiny)
+        if np.max(np.abs(target[c,fixed]),initial=0.)>trace_roundoff:
             return MVIRankEndpointFit(None,False,
                                       "MVI_ENDPOINT_ESSENTIAL_TRACE_CONFLICT",
                                       float("inf"),0)
