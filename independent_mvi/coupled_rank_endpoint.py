@@ -17,6 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 import numpy as np
+from scipy.linalg import qr as pivoted_qr
 
 from independent_mvi.coupled_surface import (
     CoupledMVIFactors, NativeCoupledMVISurface,
@@ -52,7 +53,10 @@ def _target_qr_angular_partner(target_free, rank):
     field is still checked against the full target before acceptance.
     Inactive modes remain allocated: no zero rank slot is discarded.
     """
-    q,_=np.linalg.qr(target_free.T,mode="reduced")
+    # Zero/dependent leading axial rows must not occupy the retained
+    # angular span. Pivot columns before selecting the R partner vectors.
+    q,_,_=pivoted_qr(target_free.T,mode="economic",pivoting=True,
+                     check_finite=True)
     if q.shape[1]<rank or not np.isfinite(q).all():
         raise np.linalg.LinAlgError("MVI_ENDPOINT_QR_PARTNER_UNAVAILABLE")
     return q[:,:rank].T.copy()

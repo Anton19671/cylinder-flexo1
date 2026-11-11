@@ -205,3 +205,24 @@ def test_rank_endpoint_error_uses_physical_target_scale():
     for c in range(surf.n_fields):
         reference=np.linalg.norm(target[c])
         assert np.linalg.norm(actual[c]-target[c])<=1.e-9*reference
+
+
+@pytest.mark.parametrize('rank',range(1,9))
+def test_endpoint_qr_skips_zero_leading_axial_rows(rank):
+    # Exact rank-one data with an interior node at zero. Unpivoted QR
+    # could retain an arbitrary null-column direction and lose the field.
+    grid=CoupledMVISurfaceGrid(11,9,1.3,2.)
+    surf=NativeCoupledMVISurface(
+        'KL',G3DMaterial(80.,.22,.03,0.,0.,0.),
+        grid=grid,thickness_m=.2,n_gauss=2)
+    seed=CoupledMVIFactors(np.zeros((surf.n_fields,rank,11)),
+                          np.zeros((surf.n_fields,rank,9)))
+    target=np.zeros(surf.shape)
+    target[0,2:-1,-1]=np.arange(1.,9.)*1.e-6
+    ends=CoupledMVIEndProgram('IMMOBILE_PARALLEL_ENDS','OFF')
+    result=fit_mvi_endpoint_field(surf,seed,target,ends,
+                                  relative_tolerance=1.e-10)
+    assert result.accepted,result.status
+    assert result.factors.rank==rank
+    np.testing.assert_allclose(surf.reconstruct(result.factors),target,
+                               rtol=1.e-10,atol=1.e-18)
