@@ -149,7 +149,7 @@ def fit_mvi_endpoint_field(surface: NativeCoupledMVISurface,
                 x[c][:,ids]=Anew
                 # An exact rank-1 field is also valid at declared rank
                 # 2..8. Do not invert its necessarily singular X Gram.
-                if (float(np.linalg.norm(x[c]@y[c]-target[c]))/
+                if (float(np.linalg.norm(x[c].T@y[c]-target[c]))/
                         scales[c]<=relative_tolerance):
                     continue
                 gram=Anew@Anew.T
@@ -160,7 +160,7 @@ def fit_mvi_endpoint_field(surface: NativeCoupledMVISurface,
                     # acceptance test remains mandatory.
                     y[c]=_target_qr_angular_partner(T,seed.rank)
                     x[c]=0.
-                    x[c][:,ids]=T@y[c].T
+                    x[c][:,ids]=(T@y[c].T).T
                     continue
                 y[c]=np.linalg.solve(gram,Anew@T)
             except np.linalg.LinAlgError:
