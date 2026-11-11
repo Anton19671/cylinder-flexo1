@@ -222,3 +222,29 @@ def test_term_diagnostics_keep_every_rank_slot_even_if_dormant(rank):
     if rank>1:
         np.testing.assert_array_equal(mode[:,1:],0.)
     assert fac.rank==rank
+
+
+def test_physical_end_trace_cannot_hide_behind_factor_rescaling():
+    """An almost-zero X_end times a huge Y is not a clamped end."""
+    model,fac,ends=make_model()
+    x=fac.x.copy()
+    y=fac.y.copy()
+    x[0,0,0]=1.e-12
+    y[0,0,:]=1.e12
+    wrong=CoupledMVIFactors(x,y)
+    with pytest.raises(ValueError,match="INCOMPATIBLE_X_TRACES"):
+        normalized_mvi_factors(model,wrong,ends,"X")
+
+
+def test_homogeneous_end_gate_is_invariant_under_reciprocal_factor_scale():
+    """A physically clamped state stays valid under X->aX, Y->Y/a."""
+    model,fac,ends=make_model()
+    x=fac.x.copy()
+    y=fac.y.copy()
+    x*=1.e-12
+    y*=1.e12
+    scaled=CoupledMVIFactors(x,y)
+    before=model.reconstruct(scaled)
+    normalized=normalized_mvi_factors(model,scaled,ends,"X")
+    np.testing.assert_allclose(model.reconstruct(normalized),before,
+                               rtol=1.e-12,atol=1.e-12)
