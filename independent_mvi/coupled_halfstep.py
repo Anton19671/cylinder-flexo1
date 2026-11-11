@@ -147,7 +147,21 @@ def _check_end_factors(surface, factors, program, *, tolerance=1.e-11):
             raise ValueError("MVI_RANK_EXCEEDS_ESSENTIAL_FREE_CAPACITY")
         blocked=np.ones(nx,dtype=bool)
         blocked[ids]=False
-        if np.max(np.abs(factors.x[c,:,blocked]),initial=0.)>tolerance:
+        if not np.any(blocked):
+            continue
+        # X/Y factors have arbitrary reciprocal scaling: X_end=1e-12
+        # can represent a macroscopic nonzero end displacement if Y=1e12.
+        # An absolute X-only tolerance is not a physical boundary gate.
+        eps=64.*np.finfo(float).eps
+        axial_amplitude=float(np.max(np.abs(factors.x[c][:,ids]),initial=0.))
+        factor_roundoff=eps*max(axial_amplitude,np.finfo(float).tiny)
+        factor_error=float(np.max(np.abs(factors.x[c][:,blocked]),initial=0.))
+        if factor_error>min(tolerance,factor_roundoff):
+            raise ValueError("MVI_NONHOMOGENEOUS_OR_INCOMPATIBLE_X_TRACES")
+        physical=factors.x[c].T@factors.y[c]
+        field_scale=float(np.max(np.abs(physical),initial=0.))
+        physical_roundoff=eps*max(field_scale,np.finfo(float).tiny)
+        if float(np.max(np.abs(physical[blocked]),initial=0.))>physical_roundoff:
             raise ValueError("MVI_NONHOMOGENEOUS_OR_INCOMPATIBLE_X_TRACES")
     return free
 
