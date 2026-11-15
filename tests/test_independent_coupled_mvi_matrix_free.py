@@ -175,3 +175,25 @@ def test_default_and_invalid_fallback_bounds_preserve_fail_closed_behavior():
     for bad in (-1,1.0,True,"300"):
         with pytest.raises(ValueError,match="KRYLOV_DENSE_FALLBACK_LIMIT"):
             half.CoupledMVIHalfstepSettings(krylov_dense_fallback_limit=bad)
+
+
+@pytest.mark.parametrize("axis",("X","Y"))
+def test_explicit_dense_reduced_mvi_newton_has_no_gmres_or_fdm(axis,monkeypatch):
+    surf,fac,program=setup()
+    def forbidden_gmres(*args,**kwargs):
+        raise AssertionError("explicit reduced LU must not call GMRES")
+    monkeypatch.setattr(half,"gmres",forbidden_gmres)
+    result=half.solve_coupled_mvi_halfstep(
+        surf,fac,axis=axis,program=program,
+        field_scales=np.ones(surf.n_fields),
+        energy_scale_j=1.,
+        settings=half.CoupledMVIHalfstepSettings(
+            max_coordinates=300,linear_solver="DENSE_LU",
+            krylov_dense_fallback_limit=0,max_iterations=3))
+    assert result.converged
+    assert result.factors.rank==fac.rank
+    assert result.history[-1]["linear_solver"]=="DENSE_LU"
+    if axis=="X":
+        np.testing.assert_allclose(result.factors.x,0.,atol=2.e-8)
+    else:
+        np.testing.assert_allclose(result.factors.y,0.,atol=2.e-8)
