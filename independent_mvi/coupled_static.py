@@ -21,7 +21,7 @@ from independent_mvi.coupled_surface import (
 from independent_mvi.coupled_halfstep import (
     CoupledMVIEndProgram, CoupledMVIHalfstepSettings,
     _check_end_factors, _scales, _active_field_ids,
-    solve_coupled_mvi_halfstep,
+    solve_coupled_mvi_halfstep, normalized_mvi_factors,
 )
 
 
@@ -62,16 +62,23 @@ def _projected_norms(surface,factors,program,field_scales,energy_scale_j,
     scale,energy=_scales(surface,field_scales,energy_scale_j)
     free=_check_end_factors(surface,factors,program)
     components=_active_field_ids(surface,active_fields)
-    work=(surface.weak_work(factors,mechanical_load=mechanical_load,
-                            free_charge=free_charge)
-          if work_evaluator is None else work_evaluator(factors))
-    gx=work.gradient_x
-    gy=work.gradient_y
+    # Use the same frozen-partner coordinates as each halfstep.  Reciprocal
+    # X/Y rescaling must not alter the rank-one stationarity decision.
+    # Rank-deficient partners retain the halfstep's existing fail-closed
+    # normalization behavior; no profiles are discarded.
+    def evaluate(current):
+        return (surface.weak_work(current,mechanical_load=mechanical_load,
+                                  free_charge=free_charge)
+                if work_evaluator is None else work_evaluator(current))
+    x_work=evaluate(normalized_mvi_factors(surface,factors,program,"X"))
+    y_work=evaluate(normalized_mvi_factors(surface,factors,program,"Y"))
+    gx=x_work.gradient_x
+    gy=y_work.gradient_y
     norm_x=max(float(np.max(np.abs(gx[c][:,ids]*scale[c]/energy),initial=0.))
                for c in components for ids in (free[c],))
     norm_y=max(float(np.max(np.abs(gy[c]*scale[c]/energy),initial=0.))
                for c in components)
-    nodal=getattr(work,"nodal_gradient",None)
+    nodal=getattr(x_work,"nodal_gradient",None)
     if nodal is None:
         raise ValueError("MVI_OWN_FULL_NODAL_FIRST_VARIATION_REQUIRED")
     nodal=np.asarray(nodal,dtype=float)

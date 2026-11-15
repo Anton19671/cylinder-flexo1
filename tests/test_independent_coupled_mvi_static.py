@@ -180,3 +180,26 @@ def test_rank_five_keeps_five_separated_slots_at_every_sweep(monkeypatch):
     assert seen==[("Y",5),("X",5)]*4
     assert len(out.history)==4
     assert all(row["rank"]==5 for row in out.history)
+
+
+def test_projected_norms_invariant_to_reciprocal_rank_one_scaling():
+    """The same physical field and nodal work give the same X/Y gates."""
+    from types import SimpleNamespace
+    surface,fac,program=build()
+    rng=np.random.default_rng(423)
+    nodal=rng.normal(size=surface.shape)
+    def work(current):
+        return SimpleNamespace(
+            nodal_gradient=nodal,
+            gradient_x=np.einsum("cij,crj->cri",nodal,current.y),
+            gradient_y=np.einsum("cij,cri->crj",nodal,current.x))
+    scales=np.linspace(.5,2.,surface.n_fields)
+    original=engine._projected_norms(
+        surface,fac,program,scales,1.,None,None,work_evaluator=work)
+    factors=np.linspace(.01,100.,surface.n_fields)[:,None,None]
+    transformed=CoupledMVIFactors(fac.x*factors,fac.y/factors)
+    np.testing.assert_allclose(surface.reconstruct(fac),
+                               surface.reconstruct(transformed))
+    actual=engine._projected_norms(
+        surface,transformed,program,scales,1.,None,None,work_evaluator=work)
+    np.testing.assert_allclose(actual,original,rtol=1.e-12,atol=1.e-12)
