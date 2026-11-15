@@ -95,3 +95,23 @@ def test_invalid_krylov_controls_rejected():
         half.CoupledMVIHalfstepSettings(krylov_relative_tolerance=-1.)
     with pytest.raises(ValueError,match="KRYLOV_RESTART"):
         half.CoupledMVIHalfstepSettings(krylov_restart=0)
+
+
+
+def test_failed_reduced_krylov_records_actual_reason_and_preserves_original(monkeypatch):
+    surf,fac,program=setup()
+    def no_convergence(operator,rhs,**kwargs):
+        return np.zeros_like(rhs),3
+    monkeypatch.setattr(half,"gmres",no_convergence)
+    out=half.solve_coupled_mvi_halfstep(
+        surf,fac,axis="Y",program=program,
+        field_scales=np.ones(surf.n_fields),energy_scale_j=1.,
+        settings=half.CoupledMVIHalfstepSettings(
+            max_coordinates=300,linear_solver="MATRIX_FREE_GMRES"))
+    assert not out.converged
+    assert out.status=="MVI_HALFSTEP_TANGENT_NOT_SOLVED"
+    assert out.history[-1]["linear_failure"]=="MVI_GMRES_NOT_CONVERGED"
+    assert out.history[-1]["linear_dimension"]>0
+    assert out.history[-1]["linear_solver"]=="MATRIX_FREE_GMRES"
+    np.testing.assert_array_equal(out.factors.x,fac.x)
+    np.testing.assert_array_equal(out.factors.y,fac.y)
