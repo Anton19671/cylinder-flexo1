@@ -115,3 +115,63 @@ def test_failed_reduced_krylov_records_actual_reason_and_preserves_original(monk
     assert out.history[-1]["linear_solver"]=="MATRIX_FREE_GMRES"
     np.testing.assert_array_equal(out.factors.x,fac.x)
     np.testing.assert_array_equal(out.factors.y,fac.y)
+
+
+
+@pytest.mark.parametrize("axis",("X","Y"))
+def test_opt_in_krylov_breakdown_recovers_from_own_checked_reduced_lu(axis,monkeypatch):
+    surf,fac,program=setup()
+    def forced_stagnation(operator,rhs,**kwargs):
+        return np.zeros_like(rhs),7
+    monkeypatch.setattr(half,"gmres",forced_stagnation)
+    settings=half.CoupledMVIHalfstepSettings(
+        max_coordinates=300,max_iterations=3,
+        linear_solver="MATRIX_FREE_GMRES",
+        krylov_dense_fallback_limit=300)
+    out=half.solve_coupled_mvi_halfstep(
+        surf,fac,axis=axis,program=program,
+        field_scales=np.ones(surf.n_fields),energy_scale_j=1.,
+        settings=settings)
+    assert out.converged
+    assert out.factors.rank==fac.rank
+    assert any(h.get("recovered") is True and
+               h.get("krylov_failure")=="MVI_GMRES_NOT_CONVERGED"
+               for h in out.history)
+    assert any(h.get("linear_solver")=="DENSE_LU_AFTER_GMRES"
+               for h in out.history)
+    if axis=="X":
+        np.testing.assert_allclose(out.factors.x,0.,atol=2.e-8)
+    else:
+        np.testing.assert_allclose(out.factors.y,0.,atol=2.e-8)
+    assert not np.any(out.factors.x[:,:,0])
+    assert not np.any(out.factors.x[:,:,-1])
+
+
+def test_opt_in_lu_failure_fails_closed_and_keeps_original_rank(monkeypatch):
+    surf,fac,program=setup()
+    def forced_stagnation(operator,rhs,**kwargs):
+        return np.zeros_like(rhs),7
+    monkeypatch.setattr(half,"gmres",forced_stagnation)
+    def singular_lu(*args,**kwargs):
+        raise np.linalg.LinAlgError("SYNTHETIC_ILL_CONDITIONED_REDUCED_TANGENT")
+    monkeypatch.setattr(half,"_checked_lu_newton",singular_lu)
+    out=half.solve_coupled_mvi_halfstep(
+        surf,fac,axis="X",program=program,
+        field_scales=np.ones(surf.n_fields),energy_scale_j=1.,
+        settings=half.CoupledMVIHalfstepSettings(
+            max_coordinates=300,linear_solver="MATRIX_FREE_GMRES",
+            krylov_dense_fallback_limit=300))
+    assert not out.converged
+    assert out.status=="MVI_HALFSTEP_TANGENT_NOT_SOLVED"
+    assert out.history[-1]["krylov_failure"]=="MVI_GMRES_NOT_CONVERGED"
+    assert out.history[-1]["linear_failure"]=="SYNTHETIC_ILL_CONDITIONED_REDUCED_TANGENT"
+    assert out.factors.rank==fac.rank
+    np.testing.assert_array_equal(out.factors.x,fac.x)
+    np.testing.assert_array_equal(out.factors.y,fac.y)
+
+
+def test_default_and_invalid_fallback_bounds_preserve_fail_closed_behavior():
+    assert half.CoupledMVIHalfstepSettings().krylov_dense_fallback_limit==0
+    for bad in (-1,1.0,True,"300"):
+        with pytest.raises(ValueError,match="KRYLOV_DENSE_FALLBACK_LIMIT"):
+            half.CoupledMVIHalfstepSettings(krylov_dense_fallback_limit=bad)
