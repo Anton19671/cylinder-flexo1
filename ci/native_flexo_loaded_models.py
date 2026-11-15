@@ -46,13 +46,19 @@ def case_and_npz(folder, theory, gradient):
     # symmetry class without confusing a rank restriction with BC errors.
     qface = -PRESSURE * (1.0 + H / (2.0 * R))
     if theory == "KL":
-        forcing[2] = -PRESSURE
+        forcing[2] = qface
     elif theory.startswith("CUF_TE"):
         k = pe + 1
         forcing[2 * k:3 * k] = qface
     else:
         forcing[2] = qface
     assert np.max(np.abs(forcing)) > 0
+    # For an outer-face nominal pressure every theory has the SAME
+    # curved physical face-area multiplier H(+h/2)=1+h/(2R).
+    # KL has w(z)=w0, so it must not omit that multiplier.
+    assert np.allclose(forcing[2] if theory=="KL" else
+        forcing[2*(pe+1)] if theory.startswith("CUF_TE") else forcing[2],
+        qface)
     x = np.zeros((nf, 1, NX))
     y = np.ones((nf, 1, NS))
     np.savez_compressed(folder / "seed.npz", x_profiles=x, y_profiles=y)
@@ -102,6 +108,8 @@ def run(theory, gradient, output):
         "method": "NATIVE_INDEPENDENT_MVI",
         "electrical_enabled": True, "geometry_model": "GREEN_LAGRANGE",
         "grid": [NX, NS], "rank": 1, "pressure_pa": PRESSURE,
+        "pressure_face": "OUTER_PHYSICAL_Z_PLUS_H_OVER_2",
+        "reference_area_load_pa": -PRESSURE * (1.0 + H / (2.0 * R)),
         "git_sha": os.getenv("GITHUB_SHA", "UNKNOWN"),
         "source_higher_order_mechanical_face_certified": False,
         "independent_external_accuracy_certified": False,
