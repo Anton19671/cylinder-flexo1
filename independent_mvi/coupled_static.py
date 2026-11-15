@@ -63,7 +63,7 @@ def _projected_norms(surface,factors,program,field_scales,energy_scale_j,
     free=_check_end_factors(surface,factors,program)
     components=_active_field_ids(surface,active_fields)
     # Use the same frozen-partner coordinates as each halfstep.  Reciprocal
-    # X/Y rescaling must not alter the rank-one stationarity decision.
+    # X/Y rescaling must not alter the full-rank stationarity decision.
     # Rank-deficient partners retain the halfstep's existing fail-closed
     # normalization behavior; no profiles are discarded.
     def evaluate(current):
@@ -74,10 +74,16 @@ def _projected_norms(surface,factors,program,field_scales,energy_scale_j,
     y_work=evaluate(normalized_mvi_factors(surface,factors,program,"Y"))
     gx=x_work.gradient_x
     gy=y_work.gradient_y
-    norm_x=max(float(np.max(np.abs(gx[c][:,ids]*scale[c]/energy),initial=0.))
+    # A QR basis can rotate within a fixed-rank span.  RMS Frobenius
+    # norms are invariant to those orthogonal rotations, unlike max(abs).
+    # Halfsteps still enforce their own coordinate-wise tolerance and the
+    # independent full-nodal acceptance gate below remains mandatory.
+    def rms(value):
+        array=np.asarray(value,dtype=float)
+        return float(np.linalg.norm(array.ravel())/np.sqrt(array.size))
+    norm_x=max(rms(gx[c][:,ids]*scale[c]/energy)
                for c in components for ids in (free[c],))
-    norm_y=max(float(np.max(np.abs(gy[c]*scale[c]/energy),initial=0.))
-               for c in components)
+    norm_y=max(rms(gy[c]*scale[c]/energy) for c in components)
     nodal=getattr(x_work,"nodal_gradient",None)
     if nodal is None:
         raise ValueError("MVI_OWN_FULL_NODAL_FIRST_VARIATION_REQUIRED")

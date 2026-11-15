@@ -203,3 +203,32 @@ def test_projected_norms_invariant_to_reciprocal_rank_one_scaling():
     actual=engine._projected_norms(
         surface,transformed,program,scales,1.,None,None,work_evaluator=work)
     np.testing.assert_allclose(actual,original,rtol=1.e-12,atol=1.e-12)
+
+
+def test_projected_norms_invariant_to_rank_two_basis_change():
+    """Equivalent rank-two factorizations must have identical work gates."""
+    from types import SimpleNamespace
+    surface,_,program=build()
+    rng=np.random.default_rng(756)
+    x=np.zeros((surface.n_fields,2,surface.grid.nx))
+    x[:,:,1:-1]=rng.normal(size=x[:,:,1:-1].shape)
+    y=rng.normal(size=(surface.n_fields,2,surface.grid.ns))
+    factors=CoupledMVIFactors(x,y)
+    transform=np.array([[1.7,.4],[-.3,.8]])
+    other=CoupledMVIFactors(
+        np.einsum("ab,cbi->cai",transform,x),
+        np.einsum("ab,cbj->caj",np.linalg.inv(transform).T,y))
+    np.testing.assert_allclose(surface.reconstruct(factors),
+                               surface.reconstruct(other),atol=1.e-12)
+    nodal=rng.normal(size=surface.shape)
+    def work(current):
+        return SimpleNamespace(
+            nodal_gradient=nodal,
+            gradient_x=np.einsum("cij,crj->cri",nodal,current.y),
+            gradient_y=np.einsum("cij,cri->crj",nodal,current.x))
+    scales=np.linspace(.5,2.,surface.n_fields)
+    one=engine._projected_norms(surface,factors,program,scales,1.,None,None,
+                                work_evaluator=work)
+    two=engine._projected_norms(surface,other,program,scales,1.,None,None,
+                                work_evaluator=work)
+    np.testing.assert_allclose(one,two,atol=1.e-12,rtol=1.e-12)
