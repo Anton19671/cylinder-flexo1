@@ -327,6 +327,18 @@ def _floating_reduced_null(surface,working,axis,components,indices,
     return direction/mag
 
 
+
+def _invalid_deformation_error(error):
+    """Exact domain-error codes from the shared physical shell kernels."""
+    code=str(error).partition(":")[0]
+    return code in (
+        "INVALID_DEFORMATION_MAPPING",
+        "INVALID_KL_DEFORMATION_MAPPING",
+        "INVALID_KL_MIDSURFACE_NORMAL",
+        "INVALID_KL_NORMAL",
+    )
+
+
 def solve_coupled_mvi_halfstep(
         surface: NativeCoupledMVISurface, factors: CoupledMVIFactors, *,
         axis: str, program: CoupledMVIEndProgram,
@@ -455,7 +467,7 @@ def solve_coupled_mvi_halfstep(
                 _,gp=evaluate(z+h*direction)
                 _,gm=evaluate(z-h*direction)
             except ValueError as exc:
-                if "INVALID_DEFORMATION_MAPPING" not in str(exc):
+                if not _invalid_deformation_error(exc):
                     raise
                 h*=.5
                 continue
@@ -572,7 +584,7 @@ def solve_coupled_mvi_halfstep(
             try:
                 _,g_trial=evaluate(trial)
             except ValueError as exc:
-                if "INVALID_DEFORMATION_MAPPING" not in str(exc):
+                if not _invalid_deformation_error(exc):
                     raise
                 continue
             except (FloatingPointError,OverflowError):

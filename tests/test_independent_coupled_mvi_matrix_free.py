@@ -244,7 +244,10 @@ def test_line_search_does_not_hide_contract_errors(axis,message,monkeypatch):
                 max_coordinates=300,linear_solver="DENSE_LU",max_iterations=1))
 
 
-def test_line_search_still_backtracks_invalid_deformation(monkeypatch):
+@pytest.mark.parametrize("message",("INVALID_DEFORMATION_MAPPING",
+    "INVALID_KL_DEFORMATION_MAPPING: detF=-1",
+    "INVALID_KL_MIDSURFACE_NORMAL: degenerate metric","INVALID_KL_NORMAL"))
+def test_line_search_still_backtracks_invalid_deformation(monkeypatch,message):
     surf,fac,program=setup()
     original_lu=half._checked_lu_newton
     original_work=surf.weak_work
@@ -258,7 +261,7 @@ def test_line_search_still_backtracks_invalid_deformation(monkeypatch):
         if armed[0]:
             armed[0]=False
             rejected[0]+=1
-            raise ValueError("INVALID_DEFORMATION_MAPPING")
+            raise ValueError(message)
         return original_work(*args,**kwargs)
     monkeypatch.setattr(half,"_checked_lu_newton",solve)
     surf.weak_work=work
@@ -272,3 +275,30 @@ def test_line_search_still_backtracks_invalid_deformation(monkeypatch):
     assert out.status=="MVI_HALFSTEP_MAX_ITERATIONS"
     np.testing.assert_array_equal(out.factors.x,fac.x)
     np.testing.assert_array_equal(out.factors.y,fac.y)
+
+
+@pytest.mark.parametrize("message",("INVALID_DEFORMATION_MAPPING",
+    "INVALID_KL_DEFORMATION_MAPPING: detF=-1",
+    "INVALID_KL_MIDSURFACE_NORMAL: degenerate metric","INVALID_KL_NORMAL"))
+def test_tangent_probes_shrink_for_all_physical_mapping_error_codes(message):
+    surf,fac,program=setup()
+    original=surf.weak_work
+    calls=[0]
+    def work(*args,**kwargs):
+        calls[0]+=1
+        if calls[0]==2:
+            raise ValueError(message)
+        return original(*args,**kwargs)
+    surf.weak_work=work
+    out=half.solve_coupled_mvi_halfstep(
+        surf,fac,axis="X",program=program,
+        field_scales=np.ones(surf.n_fields),energy_scale_j=1.,
+        settings=half.CoupledMVIHalfstepSettings(
+            max_coordinates=300,linear_solver="DENSE_LU",max_iterations=3))
+    assert out.converged
+    assert calls[0]>2
+
+
+def test_mapping_error_classifier_does_not_match_unrelated_messages():
+    assert not half._invalid_deformation_error(
+        ValueError("BAD_INPUT mentions INVALID_DEFORMATION_MAPPING"))
