@@ -1,0 +1,126 @@
+name: Native KL independent FDM MVI real load mesh refinement
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/native-kl-independent-grid-study.yml"
+permissions:
+  contents: read
+jobs:
+  grid:
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        grid: ["9x5", "11x7", "13x9", "15x11"]
+    env:
+      PYTHONPATH: ".:ci:independent_mkr:independent_mvi:mechanics:numerics:flexoelectric:physics:interface"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      GRID_CASE: ${{ matrix.grid }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install numpy scipy
+      - name: Compute real loaded independent FDM and fixed-rank MVI
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, math, traceback
+          from pathlib import Path
+          import ci.native_coupled_loaded_kl_smoke as original
+          nx, ns = map(int, os.environ["GRID_CASE"].split("x"))
+          if nx < 9 or ns < 5 or nx % 2 != 1 or ns % 2 != 1 or 3*nx*ns > 512:
+              raise RuntimeError("INVALID_ODD_NATIVE_KL_GRID_OR_DOF_BUDGET")
+          original.NX, original.NS = nx, ns
+          root = Path("grid_evidence") / os.environ["GRID_CASE"]
+          root.mkdir(parents=True, exist_ok=True)
+          evidence = {
+              "grid": [nx, ns], "theory": "KL", "geometry_model": "LINEAR",
+              "young_pa": original.E, "thickness_m": original.H,
+              "length_m": original.L, "radius_m": original.R,
+              "applied_radial_pressure_pa": original.P, "electric_on": False,
+              "gradient_length_m": 0.0, "independent_spatial_assembly": True,
+              "external_accuracy_certified": False,
+              "microfree_boundary_certified": False,
+              "git_sha": os.environ.get("GITHUB_SHA", "UNKNOWN"),
+              "status": "RUNNING"
+          }
+          marker = root / "GRID_EVIDENCE.json"
+          def save(): marker.write_text(json.dumps(evidence, indent=2, allow_nan=False)+"\n")
+          save()
+          try:
+              fdm = original.work_mkr(root)
+              mvi = original.work_mvi(root)
+              w_f = float(fdm["displacement_centre_m"])
+              w_m = float(mvi["displacement_centre_m"])
+              if not all(math.isfinite(v) and v < 0 for v in (w_f,w_m)):
+                  raise RuntimeError("INVALID_LOADED_CENTRE_DISPLACEMENT")
+              if not fdm["returned_nonzero"] or not mvi["returned_nonzero"]:
+                  raise RuntimeError("ZERO_LOADED_RESPONSE")
+              evidence.update(status="COMPLETED_RESEARCH_ONLY", fdm=fdm, mvi=mvi,
+                  relative_central_difference=abs(w_f-w_m)/max(abs(w_f),abs(w_m)))
+              save()
+              print("NATIVE_KL_GRID_REAL_RESULT",json.dumps(evidence),flush=True)
+          except BaseException as exc:
+              evidence.update(status="FAILED",failure_class=type(exc).__name__,
+                  failure_message=str(exc))
+              save()
+              (root/"TRACEBACK.txt").write_text(traceback.format_exc())
+              raise
+          PY
+      - name: Preserve both physical NPZ states and CASEs, even on failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: NATIVE_KL_GRID_${{ matrix.grid }}
+          path: grid_evidence/
+          if-no-files-found: warn
+          retention-days: 60
+  compare:
+    needs: [grid]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: NATIVE_KL_GRID_*
+          path: evidence
+          merge-multiple: true
+      - name: Report only actual computed comparisons
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          records=[]
+          for grid in ("9x5","11x7","13x9","15x11"):
+              files=list(Path("evidence").rglob(grid+"/GRID_EVIDENCE.json"))
+              if len(files)!=1:
+                  records.append({"grid":grid,"status":"MISSING_OR_DUPLICATE"})
+              else:
+                  records.append(json.loads(files[0].read_text()))
+          report={"kind":"independent_KL_real_mesh_refinement","results":records,
+                  "external_accuracy_certified":False,
+                  "microfree_boundary_certified":False}
+          Path("grid-study-comparison.json").write_text(json.dumps(report,indent=2)+"\n")
+          print(json.dumps(report,indent=2),flush=True)
+          if any(x.get("status")!="COMPLETED_RESEARCH_ONLY" for x in records):
+              raise RuntimeError("INCOMPLETE_NATIVE_REAL_MESH_STUDY")
+          PY
+      - name: Preserve complete or incomplete grid comparison
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: NATIVE_KL_GRID_COMPARISON
+          path: grid-study-comparison.json
+          if-no-files-found: warn
+          retention-days: 60
