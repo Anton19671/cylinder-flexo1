@@ -33,7 +33,7 @@ jobs:
         with:
           python-version: "3.11"
       - run: python -m pip install numpy scipy
-      - name: Run actual same-rank nonlinear MVI with checked same-tangent LU rescue
+      - name: Run actual same-rank nonlinear MVI with direct checked reduced LU
         shell: bash
         run: |
           mkdir -p failure_logs
@@ -41,6 +41,7 @@ jobs:
           python -u ci/native_flexo_loaded_models.py \
             --theory "$THEORY" --gradient "$GRADIENT" \
             --reduced-lu-rescue-limit 256 \
+            --reduced-solver DENSE_LU \
             --output "physical/${THEORY}_${GRADIENT}" \
             2>&1 | tee "failure_logs/${THEORY}_${GRADIENT}.log"
       - name: Preserve real fields, failed tangent, entire history
