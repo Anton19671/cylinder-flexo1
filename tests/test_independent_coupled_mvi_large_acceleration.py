@@ -149,3 +149,44 @@ def test_krylov_success_flag_cannot_accept_unbalanced_small_force(monkeypatch):
         acceleration_dense_limit=20)
     assert solved.state is None
     assert solved.status=="MVI_ACCELERATION_EQUILIBRIUM_NOT_MET"
+
+
+@pytest.mark.parametrize("method,dense_limit",(
+    ("DENSE_LU",250),("MATRIX_FREE_GMRES",20)))
+def test_mass_operator_does_not_lose_unit_columns_in_large_velocity_bias(method,dense_limit):
+    configuration,factors,velocity=build()
+    velocity[:,1:-1]=.3
+    evaluated_with_velocity=[]
+    def inertia(q,v,a):
+        evaluated_with_velocity.append(bool(np.any(v)))
+        bias=np.where(np.abs(v)>0.,1.e20,0.)
+        return 2.*a+bias
+    configuration.inertia.apply=inertia
+    solved=close_mvi_instantaneous_state(
+        configuration,factors,velocity,time_s=0.,
+        field_scales=np.ones(configuration.surface.n_fields),
+        energy_scale_j=1.,max_acceleration_coordinates=220,
+        acceleration_linear_solver=method,acceleration_dense_limit=dense_limit)
+    assert solved.state is not None,solved.status
+    np.testing.assert_allclose(solved.state.acceleration[:,1:-1],-5.e19,rtol=1.e-12)
+    # The nonzero velocity is used only once for the right-hand-side bias.
+    assert evaluated_with_velocity[0] is True
+    assert sum(evaluated_with_velocity)==1
+
+
+@pytest.mark.parametrize("theory",("KL","FSDT","REDDY","CUF_TE1","CUF_TE2","CUF_TE3","CUF_TE4"))
+def test_physical_inertia_splits_into_mass_action_and_velocity_bias(theory):
+    surface=NativeCoupledMVISurface(
+        theory,G3DMaterial(100.,.23,.02,0.,0.,0.),
+        grid=CoupledMVISurfaceGrid(9,5,1.2,2.),thickness_m=.2,n_gauss=2)
+    inertia=NativeCoupledMVIInertia(
+        surface,density_kg_m3=2.,mass_damping_rate_per_s=.17)
+    rng=np.random.default_rng(193)
+    shape=(surface.n_mechanical,9,5)
+    q=rng.normal(0.,1.e-4,shape)
+    v=rng.normal(0.,1.e-3,shape)
+    acceleration=rng.normal(0.,1.e-2,shape)
+    zeros=np.zeros(shape)
+    total=inertia.apply(q,v,acceleration)
+    split=inertia.apply(q,zeros,acceleration)+inertia.apply(q,v,zeros)
+    np.testing.assert_allclose(total,split,rtol=1.e-11,atol=1.e-12)

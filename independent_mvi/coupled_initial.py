@@ -184,7 +184,10 @@ def close_mvi_instantaneous_state(
             raise np.linalg.LinAlgError("MVI_MASS_INVALID_KRYLOV_VECTOR")
         trial=np.zeros_like(q)
         trial[components,axial,circum]=values
-        physical=configuration.inertia.apply(q,v,trial)-bias
+        # M(q) is independent of v for the supported physical inertia.
+        # Evaluating at zero velocity excludes gyroscopic and mass-damping
+        # bias without subtracting two large nearly equal force vectors.
+        physical=configuration.inertia.apply(q,z,trial)
         result=physical[components,axial,circum]
         if not np.isfinite(result).all():
             raise np.linalg.LinAlgError("MVI_MASS_NONFINITE_OPERATOR")
@@ -247,7 +250,7 @@ def close_mvi_instantaneous_state(
     acceleration=np.zeros_like(q)
     for value,(c,i,j) in zip(delta,coords):
         acceleration[c,i,j]=value
-    full_action=base+configuration.inertia.apply(q,v,acceleration)-bias
+    full_action=base+configuration.inertia.apply(q,z,acceleration)
     defect=max((abs(full_action[c,i,j]) for c,i,j in coords),default=0.)
     scale=_mass_equilibrium_bound(rhs)
     if defect>scale:
