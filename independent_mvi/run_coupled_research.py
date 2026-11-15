@@ -539,6 +539,13 @@ def _run_loaded_case(items,*,validate_only,resume=False):
                 mechanical_load=mechanical,free_charge=charge,
                 settings=settings)
             if not answer.converged:
+                # Preserve full reduced X/Y failure evidence before raising.
+                # Never write an accepted physical state on failed convergence.
+                _write_json(output/"MVI_FAILED_SWEEP_DIAGNOSTICS.json",dict(
+                    status=answer.status,sweeps=answer.sweeps,
+                    requested_rank=items["factors"].rank,
+                    history=list(answer.history),
+                    scientific_accuracy_certified=False))
                 raise RuntimeError("COUPLED_MVI_STATIC_"+answer.status)
             q=surface.reconstruct(answer.factors)
             result["discrete_green"]=_green_audit(
