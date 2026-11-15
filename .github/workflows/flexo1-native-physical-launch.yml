@@ -30,11 +30,11 @@ jobs:
         run: |
           set -euo pipefail
           gh workflow run native-mvi-loaded-dynamic-smoke.yml --ref main
-      - name: Nonlinear coupled time histories FDM versus MVI ranks 1 through 8
+      - name: Independent native nonlinear flexoelectric seven theory G3D Gz loads
         run: |
           set -euo pipefail
-          gh workflow run scientific-coupled-dynamic-rank.yml --ref main --field scope=full
+          gh workflow run native-flexo-seven-loaded.yml --ref main
       - name: Link to evidence
         if: always()
         run: |
-          echo "Follow the four independently dispatched physical workflows. Passing these does not certify higher-order face closure or external benchmark accuracy." >> "$GITHUB_STEP_SUMMARY"
+          echo "Follow the four dispatched native physical workflows. Passing these does not certify higher-order face closure or external benchmark accuracy." >> "$GITHUB_STEP_SUMMARY"
