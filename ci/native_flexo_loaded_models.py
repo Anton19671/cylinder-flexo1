@@ -50,19 +50,14 @@ def case_and_npz(folder, theory, gradient, *, reduced_lu_rescue_limit=0, reduced
     # symmetry class without confusing a rank restriction with BC errors.
     qface = -PRESSURE * (1.0 + H / (2.0 * R))
     if theory == "KL":
-        forcing[2] = qface
+        pass  # Exact offset-face KL work is compiled from the CASE below.
     elif theory.startswith("CUF_TE"):
         k = pe + 1
         forcing[2 * k:3 * k] = qface
     else:
         forcing[2] = qface
-    assert np.max(np.abs(forcing)) > 0
-    # For an outer-face nominal pressure every theory has the SAME
-    # curved physical face-area multiplier H(+h/2)=1+h/(2R).
-    # KL has w(z)=w0, so it must not omit that multiplier.
-    assert np.allclose(forcing[2] if theory=="KL" else
-        forcing[2*(pe+1)] if theory.startswith("CUF_TE") else forcing[2],
-        qface)
+    assert theory=="KL" or np.max(np.abs(forcing)) > 0
+    # For KL the exact work includes the rotating director, not only w0.
     x = np.zeros((nf, 1, NX))
     y = np.ones((nf, 1, NS))
     np.savez_compressed(folder / "seed.npz", x_profiles=x, y_profiles=y)
@@ -98,6 +93,8 @@ def case_and_npz(folder, theory, gradient, *, reduced_lu_rescue_limit=0, reduced
         "initial_state_npz": "seed.npz",
         "loads_npz": "load.npz",
         "output_dir": "RESULTS"}
+    if theory=="KL":
+        case["kl_radial_face_traction"]=dict(face="OUTER",traction_pa=-PRESSURE)
     file = folder / "CASE.json"
     file.write_text(json.dumps(case, indent=2) + "\n", encoding="utf-8")
     return file, case, forcing

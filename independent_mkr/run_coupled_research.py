@@ -47,7 +47,7 @@ SOLVER_KEYS=frozenset(("kind","integrator","dt_s","steps","max_dofs",
 SOLVER_OPTIONAL=frozenset(("linear_solver","dense_lu_dof_limit"))
 CASE_KEYS=frozenset(("schema","research_opt_in","physics","grid","boundary",
                       "solver","initial_state_npz","loads_npz","output_dir"))
-OPTIONAL_KEYS=frozenset(("mechanical_end_work","electric_faces"))
+OPTIONAL_KEYS=frozenset(("mechanical_end_work","electric_faces","kl_radial_face_traction"))
 
 
 def _strict(value,keys,label):
@@ -165,6 +165,12 @@ def load_case(filename):
     elif p["potential_order"] is not None:
         raise ValueError("MKR_COUPLED_ELECTRIC_OFF_REQUIRES_NULL_ORDER")
     potential_order=p["potential_order"]
+    from cylinder_kl_face_load import compile_kl_face_load
+    model.kl_face_load=compile_kl_face_load(
+        case.get("kl_radial_face_traction"),theory=model.theory,
+        shape=(model.grid.nx,model.grid.ns),
+        radius_m=model.grid.radius_m,thickness_m=model.thickness_m,
+        geometry_model=model.geometry_model)
     b=_strict(case["boundary"],("mechanical","electric","axial_orders"),
               "MKR_BOUNDARY")
     opts=case["solver"]

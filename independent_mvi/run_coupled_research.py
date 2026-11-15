@@ -141,7 +141,7 @@ def load_case(path, *, allow_existing_output=False):
     except (ValueError,OSError) as exc:
         raise ValueError("COUPLED_MVI_CASE_CANNOT_BE_READ") from exc
     if (not isinstance(raw,dict) or not CASE_KEYS.issubset(raw) or
-            set(raw)-CASE_KEYS-{"electric_faces","mechanical_end_work","load_time_law"}):
+            set(raw)-CASE_KEYS-{"electric_faces","mechanical_end_work","load_time_law","kl_radial_face_traction"}):
         raise ValueError("COUPLED_MVI_CASE_KEYS_INVALID")
     case=raw
     if case["schema"]!=SCHEMA:
@@ -170,6 +170,14 @@ def load_case(path, *, allow_existing_output=False):
     end_work=compile_mechanical_end_work(
         surface,case.get("mechanical_end_work"))
     surface.mechanical_end_work=end_work
+    from cylinder_kl_face_load import compile_kl_face_load
+    if case.get("kl_radial_face_traction") is not None and case.get("load_time_law") is not None:
+        raise ValueError("KL_FACE_LOAD_TIME_LAW_NOT_SUPPORTED")
+    surface.kl_face_load=compile_kl_face_load(
+        case.get("kl_radial_face_traction"),theory=surface.theory,
+        shape=(surface.grid.nx,surface.grid.ns),
+        radius_m=surface.grid.radius_m,thickness_m=surface.thickness_m,
+        geometry_model=surface.geometry_model)
     opts=case["solver"]
     if (not isinstance(opts,dict) or
             not SOLVER_KEYS.issubset(opts) or

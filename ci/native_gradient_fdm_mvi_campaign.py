@@ -85,12 +85,14 @@ def physical_data(theory,gradient,kind):
     pe=electric_order(theory)
     forcing=np.zeros((nm,nx,ns),dtype=float)
     q=-pressure_profile(ns)*(1.+H/(2.*R))
-    if theory.startswith("CUF_TE"):
+    if theory=="KL":
+        pass  # Physical face work is state-dependent and compiled separately.
+    elif theory.startswith("CUF_TE"):
         k=pe+1
         forcing[2*k:3*k,:,:]=q[np.newaxis,np.newaxis,:]
     else:
         forcing[2,:,:]=q[np.newaxis,:]
-    if not np.isfinite(forcing).all() or not np.any(forcing):
+    if not np.isfinite(forcing).all() or (theory!="KL" and not np.any(forcing)):
         raise AssertionError("INVALID_PHYSICAL_LOAD")
     physics={
         "theory":theory,"geometry_model":"GREEN_LAGRANGE",
@@ -110,6 +112,10 @@ def physical_data(theory,gradient,kind):
         nominal_outer_face_pressure_pa=PRESSURE,
         mechanical_load_sha256=hashlib.sha256(forcing.tobytes()).hexdigest(),
         full_higher_boundary_conditions_certified=False)
+    if theory=="KL":
+        passport["kl_radial_face_traction"]=dict(
+            face="OUTER",traction_pa=np.broadcast_to(
+                -pressure_profile(ns),(nx,ns)).tolist())
     digest=hashlib.sha256(json.dumps(passport,sort_keys=True).encode()).hexdigest()
     return physics,grid,forcing,passport,digest
 
@@ -191,18 +197,29 @@ def write_input(folder,item):
             output_dir="RESULTS")
     else:
         raise ValueError("UNKNOWN_NUMERICAL_METHOD")
+    if theory=="KL":
+        case["kl_radial_face_traction"]=passport["kl_radial_face_traction"]
     path=folder/"CASE.json"
     path.write_text(json.dumps(case,indent=2)+"\n")
     return path,forcing,digest
 
 
-def radial_recovery(q,theory):
+def radial_recovery(q,theory,*,mechanical_jets=None):
     if theory.startswith("CUF_TE"):
         k=electric_order(theory)+1
         coefficients=q[2*k:3*k]
         outer=np.sum(coefficients,axis=0)
         inner=np.einsum("k,kij->ij",(-1.)**np.arange(k),coefficients)
         mid=coefficients[0]
+    elif theory=="KL":
+        if mechanical_jets is None:
+            raise ValueError("EXACT_KL_FACE_RECOVERY_REQUIRES_OWN_METHOD_JETS")
+        from cylinder_kl_face_load import kl_radial_displacement
+        mid=q[2]
+        outer=kl_radial_displacement(*mechanical_jets,
+            radius_m=R,z_m=H/2,geometry_model="GREEN_LAGRANGE")
+        inner=kl_radial_displacement(*mechanical_jets,
+            radius_m=R,z_m=-H/2,geometry_model="GREEN_LAGRANGE")
     else:
         outer=inner=mid=q[2]
     return mid,outer,inner
@@ -236,6 +253,7 @@ def run_case(identifier,output):
         preview=solver.run(casefile,validate_only=True)
         if preview.get("validated_only") is not True:
             raise AssertionError("NATIVE_CASE_PREFLIGHT_REJECTED")
+        prepared=solver.load_case(casefile)
         answer=solver.run(casefile,validate_only=False)
         output_state=(folder/"RESULTS"/
                       ("STATIC_ACCEPTED.npz" if kind=="STATIC" else
@@ -261,7 +279,15 @@ def run_case(identifier,output):
         if q.shape!=forcing.shape or phi.shape!=(electric_order(theory)+1,*GRID) \
            or not np.isfinite(q).all() or not np.isfinite(phi).all():
             raise AssertionError("NONFINITE_OR_MISMATCHED_FIELDS")
-        middle,outer,inner=radial_recovery(q,theory)
+        qjets=None
+        if theory=="KL":
+            owner=prepared["model" if method=="FDM" else "surface"]
+            if method=="FDM":
+                qjets=owner.field_jets.prepare(q,owner.derivative_orders)[:3]
+            else:
+                qjets=(q,np.einsum("ij,cjk->cik",owner.grid.dx,q),
+                         np.einsum("jk,cik->cij",owner.grid.ds,q))
+        middle,outer,inner=radial_recovery(q,theory,mechanical_jets=qjets)
         if np.max(np.abs(outer))<=1.e-14 or np.max(np.abs(phi))<=1.e-14:
             raise AssertionError("NO_LOADED_ELECTROMECHANICAL_RESPONSE")
         fields=dict(mechanical=q,electrical=phi,

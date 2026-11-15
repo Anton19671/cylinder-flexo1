@@ -25,6 +25,10 @@ def test_outer_face_pressure_same_physical_load_across_theories(
     assert case_file.is_file()
     assert forcing.shape == (n_mech(theory),NX,NS)
     expected=-PRESSURE*(1.+H/(2.*R))
+    if theory=="KL":
+        np.testing.assert_array_equal(forcing,0.)
+        assert case["kl_radial_face_traction"]==dict(face="OUTER",traction_pa=-PRESSURE)
+        return
     nonzero=np.flatnonzero(np.max(np.abs(forcing),axis=(1,2)))
     indices=(list(range(2*(e_order(theory)+1),3*(e_order(theory)+1)))
              if theory.startswith("CUF_TE") else [2])

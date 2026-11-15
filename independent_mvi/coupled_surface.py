@@ -213,6 +213,7 @@ class NativeCoupledMVISurface:
             self._jet_type=KLSurfaceJets
         self._local=partial(thickness_weak_coefficients,material=material,**params)
         self.mechanical_end_work=None
+        self.kl_face_load=None
 
     @property
     def shape(self):
@@ -345,6 +346,12 @@ class NativeCoupledMVISurface:
                     coeff[self.n_mechanical:,:len(ELECTRIC_MULTI),i,j]=ec
         if not np.isfinite(density).all() or not np.isfinite(coeff).all():
             raise ValueError("nonfinite MVI local coupled material work")
+        if self.kl_face_load is not None:
+            external_density,external_coeff=self.kl_face_load.local_work(
+                q,fields[(1,0)][:self.n_mechanical],
+                fields[(0,1)][:self.n_mechanical])
+            density-=external_density
+            coeff[:self.n_mechanical,:3]-=external_coeff
         energy=float(np.sum(weights*density))
         energy-=float(np.sum(weights*load_m*q))
         coeff[:self.n_mechanical,0]-=load_m

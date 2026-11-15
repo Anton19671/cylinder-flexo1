@@ -86,6 +86,7 @@ class DirectStrongShell:
             from cylinder_kl_g3d_weak import KLSurfaceJets, thickness_weak_coefficients
             self._jet_type=KLSurfaceJets
         self._local=partial(thickness_weak_coefficients,material=material,**params)
+        self.kl_face_load=None
 
     @property
     def shape(self):
@@ -186,6 +187,9 @@ class DirectStrongShell:
                 # gyroscopic velocity-square term from Rayleigh damping.
                 zeros=tuple(np.zeros_like(q) for _ in range(3))
                 mc[:3]+=alpha*kl_inertial_coefficients_from_jets(mder[:3],zeros,vd[:3],**params)
+        if self.kl_face_load is not None:
+            _,external_coeff=self.kl_face_load.local_work(*mder[:3])
+            mc[:3]-=np.swapaxes(external_coeff,0,1)
         if not np.isfinite(mc).all() or (ec is not None and not np.isfinite(ec).all()):
             raise ValueError("nonfinite MKR constitutive coefficients")
         return mc,ec

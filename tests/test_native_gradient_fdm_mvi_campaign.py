@@ -25,7 +25,12 @@ def test_one_continuum_passport_for_nine_numerical_methods(theory,gradient,kind)
     assert physics["material"]["mu2_c_per_m"]!=0
     assert physics["material"]["kappa_f_per_m"]>0
     assert force.shape==(campaign.nmechanical(theory),*campaign.GRID)
-    assert not np.allclose(force[:,:,0],force[:,:,2])
+    if theory=="KL":
+        np.testing.assert_array_equal(force,0.)
+        pressure=np.asarray(passport["kl_radial_face_traction"]["traction_pa"])
+        assert not np.allclose(pressure[:,0],pressure[:,2])
+    else:
+        assert not np.allclose(force[:,:,0],force[:,:,2])
     assert len(digest)==64
     for method,rank in (("FDM",None),)+tuple(("MVI",r) for r in range(1,9)):
         assert campaign.physical_data(theory,gradient,kind)[-1]==digest
@@ -49,6 +54,8 @@ def test_fdm_and_all_mvi_ranks_have_distinct_inputs_but_identical_physics(
         assert case["grid"]["nx"]==campaign.GRID[0]
         assert case["grid"]["ns"]==campaign.GRID[1]
         assert case["solver"]["kind"]==kind
+        if theory=="KL":
+            assert case["kl_radial_face_traction"]["face"]=="OUTER"
         if item[3]=="MVI":
             assert case["rank"]==item[4]
             with np.load(folder/"initial.npz",allow_pickle=False) as z:
