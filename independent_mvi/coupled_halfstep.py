@@ -470,7 +470,19 @@ def solve_coupled_mvi_halfstep(
         except InterruptedError:
             return result(False,"MVI_HALFSTEP_CANCELLED",
                           iteration-1,z,g,history)
-        except np.linalg.LinAlgError:
+        except np.linalg.LinAlgError as exc:
+            # Preserve the ACTUAL reduced MVI linear-solver failure, without
+            # accepting any unverified increment or switching to the FDM.
+            # For high-order CUF this distinguishes Krylov stagnation from
+            # an ill-conditioned physical frozen-partner tangent.
+            diagnostic=dict(
+                axis=axis,iteration=iteration,linear_solver=method,
+                linear_dimension=count,scaled_gradient_norm=norm,
+                linear_failure=str(exc),
+                accepted=False)
+            history.append(diagnostic)
+            if on_iteration is not None:
+                on_iteration(dict(diagnostic))
             return result(False,"MVI_HALFSTEP_TANGENT_NOT_SOLVED",
                           iteration-1,z,g,history)
         accepted=False
