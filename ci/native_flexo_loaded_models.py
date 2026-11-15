@@ -35,9 +35,11 @@ def e_order(theory):
     return int(theory[-1]) if theory.startswith("CUF_TE") else 1
 
 
-def case_and_npz(folder, theory, gradient):
+def case_and_npz(folder, theory, gradient, *, reduced_lu_rescue_limit=0):
     if theory not in THEORIES or gradient not in GRADIENTS:
         raise ValueError("INVALID_NATIVE_FLEXO_CAMPAIGN_MODEL")
+    if type(reduced_lu_rescue_limit) is not int or reduced_lu_rescue_limit < 0:
+        raise ValueError("INVALID_REDUCED_MVI_LU_RESCUE_LIMIT")
     nm, pe = n_mech(theory), e_order(theory)
     nf = nm + pe + 1
     theta = (2.0 * math.pi / NS) * np.arange(NS)
@@ -89,7 +91,8 @@ def case_and_npz(folder, theory, gradient):
             "max_acceleration_coordinates": 4096,
             "max_halfstep_coordinates": 4096,
             "linear_solver": "AUTO", "dense_coordinate_limit": 96,
-            "krylov_relative_tolerance": 1.e-9},
+            "krylov_relative_tolerance": 1.e-9,
+            "krylov_dense_fallback_limit": reduced_lu_rescue_limit},
         "initial_state_npz": "seed.npz",
         "loads_npz": "load.npz",
         "output_dir": "RESULTS"}
@@ -98,7 +101,7 @@ def case_and_npz(folder, theory, gradient):
     return file, case, forcing
 
 
-def run(theory, gradient, output):
+def run(theory, gradient, output, *, reduced_lu_rescue_limit=0):
     path = Path(output).resolve()
     if path.exists() and any(path.iterdir()):
         raise ValueError("OUTPUT_DIRECTORY_MUST_BE_EMPTY")
@@ -109,6 +112,7 @@ def run(theory, gradient, output):
         "electrical_enabled": True, "geometry_model": "GREEN_LAGRANGE",
         "grid": [NX, NS], "rank": 1, "pressure_pa": PRESSURE,
         "pressure_face": "OUTER_PHYSICAL_Z_PLUS_H_OVER_2",
+        "reduced_mvi_lu_rescue_limit": reduced_lu_rescue_limit,
         "reference_area_load_pa": -PRESSURE * (1.0 + H / (2.0 * R)),
         "git_sha": os.getenv("GITHUB_SHA", "UNKNOWN"),
         "source_higher_order_mechanical_face_certified": False,
@@ -121,7 +125,9 @@ def run(theory, gradient, output):
                           encoding="utf-8")
     save()
     try:
-        file, case, forcing = case_and_npz(path, theory, gradient)
+        file, case, forcing = case_and_npz(
+            path, theory, gradient,
+            reduced_lu_rescue_limit=reduced_lu_rescue_limit)
         print("NATIVE_FLEXO_BEGIN", theory, gradient, flush=True)
         prepared = mvi.load_case(file)
         answer = mvi.run(file, validate_only=False)
@@ -198,5 +204,7 @@ if __name__ == "__main__":
     p.add_argument("--theory", required=True, choices=THEORIES)
     p.add_argument("--gradient", required=True, choices=GRADIENTS)
     p.add_argument("--output", required=True)
+    p.add_argument("--reduced-lu-rescue-limit", type=int, default=0)
     a = p.parse_args()
-    run(a.theory, a.gradient, a.output)
+    run(a.theory, a.gradient, a.output,
+        reduced_lu_rescue_limit=a.reduced_lu_rescue_limit)
