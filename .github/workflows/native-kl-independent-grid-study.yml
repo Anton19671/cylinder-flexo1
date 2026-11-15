@@ -40,6 +40,9 @@ jobs:
           if nx < 9 or ns < 5 or nx % 2 != 1 or ns % 2 != 1 or 3*nx*ns > 512:
               raise RuntimeError("INVALID_ODD_NATIVE_KL_GRID_OR_DOF_BUDGET")
           original.NX, original.NS = nx, ns
+          # At 15x11 AUTO-GMRES stagnates; explicitly assemble the SAME strong
+          # Jacobian with dense LU to distinguish Krylov failure from physics.
+          os.environ["NATIVE_KL_DENSE_LU_LIMIT"] = "512" if 3*nx*ns > 384 else "384"
           root = Path("grid_evidence") / os.environ["GRID_CASE"]
           root.mkdir(parents=True, exist_ok=True)
           evidence = {
