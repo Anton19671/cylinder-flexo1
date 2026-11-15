@@ -35,6 +35,19 @@ class AlgorithmOrderTraceTests(unittest.TestCase):
         self.assertFalse(mixed.admissible)
         self.assertIn("MIXED",mixed.reason)
 
+    def test_orders_are_invariant_under_nonzero_unit_rescaling(self):
+        base={2:np.diag([2.,0.]),4:np.diag([0.,3.])}
+        expected=certify_decoupled_axial_orders(base)
+        for factor in (1.e-20,1.e-8,1.,1.e20):
+            got=certify_decoupled_axial_orders(
+                {degree:factor*matrix for degree,matrix in base.items()})
+            self.assertEqual(got,expected)
+        mixed=np.array([[2.,1.],[1.,2.]])
+        for factor in (1.e-20,1.,1.e20):
+            got=certify_decoupled_axial_orders({2:factor*mixed})
+            self.assertFalse(got.admissible)
+            self.assertIn("MIXED",got.reason)
+
     def test_degenerate_orders_blocked(self):
         certificate=certify_decoupled_axial_orders({2:np.diag([1.,0.])})
         self.assertFalse(certificate.admissible)

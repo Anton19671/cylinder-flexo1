@@ -39,7 +39,7 @@ def certify_decoupled_axial_orders(principal_matrices, *, rtol=1e-10):
         # QR is sufficient for a structural matrix diagnostic; no SVD.
         # Do not apply this to certify arbitrary coupled principal pencils.
         diagonal=np.diag(mat)
-        scale=max(1.,float(np.max(abs(mat))))
+        scale=float(np.max(abs(mat)))
         off=mat-np.diag(diagonal)
         if np.max(abs(off))>rtol*scale:
             return PrincipalOrderCertificate((),{},False,
@@ -47,7 +47,7 @@ def certify_decoupled_axial_orders(principal_matrices, *, rtol=1e-10):
         ranks[degree]=int(np.count_nonzero(abs(diagonal)>rtol*scale))
     orders=[]
     for i in range(n):
-        active=[degree for degree,mat in mats.items() if abs(mat[i,i])>rtol*max(1.,float(np.max(abs(mat))))]
+        active=[degree for degree,mat in mats.items() if abs(mat[i,i])>rtol*float(np.max(abs(mat)))]
         if not active:
             return PrincipalOrderCertificate((),ranks,False,
                 "UNCLASSIFIED_COMPONENT_PRINCIPAL_ORDER")
