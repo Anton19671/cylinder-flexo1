@@ -78,7 +78,7 @@ SOLVER_KEYS=frozenset((
 OPTIONAL_LINEAR_KEYS=frozenset((
     "linear_solver","dense_coordinate_limit","krylov_restart",
     "krylov_maxiter","krylov_relative_tolerance",
-    "krylov_dense_fallback_limit",
+    "krylov_dense_fallback_limit","allow_projected_static",
     "acceleration_linear_solver","acceleration_dense_limit",
     "acceleration_krylov_restart","acceleration_krylov_maxiter",
     "acceleration_krylov_relative_tolerance",
@@ -356,7 +356,11 @@ def load_case(path, *, allow_existing_output=False):
         if (acceleration_options["acceleration_linear_solver"]=="DENSE_LU"
                 and nacc>acceleration_options["acceleration_dense_limit"]):
             raise ValueError("COUPLED_MVI_DENSE_ACCELERATION_LIMIT_EXCEEDED")
+    allow_projected=opts.get("allow_projected_static",False)
+    if type(allow_projected) is not bool or (allow_projected and opts["kind"]!="STATIC"):
+        raise ValueError("COUPLED_MVI_PROJECTED_STATIC_ONLY_BOOLEAN_REQUIRED")
     settings=CoupledMVISweepSettings(
+        allow_projected_convergence=allow_projected,
         max_sweeps=opts["max_sweeps"],
         halfstep=CoupledMVIHalfstepSettings(
             max_coordinates=cap,
@@ -550,6 +554,15 @@ def _run_loaded_case(items,*,validate_only,resume=False):
                     history=list(answer.history),
                     scientific_accuracy_certified=False))
                 raise RuntimeError("COUPLED_MVI_STATIC_"+answer.status)
+            result.update(
+                solution_status=answer.status,
+                solution_quality=("PROJECTED_EQUILIBRIUM" if answer.status=="CONVERGED_PROJECTED"
+                                  else "FULL_NODAL_EQUILIBRIUM"),
+                full_nodal_equilibrium_satisfied=(answer.status!="CONVERGED_PROJECTED"),
+                projected_norm_x=answer.projected_norm_x,
+                projected_norm_y=answer.projected_norm_y,
+                full_nodal_norm=answer.full_nodal_norm,
+                field_change=answer.field_change,sweeps=answer.sweeps)
             q=surface.reconstruct(answer.factors)
             result["discrete_green"]=_green_audit(
                 surface,answer.factors,mechanical,charge)
@@ -568,7 +581,9 @@ def _run_loaded_case(items,*,validate_only,resume=False):
                 static_payload["physical_z_stations_m"]=recovered.z_stations_m
                 static_payload["physical_uvw_stations_m"]=recovered.displacement_stations_m
             _write_npz(output/"STATIC_ACCEPTED.npz",**static_payload)
-            result.update(status="EXPERIMENTAL_STATIONARY_UNCERTIFIED",
+            result.update(status=("EXPERIMENTAL_PROJECTED_STATIONARY_UNCERTIFIED"
+                                  if answer.status=="CONVERGED_PROJECTED" else
+                                  "EXPERIMENTAL_STATIONARY_UNCERTIFIED"),
                           accepted_steps=1,physical_steps_computed=1)
         else:
             configuration=NativeCoupledMVINewmark(

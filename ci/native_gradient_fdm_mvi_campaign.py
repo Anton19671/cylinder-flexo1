@@ -181,6 +181,7 @@ def write_input(folder,item):
                 energy_scale_j=1.,max_sweeps=40,
                 max_acceleration_coordinates=5000,
                 max_halfstep_coordinates=5000,
+                allow_projected_static=(kind=="STATIC"),
                 linear_solver="AUTO",
                 dense_coordinate_limit=200,
                 krylov_restart=48,
@@ -269,7 +270,14 @@ def run_case(identifier,output):
             fields.update(velocity=v,acceleration=a)
         np.savez_compressed(root/"FULL_FIELDS.npz",**fields)
         evidence.update(status="COMPLETED_RESEARCH_ONLY",
-            solver_status=answer.get("status"),accepted_steps=expected_steps,
+            solver_status=answer.get("status"),
+            solution_status=answer.get("solution_status"),
+            solution_quality=answer.get("solution_quality"),
+            full_nodal_norm=answer.get("full_nodal_norm"),
+            projected_norm_x=answer.get("projected_norm_x"),
+            projected_norm_y=answer.get("projected_norm_y"),
+            full_nodal_equilibrium_satisfied=answer.get("full_nodal_equilibrium_satisfied"),
+            accepted_steps=expected_steps,
             physical_passport_sha256=passport_hash,
             radial_outer_at_xcenter_theta0_m=float(outer[GRID[0]//2,0]),
             radial_outer_max_abs_m=float(np.max(np.abs(outer))),
@@ -314,6 +322,9 @@ def compare(root,output,scope):
             rank=rank,fdm_id=reference,mvi_id=target,
             fdm_status=f[0]["status"] if f else "MISSING_OR_DUPLICATE",
             mvi_status=m[0]["status"] if m else "MISSING_OR_DUPLICATE",
+            mvi_solution_status=m[0].get("solution_status") if m else None,
+            mvi_full_nodal_norm=m[0].get("full_nodal_norm") if m else None,
+            mvi_full_nodal_equilibrium_satisfied=(m[0].get("full_nodal_equilibrium_satisfied") if m else None),
             relative_mechanical_l2=None,relative_electric_l2=None,
             relative_outer_radial_l2=None,midpoint_radial_difference_m=None,
             status="MISSING_OR_FAILED")

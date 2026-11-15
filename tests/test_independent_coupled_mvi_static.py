@@ -232,3 +232,26 @@ def test_projected_norms_invariant_to_rank_two_basis_change():
     two=engine._projected_norms(surface,other,program,scales,1.,None,None,
                                 work_evaluator=work)
     np.testing.assert_allclose(one,two,atol=1.e-12,rtol=1.e-12)
+
+
+def test_explicit_projected_static_result_preserves_full_residual(monkeypatch):
+    surface,fac,program=build()
+    def half(surf,factors,*,axis,**kwargs):
+        return CoupledMVIHalfstepResult(factors,True,"STATIONARY",axis,0,0.,())
+    monkeypatch.setattr(engine,"solve_coupled_mvi_halfstep",half)
+    monkeypatch.setattr(engine,"_projected_norms",lambda *a,**k:(0.,0.,.03))
+    out=engine.solve_coupled_mvi_static(
+        surface,fac,program=program,field_scales=np.ones(surface.n_fields),
+        energy_scale_j=1.,settings=engine.CoupledMVISweepSettings(
+            allow_projected_convergence=True))
+    assert out.converged
+    assert out.status=="CONVERGED_PROJECTED"
+    assert out.full_nodal_norm==pytest.approx(.03)
+    assert out.factors.rank==fac.rank
+    assert out.history[-1]["full_nodal"]==pytest.approx(.03)
+
+
+@pytest.mark.parametrize("value",(1,"true",None))
+def test_projected_acceptance_requires_explicit_boolean(value):
+    with pytest.raises(ValueError,match="FLAG_MUST_BE_BOOLEAN"):
+        engine.CoupledMVISweepSettings(allow_projected_convergence=value)

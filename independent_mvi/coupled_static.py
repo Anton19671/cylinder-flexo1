@@ -30,8 +30,11 @@ class CoupledMVISweepSettings:
     max_sweeps: int=25
     relative_field_change: float=1.e-8
     halfstep: CoupledMVIHalfstepSettings=CoupledMVIHalfstepSettings()
+    allow_projected_convergence: bool=False
 
     def __post_init__(self):
+        if type(self.allow_projected_convergence) is not bool:
+            raise ValueError("MVI_PROJECTED_CONVERGENCE_FLAG_MUST_BE_BOOLEAN")
         if type(self.max_sweeps) is not int or self.max_sweeps<1:
             raise ValueError("MVI_SWEEP_COUNT_MUST_BE_POSITIVE")
         if not isinstance(self.halfstep,CoupledMVIHalfstepSettings):
@@ -190,6 +193,8 @@ def solve_coupled_mvi_static(
         if max(norm_x,norm_y)<=settings.halfstep.tolerance_scaled and (
                 change<=settings.relative_field_change):
             if full_norm>settings.halfstep.tolerance_scaled:
+                if settings.allow_projected_convergence:
+                    return finish(True,"CONVERGED_PROJECTED",sweep,norm_x,norm_y)
                 return finish(False,"MVI_FIXED_RANK_INSUFFICIENT_FULL_NODAL_WORK",
                               sweep,norm_x,norm_y)
             return finish(True,"MVI_FIXED_RANK_FULL_NODAL_STATIONARY",
