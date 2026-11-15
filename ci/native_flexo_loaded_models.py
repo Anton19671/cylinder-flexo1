@@ -154,6 +154,24 @@ def run(theory, gradient, output):
                 raise AssertionError("NATIVE_FLEXO_X_SHAPE")
             if y.shape != (len(q)+len(potential), 1, NS):
                 raise AssertionError("NATIVE_FLEXO_Y_SHAPE")
+        # Physical face flux is a diagnostic, NOT a solver acceptance gate:
+        # report the actual local mismatch to avoid confusing generalized
+        # polynomial weak equilibrium with pointwise face charge closure.
+        electric_faces = answer.get("electric_faces", {})
+        faces = electric_faces.get("faces", {})
+        if set(faces) != {"inner", "outer"}:
+            raise AssertionError("NATIVE_FLEXO_ELECTRIC_FACE_DIAGNOSTICS_MISSING")
+        face_abs_max = {
+            side: float(faces[side]["natural_flux_difference_abs_max_c_per_m2"])
+            for side in ("inner", "outer")
+        }
+        if not all(math.isfinite(v) for v in face_abs_max.values()):
+            raise AssertionError("NATIVE_FLEXO_ELECTRIC_FACE_DIAGNOSTICS_NONFINITE")
+        evidence["electric_face_natural_flux_abs_max_c_per_m2"] = face_abs_max
+        evidence["pointwise_electric_faces_certified"] = bool(
+            electric_faces.get("physical_face_flux_certified", False))
+        evidence["electric_face_mismatch_is_diagnostic_only"] = True
+        evidence["discrete_green_audit"] = answer.get("discrete_green")
         evidence.update(
             status="ACCEPTED_RESEARCH_ONLY",
             solver_status=answer.get("status"),
