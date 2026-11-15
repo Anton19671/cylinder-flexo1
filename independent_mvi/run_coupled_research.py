@@ -78,6 +78,7 @@ SOLVER_KEYS=frozenset((
 OPTIONAL_LINEAR_KEYS=frozenset((
     "linear_solver","dense_coordinate_limit","krylov_restart",
     "krylov_maxiter","krylov_relative_tolerance",
+    "krylov_dense_fallback_limit",
     "acceleration_linear_solver","acceleration_dense_limit",
     "acceleration_krylov_restart","acceleration_krylov_maxiter",
     "acceleration_krylov_relative_tolerance",
@@ -364,7 +365,9 @@ def load_case(path, *, allow_existing_output=False):
             krylov_restart=opts.get("krylov_restart",24),
             krylov_maxiter=opts.get("krylov_maxiter",60),
             krylov_relative_tolerance=opts.get(
-                "krylov_relative_tolerance",1.e-5)))
+                "krylov_relative_tolerance",1.e-5),
+            krylov_dense_fallback_limit=opts.get(
+                "krylov_dense_fallback_limit",0)))
     return dict(
         path=path,case=case,surface=surface,factors=factors,initial=init,
         program=program,load=loads,opts=opts,settings=settings,
