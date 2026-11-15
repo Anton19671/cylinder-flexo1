@@ -47,6 +47,7 @@ from independent_mvi.coupled_physical_recovery import (
 )
 from independent_mvi.coupled_checkpoint import (
     input_manifest, accepted_state_sha256, exclusive_run_lock,
+    solver_implementation_fingerprint,
     prepare_resume, append_history_row,
 )
 from independent_mvi.coupled_discrete_green import coupled_mvi_discrete_green_identity
@@ -517,6 +518,8 @@ def _run_loaded_case(items,*,validate_only,resume=False):
     manifest=input_manifest(items["path"],items["initial_path"],
                             items["loads_path"])
     result["input_manifest"]=manifest
+    implementation_fingerprint=solver_implementation_fingerprint()
+    result["solver_implementation_sha256"]=implementation_fingerprint
     if not resume:
         _write_json(output/"CASE.json",items["case"])
         result.update(status="IN_PROGRESS",accepted_steps=0,time_s=0.)
@@ -608,7 +611,8 @@ def _run_loaded_case(items,*,validate_only,resume=False):
                 state,prior=prepare_resume(
                     output,items["case"],manifest,surface=surface,
                     configuration=configuration,steps=opts["steps"],
-                    dt_s=opts["dt_s"],input_rank=items["factors"].rank)
+                    dt_s=opts["dt_s"],input_rank=items["factors"].rank,
+                    implementation_fingerprint=implementation_fingerprint)
                 first_step=prior["accepted_steps"]+1
                 checkpoint_validated=True
                 result=prior

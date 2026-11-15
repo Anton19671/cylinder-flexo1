@@ -262,3 +262,35 @@ def test_stop_is_polled_inside_dynamic_step_and_never_commits_partial_state(
     assert summary(tmp_path)["accepted_steps"]==0
     assert (tmp_path/"output"/"STEP_0000.npz").is_file()
     assert not (tmp_path/"output"/"STEP_0001.npz").exists()
+
+
+def test_changed_implementation_never_resumes_or_overwrites_checkpoint(tmp_path,monkeypatch):
+    path=build(tmp_path)
+    mock_drivers(monkeypatch,fail_at=2)
+    with pytest.raises(RuntimeError,match="SYNTHETIC_INTERRUPTION"):
+        native.run(path,validate_only=False)
+    file=tmp_path/"output"/"RUN_SUMMARY.json"
+    before=file.read_bytes()
+    assert len(summary(tmp_path)["solver_implementation_sha256"])==64
+    monkeypatch.setattr(native,"solver_implementation_fingerprint",lambda:"0"*64)
+    mock_drivers(monkeypatch)
+    with pytest.raises(ValueError,match="IMPLEMENTATION_CHANGED_OR_UNRECORDED"):
+        native.run(path,validate_only=False,resume=True)
+    assert file.read_bytes()==before
+    assert (tmp_path/"output"/"STEP_0001.npz").exists()
+    assert not (tmp_path/"output"/"STEP_0002.npz").exists()
+
+
+def test_source_fingerprint_tracks_bytes_and_relative_names(tmp_path):
+    from independent_mvi.coupled_checkpoint import solver_implementation_fingerprint
+    folder=tmp_path/"mechanics"
+    folder.mkdir()
+    source=folder/"local.py"
+    source.write_text("VALUE=1\n")
+    one=solver_implementation_fingerprint(tmp_path)
+    assert solver_implementation_fingerprint(tmp_path)==one
+    source.write_text("VALUE=2\n")
+    two=solver_implementation_fingerprint(tmp_path)
+    assert two!=one
+    source.rename(folder/"other.py")
+    assert solver_implementation_fingerprint(tmp_path)!=two

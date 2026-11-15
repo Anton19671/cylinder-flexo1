@@ -19,6 +19,8 @@ import math
 import os
 from pathlib import Path
 import re
+import sys
+from importlib.metadata import version
 
 import numpy as np
 
@@ -43,6 +45,28 @@ def _hash_file(path):
 def accepted_state_sha256(folder,step):
     """Hash every byte of the accepted state NPZ, including v and a."""
     return _hash_file(Path(folder)/f"STEP_{step:04d}.npz")
+
+
+
+def solver_implementation_fingerprint(root=None):
+    """Pin exact mechanics/numerics sources and numerical runtime on restart."""
+    root=Path(__file__).resolve().parents[1] if root is None else Path(root)
+    files=[]
+    for directory in ("independent_mvi","mechanics","flexoelectric","physics","numerics"):
+        files.extend((root/directory).rglob("*.py"))
+    if (root/"cylinder_paths.py").is_file():
+        files.append(root/"cylinder_paths.py")
+    if not files:
+        raise ValueError("COUPLED_MVI_IMPLEMENTATION_SOURCES_MISSING")
+    digest=hashlib.sha256()
+    for item in ("COUPLED_MVI_IMPLEMENTATION_V1",sys.version,
+                 version("numpy"),version("scipy")):
+        digest.update(item.encode("utf-8")+bytes((0,)))
+    for file in sorted(files,key=lambda p:p.relative_to(root).as_posix()):
+        digest.update(file.relative_to(root).as_posix().encode("utf-8")+bytes((0,)))
+        digest.update(file.read_bytes())
+        digest.update(bytes((0,)))
+    return digest.hexdigest()
 
 
 def input_manifest(case_path,initial_path,loads_path):
@@ -207,7 +231,7 @@ def _atomic_history_trim(path,columns,rows):
 
 
 def prepare_resume(output,case,manifest,*,surface,configuration,steps,dt_s,
-                   input_rank):
+                   input_rank,implementation_fingerprint=None):
     """Validate the last committed checkpoint and trim unaccepted work.
 
     Called only while the output process lock is held. A failed check
@@ -222,6 +246,10 @@ def prepare_resume(output,case,manifest,*,surface,configuration,steps,dt_s,
         raise ValueError("COUPLED_MVI_CHECKPOINT_METADATA_MISSING") from exc
     if original!=case or summary.get("input_manifest")!=manifest:
         raise ValueError("COUPLED_MVI_CHECKPOINT_INPUT_CHANGED")
+    current=(solver_implementation_fingerprint() if implementation_fingerprint is None
+             else implementation_fingerprint)
+    if summary.get("solver_implementation_sha256")!=current:
+        raise ValueError("COUPLED_MVI_CHECKPOINT_IMPLEMENTATION_CHANGED_OR_UNRECORDED")
     accepted=summary.get("accepted_steps")
     if (type(accepted) is not int or accepted<0 or accepted>=steps or
             summary.get("calculation_kind")!="DYNAMIC" or
@@ -300,6 +328,6 @@ def append_history_row(path,row):
         os.fsync(stream.fileno())
 
 
-__all__=("input_manifest","accepted_state_sha256",
+__all__=("input_manifest","accepted_state_sha256","solver_implementation_fingerprint",
          "exclusive_run_lock","load_committed_state",
          "prepare_resume","append_history_row")
