@@ -1,0 +1,40 @@
+name: Flexo1 native independent physical verification launch
+run-name: "Flexo1 native loaded methods and dynamic rank 1-8 - ${{ github.sha }}"
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/flexo1-native-physical-launch.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: write
+jobs:
+  dispatch-native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Independently assembled strong FDM and separated MVI loaded KL
+        run: |
+          set -euo pipefail
+          gh workflow run native-loaded-kl-smoke.yml --ref main
+      - name: Independent MVI loaded nonaxisymmetric ranks 3 5 8
+        run: |
+          set -euo pipefail
+          gh workflow run native-mvi-high-rank-loaded-smoke.yml --ref main
+      - name: Independent MVI loaded Newmark Bathe and Gauss stages
+        run: |
+          set -euo pipefail
+          gh workflow run native-mvi-loaded-dynamic-smoke.yml --ref main
+      - name: Nonlinear coupled time histories FDM versus MVI ranks 1 through 8
+        run: |
+          set -euo pipefail
+          gh workflow run scientific-coupled-dynamic-rank.yml --ref main --field scope=full
+      - name: Link to evidence
+        if: always()
+        run: |
+          echo "Follow the four independently dispatched physical workflows. Passing these does not certify higher-order face closure or external benchmark accuracy." >> "$GITHUB_STEP_SUMMARY"
