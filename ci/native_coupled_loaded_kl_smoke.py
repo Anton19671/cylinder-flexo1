@@ -10,6 +10,7 @@ a rank-1 admissible solution in the linear rotationally symmetric
 subspace. The methods need not share discretization values.
 """
 import json
+import os
 from pathlib import Path
 import tempfile
 import numpy as np
@@ -56,7 +57,7 @@ def work_mkr(root):
                       electric="OFF",axial_orders=[1,1,2]),
         solver=dict(kind="STATIC",integrator=None,dt_s=None,
                     steps=0,max_dofs=512,max_iterations=12,
-                    linear_solver="AUTO",dense_lu_dof_limit=384,
+                    linear_solver="AUTO",dense_lu_dof_limit=int(os.getenv("NATIVE_KL_DENSE_LU_LIMIT", "384")),
                     mechanical_state_scale=1.e-4,
                     mechanical_equation_scale=1.e4,
                     electrical_state_scale=None,
