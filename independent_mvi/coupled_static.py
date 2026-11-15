@@ -143,6 +143,17 @@ def solve_coupled_mvi_static(
                 cancelled=cancelled,work_evaluator=work_evaluator,
                 active_fields=active_fields)
             if not response.converged:
+                # Keep the failing reduced X/Y linear solver's exact
+                # condition/GMRES diagnostics in the static-sweep result.
+                # Previously this branch discarded response.history and
+                # collapsed every CUF TE3/4 failure to a generic status.
+                history.append(dict(
+                    sweep=sweep,axis=axis,
+                    halfstep_status=response.status,
+                    halfstep_iterations=response.iterations,
+                    reduced_halfstep_history=list(response.history),
+                    rank=candidate.rank,
+                    rejected=True))
                 return finish(False,"MVI_"+axis+"_"+response.status,
                               sweep-1,float("inf"),float("inf"))
             candidate=response.factors
