@@ -195,20 +195,28 @@ def normalized_mvi_factors(surface, factors, program, axis):
         # the original rank-R coordinates unchanged. This uses QR only,
         # never an SVD rank estimate or an automatic rank reduction.
         if axis=="X":
-            Q,R=np.linalg.qr(y[c].T,mode="reduced")
+            amplitudes=np.max(np.abs(y[c]),axis=1)
+            if np.any(amplitudes==0.):
+                continue
+            Q,R=np.linalg.qr((y[c]/amplitudes[:,None]).T,mode="reduced")
             size=float(np.linalg.norm(R,ord="fro"))
             if size==0. or float(np.min(np.abs(np.diag(R))))<=1.e-12*size:
                 continue
             y[c]=Q.T
-            x[c]=R@x[c]
+            x[c]=R@(amplitudes[:,None]*x[c])
         else:
-            Q,R=np.linalg.qr(x[c][:,ids].T,mode="reduced")
+            amplitudes=np.max(np.abs(x[c][:,ids]),axis=1)
+            if np.any(amplitudes==0.):
+                continue
+            Q,R=np.linalg.qr((x[c][:,ids]/amplitudes[:,None]).T,mode="reduced")
             size=float(np.linalg.norm(R,ord="fro"))
             if size==0. or float(np.min(np.abs(np.diag(R))))<=1.e-12*size:
                 continue
             x[c]=0.
             x[c][:,ids]=Q.T
-            y[c]=R@y[c]
+            y[c]=R@(amplitudes[:,None]*y[c])
+    if not (np.isfinite(x).all() and np.isfinite(y).all()):
+        raise ValueError("MVI_QR_FACTOR_SCALING_OVERFLOW")
     out=CoupledMVIFactors(x,y)
     _check_end_factors(surface,out,program)
     return out

@@ -248,3 +248,23 @@ def test_homogeneous_end_gate_is_invariant_under_reciprocal_factor_scale():
     normalized=normalized_mvi_factors(model,scaled,ends,"X")
     np.testing.assert_allclose(model.reconstruct(normalized),before,
                                rtol=1.e-12,atol=1.e-12)
+
+
+@pytest.mark.parametrize("axis",("X","Y"))
+def test_qr_recognizes_independent_profiles_under_extreme_reciprocal_scaling(axis):
+    model,_,ends=make_model(rank=2)
+    rng=np.random.default_rng(981)
+    x=np.zeros((model.n_fields,2,model.grid.nx))
+    x[:,:,1:-1]=rng.normal(size=x[:,:,1:-1].shape)
+    y=rng.normal(size=(model.n_fields,2,model.grid.ns))
+    amplitudes=np.array([1.e-16,1.e16])[None,:,None]
+    fac=CoupledMVIFactors(x*amplitudes,y/amplitudes)
+    before=model.reconstruct(fac)
+    out=normalized_mvi_factors(model,fac,ends,axis)
+    assert out.rank==2
+    np.testing.assert_allclose(model.reconstruct(out),before,rtol=1.e-12,atol=1.e-12)
+    fixed=out.y if axis=="X" else out.x[:,:,1:-1]
+    for family in fixed:
+        np.testing.assert_allclose(family@family.T,np.eye(2),rtol=1.e-12,atol=1.e-12)
+    np.testing.assert_array_equal(out.x[:,:,0],0.)
+    np.testing.assert_array_equal(out.x[:,:,-1],0.)
