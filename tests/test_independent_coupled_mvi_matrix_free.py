@@ -215,3 +215,60 @@ def test_equilibrated_lu_solves_same_original_scaled_system():
     direction=half._checked_lu_newton(matrix,gradient,0.)
     np.testing.assert_allclose(direction,[-1.,-1.],rtol=1.e-12)
     np.testing.assert_allclose(matrix@direction,-gradient,rtol=1.e-12)
+
+
+@pytest.mark.parametrize("axis",("X","Y"))
+@pytest.mark.parametrize("message",(
+    "MVI_FLOATING_GAUGE_WORK_NOT_INVARIANT",
+    "SYNTHETIC_INVALID_MATERIAL_DATA"))
+def test_line_search_does_not_hide_contract_errors(axis,message,monkeypatch):
+    surf,fac,program=setup()
+    original_lu=half._checked_lu_newton
+    original_work=surf.weak_work
+    armed=[False]
+    def solve(*args,**kwargs):
+        result=original_lu(*args,**kwargs)
+        armed[0]=True
+        return result
+    def work(*args,**kwargs):
+        if armed[0]:
+            raise ValueError(message)
+        return original_work(*args,**kwargs)
+    monkeypatch.setattr(half,"_checked_lu_newton",solve)
+    surf.weak_work=work
+    with pytest.raises(ValueError,match=message):
+        half.solve_coupled_mvi_halfstep(
+            surf,fac,axis=axis,program=program,
+            field_scales=np.ones(surf.n_fields),energy_scale_j=1.,
+            settings=half.CoupledMVIHalfstepSettings(
+                max_coordinates=300,linear_solver="DENSE_LU",max_iterations=1))
+
+
+def test_line_search_still_backtracks_invalid_deformation(monkeypatch):
+    surf,fac,program=setup()
+    original_lu=half._checked_lu_newton
+    original_work=surf.weak_work
+    armed=[False]
+    rejected=[0]
+    def solve(*args,**kwargs):
+        result=original_lu(*args,**kwargs)
+        armed[0]=True
+        return result
+    def work(*args,**kwargs):
+        if armed[0]:
+            armed[0]=False
+            rejected[0]+=1
+            raise ValueError("INVALID_DEFORMATION_MAPPING")
+        return original_work(*args,**kwargs)
+    monkeypatch.setattr(half,"_checked_lu_newton",solve)
+    surf.weak_work=work
+    out=half.solve_coupled_mvi_halfstep(
+        surf,fac,axis="X",program=program,
+        field_scales=np.ones(surf.n_fields),energy_scale_j=1.,
+        settings=half.CoupledMVIHalfstepSettings(
+            max_coordinates=300,linear_solver="DENSE_LU",max_iterations=1))
+    assert rejected[0]==1
+    assert out.history[-1]["accepted"] is True
+    assert out.status=="MVI_HALFSTEP_MAX_ITERATIONS"
+    np.testing.assert_array_equal(out.factors.x,fac.x)
+    np.testing.assert_array_equal(out.factors.y,fac.y)

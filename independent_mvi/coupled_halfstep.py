@@ -571,7 +571,11 @@ def solve_coupled_mvi_halfstep(
             trial=z+2.**(-backtrack)*direction
             try:
                 _,g_trial=evaluate(trial)
-            except (ValueError,FloatingPointError,OverflowError):
+            except ValueError as exc:
+                if "INVALID_DEFORMATION_MAPPING" not in str(exc):
+                    raise
+                continue
+            except (FloatingPointError,OverflowError):
                 continue
             candidate_norm=float(np.max(np.abs(g_trial),initial=0.))
             if candidate_norm<norm or candidate_norm<=settings.tolerance_scaled:
