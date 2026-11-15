@@ -1,4 +1,4 @@
-name: Native CUF TE3 TE4 gradient MVI reduced LU rescue
+name: Native CUF TE3 TE4 gradient MVI equilibrated reduced LU
 run-name: "CUF TE3 TE4 physical reduced-MVI GMRES/LU investigation - ${{ github.sha }}"
 on:
   workflow_dispatch:

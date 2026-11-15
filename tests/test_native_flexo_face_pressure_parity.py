@@ -39,7 +39,7 @@ def test_outer_face_pressure_same_physical_load_across_theories(
 def test_failed_reduced_tangent_capture_restores_hook(tmp_path,monkeypatch):
     from ci import native_flexo_loaded_models as campaign
     from independent_mvi import coupled_halfstep as half
-    matrix=np.diag([1.,1.e-16])
+    matrix=np.array([[1.,1.],[1.,1.+1.e-15]])
     gradient=np.ones(2)
     original=half._checked_lu_newton
     def fake_run(*args,**kwargs):

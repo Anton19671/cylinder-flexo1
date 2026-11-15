@@ -215,7 +215,7 @@ def normalized_mvi_factors(surface, factors, program, axis):
 
 
 def _checked_lu_newton(hessian,gradient,min_reciprocal):
-    """Indefinite electromechanical Newton direction: LU, never SVD."""
+    """Solve the same reduced Newton system with row/column equilibrated LU."""
     A=np.asarray(hessian,dtype=float)
     b=np.asarray(gradient,dtype=float)
     n=len(b)
@@ -224,25 +224,43 @@ def _checked_lu_newton(hessian,gradient,min_reciprocal):
     anorm=float(np.linalg.norm(A,ord=1))
     if not math.isfinite(anorm) or anorm<=0:
         raise np.linalg.LinAlgError("MVI_ZERO_HALFSTEP_TANGENT")
+    # Electromechanical coordinates have different units.  Equilibrate
+    # rows and then columns; these invertible diagonal transforms change
+    # neither the reduced X/Y equations nor the fixed MVI rank.
+    rowmax=np.max(np.abs(A),axis=1)
+    if np.any(rowmax==0.):
+        raise np.linalg.LinAlgError("MVI_SINGULAR_HALFSTEP_TANGENT")
+    with np.errstate(over="ignore",divide="ignore",invalid="ignore"):
+        row_scale=1./rowmax
+        row_matrix=row_scale[:,None]*A
+        colmax=np.max(np.abs(row_matrix),axis=0)
+        col_scale=1./colmax
+        equilibrated=row_matrix*col_scale[None,:]
+        rhs=row_scale*b
+    if (not np.isfinite(row_scale).all() or not np.isfinite(col_scale).all()
+            or np.any(colmax==0.) or not np.isfinite(equilibrated).all()
+            or not np.isfinite(rhs).all()):
+        raise np.linalg.LinAlgError("MVI_INVALID_EQUILIBRATION")
+    scaled_norm=float(np.linalg.norm(equilibrated,ord=1))
     with warnings.catch_warnings():
         warnings.simplefilter("error",LinAlgWarning)
         try:
-            lu,piv=lu_factor(A,check_finite=False)
+            lu,piv=lu_factor(equilibrated,check_finite=False)
         except (LinAlgWarning,ValueError) as exc:
             raise np.linalg.LinAlgError("MVI_SINGULAR_HALFSTEP_TANGENT") from exc
-    gecon=get_lapack_funcs("gecon",(A,))
-    reciprocal,info=gecon(lu,anorm)
+    gecon=get_lapack_funcs("gecon",(equilibrated,))
+    reciprocal,info=gecon(lu,scaled_norm)
     threshold=max(100*n*np.finfo(float).eps,min_reciprocal)
     if info or not np.isfinite(reciprocal) or reciprocal<=threshold:
         exc=np.linalg.LinAlgError("MVI_ILL_CONDITIONED_HALFSTEP_TANGENT")
-        # Attach finite JSON-safe evidence without weakening the rejection.
         exc.mvi_condition_diagnostics=dict(
             reciprocal_condition=(float(reciprocal)
                                   if np.isfinite(reciprocal) else None),
             reciprocal_condition_threshold=float(threshold),
-            tangent_one_norm=anorm,lapack_info=int(info))
+            tangent_one_norm=anorm,
+            equilibrated_tangent_one_norm=scaled_norm,lapack_info=int(info))
         raise exc
-    delta=lu_solve((lu,piv),-b,check_finite=False)
+    delta=col_scale*lu_solve((lu,piv),-rhs,check_finite=False)
     if not np.isfinite(delta).all():
         raise np.linalg.LinAlgError("MVI_NONFINITE_HALFSTEP_INCREMENT")
     return delta
