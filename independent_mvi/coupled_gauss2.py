@@ -168,7 +168,7 @@ def _gauss_axisymmetric_rank1_subspace(surface,factors,q,v,a,forcing):
     if factors.rank!=1:
         return False
     y=factors.y[:,0,:]
-    if np.any(np.max(np.abs(y),axis=1)<=1.e-14):
+    if np.any(np.max(np.abs(y),axis=1)==0.):
         return False
 
     def invariant(data):
@@ -179,13 +179,16 @@ def _gauss_axisymmetric_rank1_subspace(surface,factors,q,v,a,forcing):
             return False
         deviation=float(np.max(np.abs(arr-arr[...,0:1]),initial=0.))
         scale=float(np.max(np.abs(arr),initial=0.))
-        return deviation<=1.e-12*max(scale,1.e-30)
+        return deviation<=1.e-12*scale
 
     if not invariant(y):
         return False
     if any(not invariant(field) for field in (q,v,a)):
         return False
     if any(not invariant(piece) for pair in forcing for piece in pair):
+        return False
+    face=getattr(surface,"kl_face_load",None)
+    if face is not None and not invariant(face.traction_pa):
         return False
     end=getattr(surface,"mechanical_end_work",None)
     if end is not None and any(

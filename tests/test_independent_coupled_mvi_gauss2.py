@@ -260,3 +260,36 @@ def test_gauss_stage_kinematics_rejects_nonrepresentable_dt_directly():
     stages=np.stack((q,q))
     with pytest.raises(ValueError,match="UNREPRESENTABLE_STAGE_COEFFICIENTS"):
         gauss.mvi_gauss_stage_kinematics(stages,q,q,1.e-200)
+
+
+def test_gauss_axisymmetric_gate_checks_physical_kl_face_pressure():
+    from cylinder_kl_face_load import compile_kl_face_load
+    surface=NativeCoupledMVISurface(
+        "KL",G3DMaterial(90.,.24,.06,0.,0.,0.),
+        grid=CoupledMVISurfaceGrid(9,5,1.2,2.),
+        thickness_m=.3,n_gauss=2)
+    factors=CoupledMVIFactors(np.zeros((3,1,9)),np.ones((3,1,5)))
+    q=np.zeros((3,9,5))
+    forcing=((None,None),(None,None))
+    for traction,expected in ((-10.,True),
+        (np.broadcast_to(-10.*(1.+.2*np.cos(2*np.pi*np.arange(5)/5)),(9,5)),False)):
+        surface.kl_face_load=compile_kl_face_load(
+            dict(face="OUTER",traction_pa=traction),theory="KL",
+            shape=(9,5),radius_m=2.,thickness_m=.3,
+            geometry_model="GREEN_LAGRANGE")
+        assert gauss._gauss_axisymmetric_rank1_subspace(
+            surface,factors,q,q,q,forcing) is expected
+
+
+def test_gauss_axisymmetric_gate_is_invariant_for_tiny_factor_amplitude():
+    surface,_,state=configured()
+    q=surface.reconstruct(state.factors)[:surface.n_mechanical]
+    y=state.factors.y*1.e-50
+    tiny=CoupledMVIFactors(state.factors.x/1.e-50,y)
+    assert gauss._gauss_axisymmetric_rank1_subspace(
+        surface,tiny,q,state.velocity,state.acceleration,((None,None),(None,None)))
+    y=y.copy()
+    y[0,0,1]*=1.1
+    nonconstant=CoupledMVIFactors(tiny.x,y)
+    assert not gauss._gauss_axisymmetric_rank1_subspace(
+        surface,nonconstant,q,state.velocity,state.acceleration,((None,None),(None,None)))
