@@ -218,11 +218,9 @@ def _engineering(tensor):
 
 
 def _strain(F,Fx,Fs,Fz,geometry_model="GREEN_LAGRANGE"):
-    if normalized_model(geometry_model)!="GREEN_LAGRANGE":
-        return strain_jets(F,Fx,Fs,Fz,geometry_model)
-    strain=_engineering(.5*(F.T@F-_EYE))
-    der=[_engineering(.5*(Fi.T@F+F.T@Fi)) for Fi in (Fx,Fs,Fz)]
-    return strain,der
+    # sym(F-I) + (F-I).T@(F-I)/2 retains quadratic strain at small
+    # displacement gradients without subtracting two nearly equal units.
+    return strain_jets(F,Fx,Fs,Fz,geometry_model)
 
 
 def _strain_virtual(F,Fx,Fs,Fz,dF,dFx,dFs,dFz,

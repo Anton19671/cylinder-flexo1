@@ -201,14 +201,10 @@ def _strain_components(E):
                      2*E[0,1], 2*E[0,2], 2*E[1,2]), dtype=float)
 
 
-def _strain_from_deformation_jets(F, Fx, Fs, Fz, geometry_model="GREEN_LAGRANGE"):
-    if normalized_model(geometry_model)!="GREEN_LAGRANGE":
-        return strain_jets(F,Fx,Fs,Fz,geometry_model)
-    e = _strain_components(.5*(F.T@F - _EYE))
-    deriv = []
-    for Fd in (Fx, Fs, Fz):
-        deriv.append(_strain_components(.5*(Fd.T@F + F.T@Fd)))
-    return e, deriv
+def _strain_from_deformation_jets(F,Fx,Fs,Fz,geometry_model="GREEN_LAGRANGE"):
+    # sym(F-I) + (F-I).T@(F-I)/2 retains quadratic strain at small
+    # displacement gradients without subtracting two nearly equal units.
+    return strain_jets(F,Fx,Fs,Fz,geometry_model)
 
 
 def _strain_variation_from_deformation_jets(F, dF, Fx, Fs, Fz, dFx, dFs, dFz,

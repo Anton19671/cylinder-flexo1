@@ -309,11 +309,9 @@ def _eng(t):
 
 
 def _strain(F,Fx,Fs,Fz,geometry_model="GREEN_LAGRANGE"):
-    if normalized_model(geometry_model)!="GREEN_LAGRANGE":
-        return strain_jets(F,Fx,Fs,Fz,geometry_model)
-    e=_eng(.5*(F.T@F-_EYE))
-    der=[_eng(.5*(g.T@F+F.T@g)) for g in (Fx,Fs,Fz)]
-    return e,der
+    # sym(F-I) + (F-I).T@(F-I)/2 retains quadratic strain at small
+    # displacement gradients without subtracting two nearly equal units.
+    return strain_jets(F,Fx,Fs,Fz,geometry_model)
 
 
 def _variation(F,Fx,Fs,Fz,dF,dFx,dFs,dFz,
