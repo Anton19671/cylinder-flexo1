@@ -251,20 +251,25 @@ def test_homogeneous_end_gate_is_invariant_under_reciprocal_factor_scale():
 
 
 @pytest.mark.parametrize("axis",("X","Y"))
-def test_qr_recognizes_independent_profiles_under_extreme_reciprocal_scaling(axis):
-    model,_,ends=make_model(rank=2)
+@pytest.mark.parametrize("rank",range(1,9))
+def test_qr_recognizes_independent_profiles_under_extreme_reciprocal_scaling(axis,rank):
+    model=NativeCoupledMVISurface(
+        "KL",G3DMaterial(90.,.24,.06,0.,0.,0.),
+        grid=CoupledMVISurfaceGrid(11,9,1.2,2.),
+        thickness_m=.3,n_gauss=2)
+    ends=CoupledMVIEndProgram("IMMOBILE_PARALLEL_ENDS","OFF")
     rng=np.random.default_rng(981)
-    x=np.zeros((model.n_fields,2,model.grid.nx))
+    x=np.zeros((model.n_fields,rank,model.grid.nx))
     x[:,:,1:-1]=rng.normal(size=x[:,:,1:-1].shape)
-    y=rng.normal(size=(model.n_fields,2,model.grid.ns))
-    amplitudes=np.array([1.e-16,1.e16])[None,:,None]
+    y=rng.normal(size=(model.n_fields,rank,model.grid.ns))
+    amplitudes=np.geomspace(1.e-16,1.e16,rank)[None,:,None]
     fac=CoupledMVIFactors(x*amplitudes,y/amplitudes)
     before=model.reconstruct(fac)
     out=normalized_mvi_factors(model,fac,ends,axis)
-    assert out.rank==2
+    assert out.rank==rank
     np.testing.assert_allclose(model.reconstruct(out),before,rtol=1.e-12,atol=1.e-12)
     fixed=out.y if axis=="X" else out.x[:,:,1:-1]
     for family in fixed:
-        np.testing.assert_allclose(family@family.T,np.eye(2),rtol=1.e-12,atol=1.e-12)
+        np.testing.assert_allclose(family@family.T,np.eye(rank),rtol=1.e-12,atol=1.e-12)
     np.testing.assert_array_equal(out.x[:,:,0],0.)
     np.testing.assert_array_equal(out.x[:,:,-1],0.)
