@@ -103,6 +103,29 @@ def case_and_npz(folder, theory, gradient, *, reduced_lu_rescue_limit=0, reduced
     return file, case, forcing
 
 
+def run_with_failed_tangent_capture(case_file, destination):
+    """Preserve a rejected reduced MVI tangent and restore the solver hook.
+
+    CI diagnostic only: no change of equations, solver, tolerance or rank.
+    """
+    from independent_mvi import coupled_halfstep as halfstep
+    original=halfstep._checked_lu_newton
+    def capture(matrix, gradient, threshold):
+        try:
+            return original(matrix,gradient,threshold)
+        except np.linalg.LinAlgError:
+            np.savez_compressed(destination,
+                                tangent=np.asarray(matrix,dtype=float),
+                                gradient=np.asarray(gradient,dtype=float),
+                                minimum_reciprocal_condition=float(threshold))
+            raise
+    halfstep._checked_lu_newton=capture
+    try:
+        return mvi.run(case_file,validate_only=False)
+    finally:
+        halfstep._checked_lu_newton=original
+
+
 def run(theory, gradient, output, *, reduced_lu_rescue_limit=0, reduced_solver="AUTO"):
     path = Path(output).resolve()
     if path.exists() and any(path.iterdir()):
@@ -134,7 +157,7 @@ def run(theory, gradient, output, *, reduced_lu_rescue_limit=0, reduced_solver="
             reduced_solver=reduced_solver)
         print("NATIVE_FLEXO_BEGIN", theory, gradient, flush=True)
         prepared = mvi.load_case(file)
-        answer = mvi.run(file, validate_only=False)
+        answer = run_with_failed_tangent_capture(file, path / "FAILED_REDUCED_TANGENT.npz")
         state = path / "RESULTS" / "STATIC_ACCEPTED.npz"
         if answer.get("accepted_steps") != 1 or not state.is_file():
             raise AssertionError("NATIVE_FLEXO_STATIC_STEP_NOT_ACCEPTED")

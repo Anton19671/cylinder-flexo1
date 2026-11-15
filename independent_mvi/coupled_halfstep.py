@@ -234,7 +234,14 @@ def _checked_lu_newton(hessian,gradient,min_reciprocal):
     reciprocal,info=gecon(lu,anorm)
     threshold=max(100*n*np.finfo(float).eps,min_reciprocal)
     if info or not np.isfinite(reciprocal) or reciprocal<=threshold:
-        raise np.linalg.LinAlgError("MVI_ILL_CONDITIONED_HALFSTEP_TANGENT")
+        exc=np.linalg.LinAlgError("MVI_ILL_CONDITIONED_HALFSTEP_TANGENT")
+        # Attach finite JSON-safe evidence without weakening the rejection.
+        exc.mvi_condition_diagnostics=dict(
+            reciprocal_condition=(float(reciprocal)
+                                  if np.isfinite(reciprocal) else None),
+            reciprocal_condition_threshold=float(threshold),
+            tangent_one_norm=anorm,lapack_info=int(info))
+        raise exc
     delta=lu_solve((lu,piv),-b,check_finite=False)
     if not np.isfinite(delta).all():
         raise np.linalg.LinAlgError("MVI_NONFINITE_HALFSTEP_INCREMENT")
@@ -516,6 +523,7 @@ def solve_coupled_mvi_halfstep(
                         scaled_gradient_norm=norm,
                         krylov_failure=first_failure,
                         linear_failure=str(rescue_exc),accepted=False)
+                    diagnostic.update(getattr(rescue_exc,"mvi_condition_diagnostics",{}))
                     history.append(diagnostic)
                     if on_iteration is not None:
                         on_iteration(dict(diagnostic))
@@ -526,6 +534,7 @@ def solve_coupled_mvi_halfstep(
                     axis=axis,iteration=iteration,linear_solver=method,
                     linear_dimension=count,scaled_gradient_norm=norm,
                     linear_failure=first_failure,accepted=False)
+                diagnostic.update(getattr(exc,"mvi_condition_diagnostics",{}))
                 history.append(diagnostic)
                 if on_iteration is not None:
                     on_iteration(dict(diagnostic))

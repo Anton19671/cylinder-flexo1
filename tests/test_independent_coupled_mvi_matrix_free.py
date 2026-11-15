@@ -197,3 +197,13 @@ def test_explicit_dense_reduced_mvi_newton_has_no_gmres_or_fdm(axis,monkeypatch)
         np.testing.assert_allclose(result.factors.x,0.,atol=2.e-8)
     else:
         np.testing.assert_allclose(result.factors.y,0.,atol=2.e-8)
+
+
+def test_ill_conditioned_lu_reports_numerical_gate():
+    matrix=np.diag([1.,1.e-16])
+    with pytest.raises(np.linalg.LinAlgError,match="MVI_ILL_CONDITIONED") as failure:
+        half._checked_lu_newton(matrix,np.ones(2),0.)
+    detail=failure.value.mvi_condition_diagnostics
+    assert 0. <= detail["reciprocal_condition"] <= detail["reciprocal_condition_threshold"]
+    assert detail["tangent_one_norm"] == pytest.approx(1.)
+    assert detail["lapack_info"] == 0

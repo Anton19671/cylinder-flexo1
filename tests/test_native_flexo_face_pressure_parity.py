@@ -34,3 +34,21 @@ def test_outer_face_pressure_same_physical_load_across_theories(
         np.testing.assert_allclose(data["mechanical_load"],forcing)
     assert case["physics"]["theory"]==theory
     assert case["physics"]["material"]["gradient_model"]==gradient
+
+
+def test_failed_reduced_tangent_capture_restores_hook(tmp_path,monkeypatch):
+    from ci import native_flexo_loaded_models as campaign
+    from independent_mvi import coupled_halfstep as half
+    matrix=np.diag([1.,1.e-16])
+    gradient=np.ones(2)
+    original=half._checked_lu_newton
+    def fake_run(*args,**kwargs):
+        return half._checked_lu_newton(matrix,gradient,0.)
+    monkeypatch.setattr(campaign.mvi,"run",fake_run)
+    output=tmp_path/"FAILED_REDUCED_TANGENT.npz"
+    with pytest.raises(np.linalg.LinAlgError,match="MVI_ILL_CONDITIONED"):
+        campaign.run_with_failed_tangent_capture("unused",output)
+    assert half._checked_lu_newton is original
+    with np.load(output,allow_pickle=False) as saved:
+        np.testing.assert_array_equal(saved["tangent"],matrix)
+        np.testing.assert_array_equal(saved["gradient"],gradient)

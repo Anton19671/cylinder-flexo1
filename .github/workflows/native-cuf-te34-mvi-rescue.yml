@@ -44,7 +44,7 @@ jobs:
             --reduced-solver DENSE_LU \
             --output "physical/${THEORY}_${GRADIENT}" \
             2>&1 | tee "failure_logs/${THEORY}_${GRADIENT}.log"
-      - name: Preserve real fields, failed tangent, entire history
+      - name: Preserve input, reduced tangent and failure history
         if: always()
         uses: actions/upload-artifact@v4
         with:
