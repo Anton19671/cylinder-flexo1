@@ -351,6 +351,9 @@ def compare(root,output,scope):
             mvi_solution_status=m[0].get("solution_status") if m else None,
             mvi_full_nodal_norm=m[0].get("full_nodal_norm") if m else None,
             mvi_full_nodal_equilibrium_satisfied=(m[0].get("full_nodal_equilibrium_satisfied") if m else None),
+            fdm_git_sha=f[0].get("git_sha") if f else None,
+            mvi_git_sha=m[0].get("git_sha") if m else None,
+            comparison_quality="NOT_COMPARABLE",
             relative_mechanical_l2=None,relative_electric_l2=None,
             relative_outer_radial_l2=None,midpoint_radial_difference_m=None,
             status="MISSING_OR_FAILED")
@@ -358,6 +361,8 @@ def compare(root,output,scope):
            m[0]["status"]=="COMPLETED_RESEARCH_ONLY":
             if f[0]["physical_passport_sha256"]!=m[0]["physical_passport_sha256"]:
                 row["status"]="PHYSICAL_PASSPORT_MISMATCH"
+            elif f[0].get("git_sha") != m[0].get("git_sha"):
+                row["status"]="SOLVER_SOURCE_REVISION_MISMATCH"
             elif not (f[1]/"FULL_FIELDS.npz").is_file() or \
                  not (m[1]/"FULL_FIELDS.npz").is_file():
                 row["status"]="FIELDS_MISSING"
@@ -375,6 +380,13 @@ def compare(root,output,scope):
                     row["midpoint_radial_difference_m"]=float(
                         ma["radial_outer"][GRID[0]//2,0]-fa["radial_outer"][GRID[0]//2,0])
                 row["status"]="COMPARED_RESEARCH_ONLY"
+                full=row["mvi_full_nodal_equilibrium_satisfied"]
+                if full is True:
+                    row["comparison_quality"]="FULL_NODAL_RESEARCH_ONLY"
+                elif full is False:
+                    row["comparison_quality"]="PROJECTED_ONLY_NOT_FULL_EQUILIBRIUM"
+                else:
+                    row["comparison_quality"]="FULL_NODAL_QUALITY_UNREPORTED"
         rows.append(row)
     if not rows:
         raise RuntimeError("NO_EXPECTED_COMPARISONS")
@@ -383,8 +395,17 @@ def compare(root,output,scope):
         writer.writeheader()
         writer.writerows(rows)
     completed=sum(r["status"]=="COMPARED_RESEARCH_ONLY" for r in rows)
+    full_nodal=sum(r["comparison_quality"]=="FULL_NODAL_RESEARCH_ONLY"
+                   for r in rows)
+    projected_only=sum(r["comparison_quality"]=="PROJECTED_ONLY_NOT_FULL_EQUILIBRIUM"
+                       for r in rows)
+    unreported=sum(r["comparison_quality"]=="FULL_NODAL_QUALITY_UNREPORTED"
+                   for r in rows)
     report=dict(scope=scope,expected_cases=sum(included(scope,c) for c in all_cases()),
         expected_pairs=len(rows),compared_pairs=completed,
+        full_nodal_compared_pairs=full_nodal,
+        projected_only_compared_pairs=projected_only,
+        unreported_quality_compared_pairs=unreported,
         status="COMPARED_RESEARCH_ONLY" if completed==len(rows) else "INCOMPLETE",
         physical_boundary_certified=False,external_accuracy_certified=False,
         results=rows)
