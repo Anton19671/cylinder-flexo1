@@ -75,3 +75,53 @@ def test_rank_keeps_every_fourier_partner_not_replaced(rank):
     partner=campaign.fourier_seed(rank,campaign.GRID[1])
     assert partner.shape==(rank,campaign.GRID[1])
     assert np.linalg.matrix_rank(partner,tol=1.e-12)==rank
+
+
+
+def test_comparison_separates_full_and_projected_and_rejects_stale_solver_source(tmp_path):
+    """No solve: synthetic archived states test only report classification."""
+    root=tmp_path/"collected"
+    output=tmp_path/"report"
+    shape=(campaign.nmechanical("KL"),*campaign.GRID)
+    electric=(campaign.electric_order("KL")+1,*campaign.GRID)
+    for case in campaign.all_cases():
+        if not campaign.included("pilot",case):
+            continue
+        key=campaign.case_id(case)
+        _,_,_,_,passport_digest=campaign.physical_data(case[0],case[1],case[2])
+        folder=root/key
+        folder.mkdir(parents=True)
+        is_mvi=case[3]=="MVI"
+        rank=case[4]
+        sha=("old_source" if is_mvi and rank==8 else "same_source")
+        quality=(True if not is_mvi or rank==3 else False)
+        record={
+            "id":key,"status":"COMPLETED_RESEARCH_ONLY",
+            "physical_passport_sha256":passport_digest,
+            "git_sha":sha,
+            "full_nodal_equilibrium_satisfied":quality,
+            "full_nodal_norm":1.e-10 if quality else 1.e-3,
+            "solution_status":"CONVERGED_PROJECTED" if not quality else
+                              "MVI_FIXED_RANK_FULL_NODAL_STATIONARY",
+        }
+        (folder/"EVIDENCE.json").write_text(json.dumps(record))
+        np.savez_compressed(
+            folder/"FULL_FIELDS.npz",
+            mechanical=np.ones(shape),electrical=np.ones(electric),
+            radial_outer=np.ones(campaign.GRID))
+    # This report must raise because stale source ranks cannot be compared.
+    with pytest.raises(RuntimeError,match="INCOMPLETE_NATIVE_FDM_MVI_GRADIENT_CAMPAIGN"):
+        campaign.compare(root,output,"pilot")
+    rows=json.loads((output/"COMPARISON.json").read_text())["results"]
+    assert len(rows)==12
+    assert {r["status"] for r in rows}=={
+        "COMPARED_RESEARCH_ONLY","SOLVER_SOURCE_REVISION_MISMATCH"}
+    full=[r for r in rows if r["comparison_quality"]=="FULL_NODAL_RESEARCH_ONLY"]
+    projected=[r for r in rows if r["comparison_quality"]=="PROJECTED_ONLY_NOT_FULL_EQUILIBRIUM"]
+    stale=[r for r in rows if r["status"]=="SOLVER_SOURCE_REVISION_MISMATCH"]
+    assert len(full)==4 and len(projected)==4 and len(stale)==4
+    report=json.loads((output/"COMPARISON.json").read_text())
+    assert report["full_nodal_compared_pairs"]==4
+    assert report["projected_only_compared_pairs"]==4
+    assert report["compared_pairs"]==8
+    assert report["status"]=="INCOMPLETE"
