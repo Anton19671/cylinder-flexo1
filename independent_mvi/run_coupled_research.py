@@ -535,6 +535,11 @@ def _run_loaded_case(items,*,validate_only,resume=False):
     scales=items["field_scales"]
     energy=items["energy_scale"]
     settings=items["settings"]
+    def run_cancelled():
+        # cooperate raises on Stop and waits on Pause; polling also runs
+        # inside reduced Newton columns and Krylov actions.
+        cooperate(output)
+        return False
     # A rejected restart must NEVER overwrite a previously committed
     # summary with failure metadata from this new invocation.
     checkpoint_validated=not resume
@@ -544,7 +549,7 @@ def _run_loaded_case(items,*,validate_only,resume=False):
                 surface,items["factors"],program=items["program"],
                 field_scales=scales,energy_scale_j=energy,
                 mechanical_load=mechanical,free_charge=charge,
-                settings=settings)
+                settings=settings,cancelled=run_cancelled)
             if not answer.converged:
                 # Preserve full reduced X/Y failure evidence before raising.
                 # Never write an accepted physical state on failed convergence.
@@ -608,7 +613,7 @@ def _run_loaded_case(items,*,validate_only,resume=False):
                     configuration,items["factors"],items["initial"]["velocity"],
                     time_s=0.,field_scales=scales,energy_scale_j=energy,
                     mechanical_load=mechanical,free_charge=charge,
-                    electric_settings=settings,
+                    electric_settings=settings,cancelled=run_cancelled,
                     max_acceleration_coordinates=opts["max_acceleration_coordinates"],
                     **items["acceleration_options"])
                 if initial.state is None:
@@ -634,7 +639,7 @@ def _run_loaded_case(items,*,validate_only,resume=False):
             for step in range(first_step,opts["steps"]+1):
                 cooperate(output)
                 common=dict(field_scales=scales,energy_scale_j=energy,
-                            settings=settings)
+                            settings=settings,cancelled=run_cancelled)
                 t_end=float(state.time_s+opts["dt_s"])
                 if opts["integrator"]=="NEWMARK":
                     load_end,charge_end=program.at(t_end)

@@ -239,3 +239,26 @@ def test_long_time_grid_accepts_only_roundoff_not_missing_step():
     assert not _time_close(reference+dt,reference,dt)
     assert not _time_close(reference+.02*dt,reference,dt)
     assert not _time_close(float("nan"),reference,dt)
+
+
+def test_stop_is_polled_inside_dynamic_step_and_never_commits_partial_state(
+        tmp_path,monkeypatch):
+    path=build(tmp_path)
+    mock_drivers(monkeypatch)
+    polls=[]
+    def control(output):
+        polls.append(output)
+        if len(polls)==2:
+            raise RuntimeError("SYNTHETIC_USER_STOP")
+    def advance(self,state,dt_s,**kwargs):
+        assert callable(kwargs["cancelled"])
+        kwargs["cancelled"]()
+        raise AssertionError("Stop must interrupt the active timestep")
+    monkeypatch.setattr(native,"cooperate",control)
+    monkeypatch.setattr(native.NativeCoupledMVINewmark,"advance",advance)
+    with pytest.raises(RuntimeError,match="SYNTHETIC_USER_STOP"):
+        native.run(path,validate_only=False)
+    assert len(polls)==2
+    assert summary(tmp_path)["accepted_steps"]==0
+    assert (tmp_path/"output"/"STEP_0000.npz").is_file()
+    assert not (tmp_path/"output"/"STEP_0001.npz").exists()
