@@ -79,6 +79,9 @@ class CoupledMVIHalfstepSettings:
     krylov_restart: int=24
     krylov_maxiter: int=60
     krylov_relative_tolerance: float=1.e-5
+    # Opt-in rescue using the SAME reduced MVI X/Y tangent, never FDM.
+    # Zero retains historical fail-closed matrix-free behaviour.
+    krylov_dense_fallback_limit: int=0
 
     def __post_init__(self):
         if self.linear_solver not in ("AUTO","DENSE_LU","MATRIX_FREE_GMRES"):
@@ -87,6 +90,9 @@ class CoupledMVIHalfstepSettings:
             val=getattr(self,name)
             if type(val) is not int or val<1:
                 raise ValueError("MVI_INVALID_"+name.upper())
+        fallback=self.krylov_dense_fallback_limit
+        if type(fallback) is not int or fallback<0:
+            raise ValueError("MVI_INVALID_KRYLOV_DENSE_FALLBACK_LIMIT")
         rtol=float(self.krylov_relative_tolerance)
         if (isinstance(self.krylov_relative_tolerance,(bool,np.bool_)) or
                 not math.isfinite(rtol) or not 0<rtol<.2):
@@ -434,17 +440,26 @@ def solve_coupled_mvi_halfstep(
         method=(settings.linear_solver if settings.linear_solver!="AUTO"
                 else "DENSE_LU" if count<=settings.dense_coordinate_limit
                 else "MATRIX_FREE_GMRES")
+        def reduced_dense_direction():
+            H=np.empty((count,count),dtype=float)
+            for j in range(count):
+                if cancelled is not None and cancelled():
+                    raise InterruptedError("MVI_HALFSTEP_CANCELLED")
+                basis=np.zeros(count)
+                basis[j]=1.
+                H[:,j]=jacobian_action(z,basis)
+            delta=_checked_lu_newton(
+                H,g,settings.minimum_reciprocal_condition)
+            residual=float(np.linalg.norm(H@delta+g))
+            allowance=max(
+                1.e-7*float(np.linalg.norm(g)),
+                settings.tolerance_scaled)
+            if not np.isfinite(residual) or residual>allowance:
+                raise np.linalg.LinAlgError("MVI_DENSE_LINEARIZATION_NOT_MET")
+            return delta
         try:
             if method=="DENSE_LU":
-                H=np.empty((count,count),dtype=float)
-                for j in range(count):
-                    if cancelled is not None and cancelled():
-                        raise InterruptedError("MVI_HALFSTEP_CANCELLED")
-                    direction=np.zeros(count)
-                    direction[j]=1.
-                    H[:,j]=jacobian_action(z,direction)
-                delta=_checked_lu_newton(
-                    H,g,settings.minimum_reciprocal_condition)
+                delta=reduced_dense_direction()
             else:
                 def matvec(v):
                     if cancelled is not None and cancelled():
@@ -471,20 +486,51 @@ def solve_coupled_mvi_halfstep(
             return result(False,"MVI_HALFSTEP_CANCELLED",
                           iteration-1,z,g,history)
         except np.linalg.LinAlgError as exc:
-            # Preserve the ACTUAL reduced MVI linear-solver failure, without
-            # accepting any unverified increment or switching to the FDM.
-            # For high-order CUF this distinguishes Krylov stagnation from
-            # an ill-conditioned physical frozen-partner tangent.
-            diagnostic=dict(
-                axis=axis,iteration=iteration,linear_solver=method,
-                linear_dimension=count,scaled_gradient_norm=norm,
-                linear_failure=str(exc),
-                accepted=False)
-            history.append(diagnostic)
-            if on_iteration is not None:
-                on_iteration(dict(diagnostic))
-            return result(False,"MVI_HALFSTEP_TANGENT_NOT_SOLVED",
-                          iteration-1,z,g,history)
+            # A Krylov breakdown may be algorithmic rather than physical.
+            # The opt-in rescue assembles only this SAME fixed-rank reduced
+            # X/Y stationarity tangent. No full-grid Newton, FDM or SVD.
+            first_failure=str(exc)
+            if (method=="MATRIX_FREE_GMRES" and
+                    0<count<=settings.krylov_dense_fallback_limit):
+                try:
+                    delta=reduced_dense_direction()
+                    direction=projected(delta)
+                    method="DENSE_LU_AFTER_GMRES"
+                    recovered=dict(
+                        axis=axis,iteration=iteration,
+                        reduced_linear_dimension=count,
+                        krylov_failure=first_failure,
+                        fallback="DENSE_LU_SAME_MVI_REDUCED_TANGENT",
+                        recovered=True)
+                    history.append(recovered)
+                    if on_iteration is not None:
+                        on_iteration(dict(recovered))
+                except InterruptedError:
+                    return result(False,"MVI_HALFSTEP_CANCELLED",
+                                  iteration-1,z,g,history)
+                except np.linalg.LinAlgError as rescue_exc:
+                    diagnostic=dict(
+                        axis=axis,iteration=iteration,
+                        linear_solver="MATRIX_FREE_GMRES_TO_DENSE_LU",
+                        linear_dimension=count,
+                        scaled_gradient_norm=norm,
+                        krylov_failure=first_failure,
+                        linear_failure=str(rescue_exc),accepted=False)
+                    history.append(diagnostic)
+                    if on_iteration is not None:
+                        on_iteration(dict(diagnostic))
+                    return result(False,"MVI_HALFSTEP_TANGENT_NOT_SOLVED",
+                                  iteration-1,z,g,history)
+            else:
+                diagnostic=dict(
+                    axis=axis,iteration=iteration,linear_solver=method,
+                    linear_dimension=count,scaled_gradient_norm=norm,
+                    linear_failure=first_failure,accepted=False)
+                history.append(diagnostic)
+                if on_iteration is not None:
+                    on_iteration(dict(diagnostic))
+                return result(False,"MVI_HALFSTEP_TANGENT_NOT_SOLVED",
+                              iteration-1,z,g,history)
         accepted=False
         for backtrack in range(settings.max_halvings+1):
             trial=z+2.**(-backtrack)*direction
