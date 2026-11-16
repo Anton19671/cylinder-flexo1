@@ -14,6 +14,7 @@ import hashlib
 import json
 import math
 import os
+import re
 from pathlib import Path
 import traceback
 
@@ -361,7 +362,10 @@ def compare(root,output,scope):
            m[0]["status"]=="COMPLETED_RESEARCH_ONLY":
             if f[0]["physical_passport_sha256"]!=m[0]["physical_passport_sha256"]:
                 row["status"]="PHYSICAL_PASSPORT_MISMATCH"
-            elif f[0].get("git_sha") != m[0].get("git_sha"):
+            elif not all(isinstance(v,str) and re.fullmatch(r"[0-9a-fA-F]{40}",v)
+                         for v in (f[0].get("git_sha"),m[0].get("git_sha"))):
+                row["status"]="SOLVER_SOURCE_REVISION_UNVERIFIED"
+            elif f[0].get("git_sha").lower() != m[0].get("git_sha").lower():
                 row["status"]="SOLVER_SOURCE_REVISION_MISMATCH"
             elif not (f[1]/"FULL_FIELDS.npz").is_file() or \
                  not (m[1]/"FULL_FIELDS.npz").is_file():

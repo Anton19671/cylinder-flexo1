@@ -93,7 +93,7 @@ def test_comparison_separates_full_and_projected_and_rejects_stale_solver_source
         folder.mkdir(parents=True)
         is_mvi=case[3]=="MVI"
         rank=case[4]
-        sha=("old_source" if is_mvi and rank==8 else "same_source")
+        sha=("b"*40 if is_mvi and rank==8 else "a"*40)
         quality=(True if not is_mvi or rank==3 else False)
         record={
             "id":key,"status":"COMPLETED_RESEARCH_ONLY",
@@ -125,3 +125,23 @@ def test_comparison_separates_full_and_projected_and_rejects_stale_solver_source
     assert report["projected_only_compared_pairs"]==4
     assert report["compared_pairs"]==8
     assert report["status"]=="INCOMPLETE"
+
+
+def test_comparison_rejects_matching_unknown_revisions(tmp_path):
+    root=tmp_path/"collected"
+    for case in campaign.all_cases():
+        if not campaign.included("pilot",case):
+            continue
+        folder=root/campaign.case_id(case)
+        folder.mkdir(parents=True)
+        digest=campaign.physical_data(case[0],case[1],case[2])[-1]
+        record=dict(id=campaign.case_id(case),status="COMPLETED_RESEARCH_ONLY",
+                    physical_passport_sha256=digest,git_sha="UNKNOWN")
+        (folder/"EVIDENCE.json").write_text(json.dumps(record))
+    output=tmp_path/"report"
+    with pytest.raises(RuntimeError,match="INCOMPLETE_NATIVE_FDM_MVI_GRADIENT_CAMPAIGN"):
+        campaign.compare(root,output,"pilot")
+    report=json.loads((output/"COMPARISON.json").read_text())
+    assert report["compared_pairs"]==0
+    assert all(row["status"]=="SOLVER_SOURCE_REVISION_UNVERIFIED"
+               for row in report["results"])
