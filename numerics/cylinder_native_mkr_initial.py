@@ -90,69 +90,25 @@ def _acceleration_ends(ends):
     return transformed
 
 
-def _acceleration_dependent_natural_tractions(
-        engine,q,v,a0,p0,load_m,load_e):
-    """Identify zeroth-order natural rows involving UNKNOWN acceleration.
+def _acceleration_dependent_natural_tractions(engine,q):
+    """Pick true inertial natural rows without probing the full constitutive law.
 
-    KL and Reddy director inertia depends on acceleration *gradients*;
-    its true free-end traction must therefore be solved at t0, not
-    dismissed as compatibility of given q0/v0. In contrast, a
-    natural action independent of acceleration cannot replace an
-    acceleration mass equation: its tangent row is identically zero.
-
-    Compare actual physical end actions for several independent finite
-    acceleration probes. This is a strict detection diagnostic, NOT a
-    general rank/well-posedness certificate or an excuse to weaken the
-    original post-solve natural end check.
+    Native model classification uses the complete local acceleration-jet
+    basis, so its result cannot be confused with small elastic/flexo units.
+    Only a natural zeroth-order trace can become such an equation: the
+    implemented inertia has jets q, q_x, q_s but no q_xx or q_xxx terms.
     """
-    candidates=[]
-    for side_index,side in enumerate(("left","right")):
+    candidates=set()
+    for side in ("left","right"):
         for c,conditions in enumerate(engine.mechanical_ends[side]):
             kind,_=_condition(conditions[0],engine.model.grid.ns,
                               "initial zeroth natural trace")
             if kind=="NATURAL":
-                candidates.append((side_index,side,c))
+                candidates.add((side,c))
     if not candidates:
         return frozenset()
-    grid=engine.model.grid
-
-    def traction(acceleration):
-        balance=engine.model.balance(
-            q,p0,mechanical_load=load_m,electrical_charge=load_e,
-            velocity=v,acceleration=acceleration,density_kg_m3=engine.density_kg_m3,
-            eta_s=engine.eta_s,mass_damping_rate_per_s=engine.mass_damping_rate_per_s)
-        array=np.asarray(balance.mechanical_end_displacement,float)
-        expected=(2,engine.model.n_mechanical,grid.ns)
-        if array.shape!=expected or not np.isfinite(array).all():
-            raise ValueError("INITIAL_NATURAL_TRACTION_SHAPE_INVALID")
-        return array
-
-    base=traction(a0)
-    # Linear acceleration metric with spatially varying probes. Uniform
-    # acceleration alone cannot detect the Reddy w_x inertial trace.
-    axis=np.linspace(-1.,1.,grid.nx)[None,:,None]
-    angle=(2.*np.pi*np.arange(grid.ns)/grid.ns)[None,None,:]
-    fields=(1.+np.arange(engine.model.n_mechanical))[:,None,None]
-    magnitude=max(1.,float(np.max(np.abs(a0))))
-    shapes=(
-        fields*(axis+.29*np.cos(angle)),
-        (fields+.37)*(axis**2+.19*np.sin(angle)),
-        (fields+.73)*(axis**3+.23*np.cos(2.*angle)),
-    )
-    responses=[]
-    for shape in shapes:
-        perturbation=np.broadcast_to(shape,q.shape)*magnitude
-        responses.append(traction(a0+perturbation))
-    active=set()
-    for side_index,side,c in candidates:
-        b=base[side_index,c]
-        values=[v[side_index,c] for v in responses]
-        signal=max(float(np.max(np.abs(v-b))) for v in values)
-        scale=max(1.,float(np.max(np.abs(b))),
-                  *(float(np.max(np.abs(v))) for v in values))
-        if signal>128.*np.finfo(float).eps*scale:
-            active.add((side,c))
-    return frozenset(active)
+    return frozenset(
+        candidates & engine.model.axial_inertial_natural_components(q))
 
 
 def initialize_consistent_native_mkr(
@@ -206,8 +162,7 @@ def initialize_consistent_native_mkr(
             engine._electric_field(electrical_charge,"initial electric charge"))
     engine._check_insulated_charge(load_e)
     acceleration_ends=_acceleration_ends(engine.mechanical_ends)
-    dynamic_natural=_acceleration_dependent_natural_tractions(
-        engine,q,v,a0,p0,load_m,load_e)
+    dynamic_natural=_acceleration_dependent_natural_tractions(engine,q)
 
     def equations(a,p):
         balance=engine.model.balance(

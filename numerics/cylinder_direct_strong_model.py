@@ -194,6 +194,85 @@ class DirectStrongShell:
             raise ValueError("nonfinite MKR constitutive coefficients")
         return mc,ec
 
+    def axial_inertial_natural_components(self, mechanical):
+        """Determine which zero-order axial end actions depend on acceleration.
+
+        Only KL and Reddy have gradient-dependent kinetic energy in the
+        implemented kinematics. Differentiate their *local inertial law*
+        with respect to every independent acceleration jet (a, a_x, a_s),
+        at the actual physical end. This is an exact linear basis test at
+        fixed displacement, not a cancellation-prone difference of full
+        nonlinear constitutive balances. Unit density is valid here because
+        the inertial map is linear in positive density. It avoids repeated
+        G3D/flexoelectric constitutive integrations during initialization.
+
+        Returned (side, component) pairs are only a dynamical trace
+        classification, not a claim that all axial physical orders have
+        been certified. Natural end equations remain checked after solve.
+        """
+        q=_state(mechanical,self.shape,"initial inertial support displacement")
+        if self.theory not in ("KL","REDDY"):
+            return frozenset()
+
+        n=self.n_mechanical
+        amplitudes=np.zeros((2,n),float)
+        if self.theory=="KL":
+            from cylinder_kl_exact_inertia import kl_inertial_coefficients_from_jets
+            qder=self.field_jets.prepare(q,MECHANICAL_JETS[:3])
+            for side_index,node in enumerate((0,self.grid.nx-1)):
+                for j in range(self.grid.ns):
+                    local_q=tuple(d[:,node:node+1,j:j+1]
+                                  for d in qder)
+                    zeros=tuple(np.zeros((n,1,1),float)
+                                for _ in range(3))
+                    for jet in range(3):
+                        for field in range(n):
+                            ajets=[v.copy() for v in zeros]
+                            ajets[jet][field,0,0]=1.
+                            inertia=kl_inertial_coefficients_from_jets(
+                                local_q,zeros,ajets,
+                                radius_m=self.grid.radius_m,
+                                thickness_m=self.thickness_m,
+                                density_kg_m3=1.,
+                                geometry_model=self.geometry_model)
+                            amplitudes[side_index]=np.maximum(
+                                amplitudes[side_index],np.abs(inertia[1,:,0,0]))
+        else:
+            # Reddy's kinetic director is linear and independent of q.
+            # All end locations share the same local acceleration-jet map.
+            from cylinder_director_g3d import (
+                DirectorSurfaceJets, FIELDS, ELECTRICAL_FIELDS,
+                kinetic_weak_coefficients,
+            )
+            zeros=np.zeros(n,float)
+            electric=np.zeros(1,float)
+            origin=DirectorSurfaceJets(
+                *(zeros.copy() for _ in FIELDS),
+                *(electric.copy() for _ in ELECTRICAL_FIELDS))
+            local=np.zeros(n,float)
+            for name in ("q","qx","qs"):
+                for field in range(n):
+                    basis=np.zeros(n,float)
+                    basis[field]=1.
+                    inertia=kinetic_weak_coefficients(
+                        origin.replaced(**{name:basis}),
+                        theory="REDDY",radius_m=self.grid.radius_m,
+                        thickness_m=self.thickness_m,
+                        density_kg_m3=1.,n_gauss=self.n_gauss)
+                    local=np.maximum(local,np.abs(inertia[:,1]))
+            amplitudes[:]=local
+
+        reference=float(np.max(amplitudes))
+        if not np.isfinite(reference):
+            raise ValueError("INITIAL_INERTIAL_END_SENSITIVITY_NONFINITE")
+        if reference==0.:
+            return frozenset()
+        tol=256.*np.finfo(float).eps*reference
+        return frozenset(
+            (side,c)
+            for side_index,side in enumerate(("left","right"))
+            for c in range(n) if amplitudes[side_index,c]>tol)
+
     def balance(self, mechanical, electrical=None, *, mechanical_load=None,
                 electrical_charge=None, velocity=None, acceleration=None,
                 density_kg_m3=None, eta_s=0., mass_damping_rate_per_s=0.):

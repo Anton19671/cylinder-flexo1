@@ -232,8 +232,12 @@ def test_acceleration_dependent_free_end_traction_is_solved_not_discarded(monkey
             acceleration-target,None,traction,None,None,None,
             tuple(range(1,model.grid.nx-1)),1)
     monkeypatch.setattr(model,"balance",balance)
-    active=native_initial._acceleration_dependent_natural_tractions(
-        engine,q,q,q,None,None,None)
+    monkeypatch.setattr(
+        model,"axial_inertial_natural_components",
+        lambda q: frozenset((side,c)
+            for side in ("left","right")
+            for c in range(model.n_mechanical)))
+    active=native_initial._acceleration_dependent_natural_tractions(engine,q)
     assert active==frozenset(
         (side,c) for side in ("left","right")
         for c in range(model.n_mechanical))
@@ -288,3 +292,54 @@ def test_higher_static_natural_rows_do_not_replace_initial_mass_balance(
         assert answer.state is not None
         np.testing.assert_allclose(answer.state.acceleration,target,atol=1.e-9)
         np.testing.assert_array_equal(answer.state.mechanical,q)
+
+
+@pytest.mark.parametrize("theory,expect_dynamic",[
+    ("KL",True),("REDDY",True),("FSDT",False),
+    ("CUF_TE1",False),("CUF_TE4",False),
+])
+def test_axial_inertia_end_classifier_uses_exact_local_mass_law(
+        theory,expect_dynamic,monkeypatch):
+    model=DirectStrongShell(
+        theory,G3DMaterial(90.,.24,.06,0.,0.,0.),
+        grid=DirectStrongGrid(7,5,1.2,2.),thickness_m=.3,n_gauss=2)
+    q=np.zeros(model.shape)
+    # No full shell balance, electroelastic tangent or nonlinear solve is
+    # needed for classifying the acceleration-dependent physical end work.
+    monkeypatch.setattr(model,"balance",lambda *args,**kw: (
+        (_ for _ in ()).throw(
+            AssertionError("classification invoked full shell balance"))))
+    active=model.axial_inertial_natural_components(q)
+    assert bool(active)==expect_dynamic
+    assert all(side in ("left","right") and 0<=c<model.n_mechanical
+               for side,c in active)
+    if expect_dynamic:
+        # Physical mirror symmetry at q=0 and nonzero normal-director mass.
+        assert {s for s,c in active}=={"left","right"}
+        assert ("left",2) in active and ("right",2) in active
+
+
+def test_axial_inertia_classifier_is_independent_of_electroelastic_stiffness():
+    grid=DirectStrongGrid(7,5,1.2,2.)
+    def model(modulus):
+        return DirectStrongShell(
+            "KL",G3DMaterial(modulus,.24,.06,0.,0.,0.),
+            grid=grid,thickness_m=.3,n_gauss=2)
+    a,b=model(90.),model(9.e8)
+    q=np.zeros(a.shape)
+    assert a.axial_inertial_natural_components(q)==(
+        b.axial_inertial_natural_components(q))
+
+
+def test_dynamic_classifier_does_not_promote_unrequested_natural_rows():
+    model,_=configured()
+    q=np.zeros(model.shape)
+    ends={side:[[{"kind":"ESSENTIAL","value":0.}]
+                for _ in range(model.n_mechanical)]
+          for side in ("left","right")}
+    ends["right"][0][0]={"kind":"NATURAL","value":0.}
+    engine=NativeStrongNewmark(
+        model,axial_orders=(1,)*model.n_mechanical,
+        mechanical_ends=ends,density_kg_m3=3.)
+    # CUF mass has no axial acceleration-gradient force.
+    assert not native_initial._acceleration_dependent_natural_tractions(engine,q)
