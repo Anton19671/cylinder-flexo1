@@ -67,6 +67,13 @@ class StrongNewtonResult:
     spatial_method_status: str = 'EXPERIMENTAL_DIRECT_STRONG_NEWTON_NOT_CERTIFIED'
     gauge_multiplier_scaled: float | None = None
     gauge_defect_scaled: float | None = None
+    # Populated on line-search failure only, without changing the
+    # convergence status or the accepted physical state.
+    line_search_best_scaled_norm: float | None = None
+    line_search_best_alpha: float | None = None
+    line_search_admissible_trials: int = 0
+    line_search_invalid_trials: int = 0
+    line_search_direction_inf_norm: float | None = None
 
 
 @dataclass(frozen=True)
@@ -209,7 +216,7 @@ def solve_strong_nonlinear_equations(
             out=np.concatenate((out+z[-1]*gauge_column,[constraint]))
         return out
 
-    def finish(z, iterations, converged, status, norm):
+    def finish(z, iterations, converged, status, norm, *, line_search_diagnostics=None):
         multiplier=defect=None
         if electric_gauge is not None:
             multiplier=float(z[-1])
@@ -223,7 +230,8 @@ def solve_strong_nonlinear_equations(
                 status='ELECTRIC_GAUGE_COMPATIBILITY_FAILED'
         return StrongNewtonResult(*decode(z),iterations,converged,status,norm,
                                   gauge_multiplier_scaled=multiplier,
-                                  gauge_defect_scaled=defect)
+                                  gauge_defect_scaled=defect,
+                                  **(line_search_diagnostics or {}))
 
     z = np.concatenate((q0.ravel(),p0.ravel()))/xscale if p0 is not None else q0.ravel()/xscale
     if electric_gauge is not None:z=np.concatenate((z,[0.]))
@@ -287,6 +295,10 @@ def solve_strong_nonlinear_equations(
             return finish(z,iteration-1,False,
                           "LINEAR_TANGENT_NOT_SOLVED",norm)
         accepted = False
+        admissible_trials=0
+        invalid_trials=0
+        best_trial_norm=math.inf
+        best_trial_alpha=None
         for halves in range(settings.line_search_halvings + 1):
             alpha = 2.**(-halves)
             test = z + alpha*delta
@@ -295,16 +307,31 @@ def solve_strong_nonlinear_equations(
             except ValueError as exc:
                 if not _invalid_deformation_error(exc):
                     raise
+                invalid_trials+=1
                 continue
             except (FloatingPointError, OverflowError):
+                invalid_trials+=1
                 continue
             next_norm = float(np.max(np.abs(check)))
+            admissible_trials+=1
+            if next_norm < best_trial_norm:
+                best_trial_norm=next_norm
+                best_trial_alpha=alpha
             if next_norm < norm or next_norm <= settings.scaled_absolute_tolerance:
                 z,fun,norm = test,check,next_norm
                 accepted = True
                 break
         if not accepted:
-            return finish(z,iteration-1,False,'NEWTON_LINE_SEARCH_FAILED',norm)
+            return finish(
+                z,iteration-1,False,'NEWTON_LINE_SEARCH_FAILED',norm,
+                line_search_diagnostics=dict(
+                    line_search_best_scaled_norm=(
+                        float(best_trial_norm) if admissible_trials else None),
+                    line_search_best_alpha=best_trial_alpha,
+                    line_search_admissible_trials=admissible_trials,
+                    line_search_invalid_trials=invalid_trials,
+                    line_search_direction_inf_norm=float(
+                        np.max(np.abs(delta)))))
         if norm <= settings.scaled_absolute_tolerance:
             return finish(z,iteration,True,'CONVERGED',norm)
     return finish(z,settings.max_iterations,False,'MAX_NEWTON_ITERATIONS',norm)
