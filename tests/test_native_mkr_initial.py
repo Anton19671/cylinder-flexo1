@@ -61,6 +61,26 @@ def test_initial_state_solves_for_acceleration_not_displacement(monkeypatch):
     np.testing.assert_array_equal(result.state.acceleration,q)
 
 
+def test_initial_acceleration_essential_rows_use_support_scale(monkeypatch):
+    """Initial acceleration is not a force: fixed rows need absolute control."""
+    model,engine=configured()
+    q=np.zeros(model.shape)
+    captured=[]
+    def fake(equation,mechanical,electrical,**kwargs):
+        captured.append(np.asarray(kwargs["mechanical_equation_scale"]).copy())
+        return StrongNewtonResult(q,None,0,False,"TEST_STOP",1.)
+    monkeypatch.setattr(native_initial,"solve_strong_nonlinear_equations",fake)
+    answer=native_initial.initialize_consistent_native_mkr(
+        engine,q,q,mechanical_state_scale=1.,
+        mechanical_equation_scale=1.e4,support_absolute_tolerance=2.e-9)
+    assert answer.state is None
+    assert len(captured)==1
+    scale=captured[0]
+    assert scale.shape==q.shape
+    np.testing.assert_allclose(scale[:,[0,-1],:],.2)
+    np.testing.assert_allclose(scale[:,1:-1,:],1.e4)
+
+
 def test_initial_state_rejects_unmet_essential_displacement():
     model,engine=configured()
     q=np.zeros(model.shape)
