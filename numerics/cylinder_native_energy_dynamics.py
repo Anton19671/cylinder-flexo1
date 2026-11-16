@@ -134,11 +134,14 @@ class NativeEnergyDynamics:
         if self.ne<0:
             raise ValueError("NATIVE_ENERGY_REDUCED_CHART_INVALID")
 
-    def _project_q(self,q,p):
+    def _project_q(self,q,p,*,electric_guess=False):
         packed=self.space.encode(q,p)
         restored_q,restored_p=self.space.decode(packed)
         self._check_close(restored_q,q,"mechanical essential traces")
-        if p is not None:
+        # Electrical data passed as an initial *guess* may not yet obey
+        # the gauge or imposed potential. They are projected exactly.
+        # By contrast, an already accepted physical state must obey both.
+        if p is not None and not electric_guess:
             self._check_close(restored_p,p,"electric essential/gauge traces")
         return packed[:self.nm],packed[self.nm:]
 
@@ -266,7 +269,8 @@ class NativeEnergyDynamics:
         t=_finite_nonnegative(time_s,"initial time")
         p0=self._electric_guess(electrical_guess)
         q0,e0=self._project_q(
-            _finite_field(mechanical,self.model.shape,"initial displacement"),p0)
+            _finite_field(mechanical,self.model.shape,"initial displacement"),p0,
+            electric_guess=True)
         v0=self._project_motion(velocity,"initial velocity")
         a0=(np.zeros(self.nm) if acceleration_guess is None else
             self._project_motion(acceleration_guess,"initial acceleration guess"))
