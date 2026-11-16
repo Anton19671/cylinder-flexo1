@@ -53,7 +53,8 @@ def _frozen_field(value, shape, name):
 
 
 def _time_step_mechanical_equation_scale(engine, base_scale,
-                                        acceleration_gain, settings):
+                                        acceleration_gain, settings,
+                                        support_absolute_tolerance=1.e-9):
     """Scale essential displacement rows to the acceleration accuracy needed.
 
     Strong equations contain both bulk forces and displacement traces. A
@@ -72,7 +73,9 @@ def _time_step_mechanical_equation_scale(engine, base_scale,
         raise ValueError("mechanical equation scale must be positive finite and match the field")
     scale=scale.copy()
     gain=_finite_number(acceleration_gain,"support acceleration gain",positive=True)
-    step_tolerance=(1.e-9/gain/settings.scaled_absolute_tolerance)
+    support_tol=_finite_number(support_absolute_tolerance,
+                               "support absolute tolerance",positive=True)
+    step_tolerance=(support_tol/gain/settings.scaled_absolute_tolerance)
     if not np.isfinite(step_tolerance) or step_tolerance<=0:
         raise ValueError("MKR_NEWMARK_SUPPORT_TOLERANCE_UNREPRESENTABLE")
     nx=engine.model.grid.nx
