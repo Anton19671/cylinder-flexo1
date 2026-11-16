@@ -239,3 +239,51 @@ def test_native_energy_static_reduced_solve_does_not_use_strong_bulk(monkeypatch
     assert got.nonlinear.converged,got.nonlinear.status
     np.testing.assert_allclose(got.mechanical,desired,atol=1.e-7)
     assert got.electrical is None
+
+
+
+@pytest.mark.parametrize("theory",("KL","FSDT","REDDY","CUF_TE2"))
+@pytest.mark.parametrize("electric",(False,True))
+def test_real_constitutive_enthalpy_gateaux_matches_native_energy_fdm(
+        theory,electric):
+    """Real G3D/coupled constitutive work, not randomized coefficient laws.
+
+    Small-grid first-variation audit only. This never solves a loaded shell.
+    Independent central energy differences are computed from the LOCAL
+    material enthalpy rather than the FDM residual or its coefficients.
+    """
+    engine=_setup(theory,electric,nx=7,ns=4)
+    model=engine.model
+    rng=np.random.default_rng(2766)
+    q=1.e-4*rng.normal(size=model.shape)
+    dq=.1*rng.normal(size=model.shape)
+    p=(1.e-4*rng.normal(size=(2,model.grid.nx,model.grid.ns))
+       if electric else None)
+    dp=(.1*rng.normal(size=p.shape) if electric else None)
+
+    def direct_total_enthalpy(qstate,pstate):
+        mder=model.field_jets.prepare(qstate,model.derivative_orders)
+        efield=(pstate if electric else
+                np.zeros((1,model.grid.nx,model.grid.ns)))
+        eder=model.field_jets.prepare(efield,ELECTRIC_JETS)
+        total=0.
+        for i in range(model.grid.nx):
+            for j in range(model.grid.ns):
+                point=model._point_jets(mder,eder,i,j)
+                local=model._local(point)
+                total+=float(
+                    model.area_weights[i,j]*local.energy_j_per_m2)
+        return total
+
+    work=engine.balance(q,p)
+    derivative=float(np.sum(dq*work.mechanical))
+    if electric:
+        derivative+=float(np.sum(dp*work.electrical))
+    step=2.e-6
+    ep=direct_total_enthalpy(
+        q+step*dq,None if p is None else p+step*dp)
+    em=direct_total_enthalpy(
+        q-step*dq,None if p is None else p-step*dp)
+    independent=(ep-em)/(2*step)
+    np.testing.assert_allclose(
+        derivative,independent,rtol=7.e-5,atol=4.e-7)
