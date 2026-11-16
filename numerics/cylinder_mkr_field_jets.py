@@ -3,17 +3,20 @@
 Uses second-order centered/one-sided x first derivatives, an independent
 three-point x Laplacian with second-order one-sided endpoint closures,
 and forward periodic first s derivatives. Second s derivatives use the
-compatible periodic Laplacian; third derivatives are built from these
-operators. In particular D_x^2 is NOT implemented as two centered D_x
+compatible periodic Laplacian. Pure third-order axial jets use an explicit
+seven-point polynomial derivative, including physical end stencils: taking
+D_x(D_xx q) otherwise loses boundary accuracy even for a quartic polynomial.
+In particular D_x^2 is NOT implemented as two centered D_x
 applications, which would lose the axial checkerboard mode. Coefficient
-divergences are assembled separately by
-cylinder_direct_strong_fdm. No CylinderFunctional, MVI, SBP or shared surface
+divergences are assembled separately by cylinder_direct_strong_fdm. No CylinderFunctional, MVI, SBP or shared surface
 matrix operations are called. This extraction is not a new stencil scheme
 or certification of the full compatible nonlinear face-flux discretization.
 """
 from dataclasses import dataclass
 import numpy as np
-from cylinder_direct_strong_fdm import DirectStrongGrid
+from cylinder_direct_strong_fdm import (
+    DirectStrongGrid, direct_coefficient_derivative,
+)
 
 
 MECHANICAL_JETS = (
@@ -63,6 +66,17 @@ class MKRFieldJets:
                       4.*value[:,-3,:]-value[:,-4,:])/h2
         return out
 
+    def _xxx(self, value):
+        """Seven-point axial third derivative, accurate at physical ends.
+
+        A composition of the interior three-point curvature stencil and
+        the one-sided first derivative has a first-order endpoint defect:
+        for q=x**4 at x=0, D_x(D_xx q)=36*dx instead of zero.
+        Use the native direct-strong Fornberg derivative for q_xxx;
+        this does not certify its adjoint or sixth-order end closure.
+        """
+        return direct_coefficient_derivative(value,3,0,self.grid)
+
     def _s(self, value):
         return (np.roll(value,-1,axis=-1)-value)/self.grid.ds
 
@@ -86,7 +100,7 @@ class MKRFieldJets:
         elif axial_order==2:
             out=self._xx(out)
         elif axial_order==3:
-            out=self._x(self._xx(out))
+            out=self._xxx(out)
         if not np.isfinite(out).all():
             raise ValueError("nonfinite MKR field derivative")
         return out
@@ -102,7 +116,7 @@ class MKRFieldJets:
                 elif ax==2:
                     cache[key]=self._xx(get(0,ss))
                 elif ax==3:
-                    cache[key]=self._x(get(2,ss))
+                    cache[key]=self._xxx(get(0,ss))
                 elif ss==2:
                     cache[key]=self._ss(get(0,0))
                 else:
