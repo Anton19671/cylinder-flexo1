@@ -331,3 +331,22 @@ def test_native_energy_tangent_is_reciprocal_on_coupled_field_directions(
         left+=float(np.sum(dp1*r2_e))
         right+=float(np.sum(dp2*r1_e))
     np.testing.assert_allclose(left,right,rtol=3.e-4,atol=3.e-6)
+
+
+
+@pytest.mark.parametrize("nx,ns",[(7,5),(17,19),(33,13)])
+def test_bounded_stencil_probes_match_full_native_jet_actions(nx,ns):
+    """Batching the exact native jets changes memory use, NOT physics."""
+    fdm=_setup("REDDY",False,nx=nx,ns=ns)
+    jets=MKRFieldJets(fdm.model.grid)
+    rng=np.random.default_rng(20261116)
+    field=rng.standard_normal((2,nx,ns))
+    for _name,ax,az in fdm.model.derivative_orders:
+        actual=jets.derivative(field,ax,az)
+        reconstructed=np.einsum(
+            "ij,cjk,lk->cil",fdm.axial[ax],field,fdm.angular[az],
+            optimize=True)
+        np.testing.assert_allclose(
+            reconstructed,actual,rtol=2.e-12,atol=1.e-10)
+    assert all(not m.flags.writeable for m in (
+        *fdm.axial,*fdm.angular))

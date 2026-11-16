@@ -39,13 +39,30 @@ def _stencil_matrices(nx, ns, length_m, radius_m):
     """Return actual field-jet matrices, with no independent re-stencilling."""
     grid=DirectStrongGrid(nx,ns,length_m,radius_m)
     jets=MKRFieldJets(grid)
-    xb=np.broadcast_to(np.eye(nx)[:,:,None],(nx,nx,ns)).copy()
-    sb=np.broadcast_to(np.eye(ns)[:,None,:],(ns,nx,ns)).copy()
-    ax=[np.eye(nx)]
-    az=[np.eye(ns)]
-    for order in (1,2,3):
-        ax.append(jets.derivative(xb,order,0)[:,:,0].T.copy())
-        az.append(jets.derivative(sb,0,order)[:,0,:].T.copy())
+    # A full tensor product of axial/angular identity probes would
+    # allocate O(nx**2*ns + ns**2*nx) field values. For experimental
+    # fine meshes this can exhaust RAM *before* the first Newton call.
+    # Probe exactly the SAME native differential operator in bounded
+    # blocks instead; the final derivative matrices use O(nx**2+ns**2).
+    ax=[np.eye(nx)]+[np.empty((nx,nx),dtype=float) for _ in (1,2,3)]
+    az=[np.eye(ns)]+[np.empty((ns,ns),dtype=float) for _ in (1,2,3)]
+    block=8
+    for start in range(0,nx,block):
+        stop=min(nx,start+block)
+        xb=np.zeros((stop-start,nx,ns),dtype=float)
+        for local,index in enumerate(range(start,stop)):
+            xb[local,index,:]=1.
+        for order in (1,2,3):
+            ax[order][:,start:stop]=(
+                jets.derivative(xb,order,0)[:,:,0].T)
+    for start in range(0,ns,block):
+        stop=min(ns,start+block)
+        sb=np.zeros((stop-start,nx,ns),dtype=float)
+        for local,index in enumerate(range(start,stop)):
+            sb[local,:,index]=1.
+        for order in (1,2,3):
+            az[order][:,start:stop]=(
+                jets.derivative(sb,0,order)[:,0,:].T)
     matrices=tuple(tuple(mats) for mats in (ax,az))
     for item in matrices:
         for matrix in item:
