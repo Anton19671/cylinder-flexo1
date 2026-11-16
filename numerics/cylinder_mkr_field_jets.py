@@ -1,9 +1,12 @@
 """MKR-owned field preparation for the existing experimental strong route.
 
-Preserves the former uniform-trapezoid kinematic stencils: second-order
-centered/one-sided x derivative and forward periodic first s derivative.
-Second s derivatives use the compatible periodic Laplacian; the third
-uses its forward derivative. Coefficient divergences are assembled separately by
+Uses second-order centered/one-sided x first derivatives, an independent
+three-point x Laplacian with second-order one-sided endpoint closures,
+and forward periodic first s derivatives. Second s derivatives use the
+compatible periodic Laplacian; third derivatives are built from these
+operators. In particular D_x^2 is NOT implemented as two centered D_x
+applications, which would lose the axial checkerboard mode. Coefficient
+divergences are assembled separately by
 cylinder_direct_strong_fdm. No CylinderFunctional, MVI, SBP or shared surface
 matrix operations are called. This extraction is not a new stencil scheme
 or certification of the full compatible nonlinear face-flux discretization.
@@ -44,6 +47,22 @@ class MKRFieldJets:
         out[:,-1,:]=(.5*value[:,-3,:]-2*value[:,-2,:]+1.5*value[:,-1,:])/self.grid.dx
         return out
 
+    def _xx(self, value):
+        """Direct axial curvature with nonzero interior Nyquist response.
+
+        Repeated centered first differences would use a two-cell stride,
+        decouple alternating axial nodes and annihilate the checkerboard.
+        """
+        h2=self.grid.dx**2
+        out=np.empty_like(value)
+        out[:,1:-1,:]=(value[:,2:,:]-2.*value[:,1:-1,:]+
+                       value[:,:-2,:])/h2
+        out[:,0,:]=(2.*value[:,0,:]-5.*value[:,1,:]+
+                     4.*value[:,2,:]-value[:,3,:])/h2
+        out[:,-1,:]=(2.*value[:,-1,:]-5.*value[:,-2,:]+
+                      4.*value[:,-3,:]-value[:,-4,:])/h2
+        return out
+
     def _s(self, value):
         return (np.roll(value,-1,axis=-1)-value)/self.grid.ds
 
@@ -62,8 +81,12 @@ class MKRFieldJets:
                 out=self._s(out)
         elif circum_order==1:
             out=self._s(out)
-        for _ in range(axial_order):
+        if axial_order==1:
             out=self._x(out)
+        elif axial_order==2:
+            out=self._xx(out)
+        elif axial_order==3:
+            out=self._x(self._xx(out))
         if not np.isfinite(out).all():
             raise ValueError("nonfinite MKR field derivative")
         return out
@@ -74,8 +97,12 @@ class MKRFieldJets:
         def get(ax,ss):
             key=(ax,ss)
             if key not in cache:
-                if ax:
-                    cache[key]=self._x(get(ax-1,ss))
+                if ax==1:
+                    cache[key]=self._x(get(0,ss))
+                elif ax==2:
+                    cache[key]=self._xx(get(0,ss))
+                elif ax==3:
+                    cache[key]=self._x(get(2,ss))
                 elif ss==2:
                     cache[key]=self._ss(get(0,0))
                 else:
