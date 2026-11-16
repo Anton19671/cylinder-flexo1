@@ -174,6 +174,30 @@ def test_invalid_face_potential_is_never_silently_accepted(tmp_path):
     assert not (tmp_path/"result").exists()
 
 
+@pytest.mark.parametrize("source,expected",(
+    ("nonlinear","NEWMARK_STEP"),
+    ("first_nonlinear","BATHE_FIRST_STAGE"),
+    ("final_nonlinear","BATHE_SECOND_STAGE"),
+    ("stage_nonlinear","GAUSS_STAGES"),
+    ("endpoint_nonlinear","GAUSS_ENDPOINT"),
+))
+def test_failed_native_mkr_step_preserves_correct_nonlinear_stage(source,expected):
+    from types import SimpleNamespace
+    from cylinder_direct_strong_newton import StrongNewtonResult
+    failed=StrongNewtonResult(np.zeros((1,1,1)),None,2,False,
+                              "NEWTON_LINE_SEARCH_FAILED",.5)
+    fields={source:failed}
+    if source=="endpoint_nonlinear":
+        fields["stage_nonlinear"]=StrongNewtonResult(
+            np.zeros((1,1,1)),None,1,True,"CONVERGED",0.)
+    if source=="final_nonlinear":
+        fields["first_nonlinear"]=StrongNewtonResult(
+            np.zeros((1,1,1)),None,1,True,"CONVERGED",0.)
+    selected,stage=native._failed_step_nonlinear(SimpleNamespace(**fields))
+    assert selected is failed
+    assert stage==expected
+
+
 def test_no_mvi_fallback_import_in_own_native_mkr_runner():
     import ast
     source=Path(native.__file__).read_text(encoding="utf-8")
