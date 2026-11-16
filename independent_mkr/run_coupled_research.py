@@ -429,6 +429,13 @@ def run(filename,*,validate_only):
                                 float(nonlinear.scaled_equation_norm)
                                 if math.isfinite(nonlinear.scaled_equation_norm)
                                 else None))
+                        if nonlinear.status=="NEWTON_LINE_SEARCH_FAILED":
+                            diagnostics.update(
+                                best_trial_scaled_norm=nonlinear.line_search_best_scaled_norm,
+                                best_trial_alpha=nonlinear.line_search_best_alpha,
+                                admissible_trials=nonlinear.line_search_admissible_trials,
+                                invalid_trials=nonlinear.line_search_invalid_trials,
+                                direction_inf_norm=nonlinear.line_search_direction_inf_norm)
                     summary["last_step_nonlinear_diagnostics"]=diagnostics
                     raise RuntimeError("MKR_STEP_"+status)
                 state=next_step.state
