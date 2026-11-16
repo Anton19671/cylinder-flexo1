@@ -50,6 +50,29 @@ def test_sweeps_y_then_x_and_require_two_stable_sweeps(monkeypatch):
     assert result.factors.rank==fac.rank
 
 
+@pytest.mark.parametrize("active_fields",[None,(1,)])
+def test_large_other_field_does_not_hide_active_field_change(monkeypatch,active_fields):
+    surface,fac,program=build()
+    x=fac.x.copy()
+    x[0]*=1.e12
+    fac=CoupledMVIFactors(x,fac.y)
+    def half(surf,factors,*,axis,**kwargs):
+        x=factors.x.copy()
+        if axis=="X":
+            x[1]*=2.
+        return CoupledMVIHalfstepResult(
+            CoupledMVIFactors(x,factors.y),True,"STATIONARY",axis,0,0.,())
+    monkeypatch.setattr(engine,"solve_coupled_mvi_halfstep",half)
+    monkeypatch.setattr(engine,"_projected_norms",lambda *a,**k:(0.,0.,0.))
+    out=engine.solve_coupled_mvi_static(
+        surface,fac,program=program,field_scales=np.ones(surface.n_fields),
+        energy_scale_j=1.,active_fields=active_fields,
+        settings=engine.CoupledMVISweepSettings(max_sweeps=1))
+    assert not out.converged
+    assert out.status=="MVI_FIXED_RANK_SWEEPS_EXHAUSTED"
+    assert out.field_change==pytest.approx(.5)
+
+
 @pytest.mark.parametrize("failed_axis",("Y","X"))
 def test_failed_halfstep_discards_incomplete_sweep(monkeypatch,failed_axis):
     surface,fac,program=build()

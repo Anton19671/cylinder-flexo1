@@ -223,6 +223,27 @@ def test_electric_face_charge_preflight_enters_generalized_electric_work(
     assert not (tmp_path/"output").exists()
 
 
+def test_volume_charge_keeps_precision_when_face_charge_is_much_larger(tmp_path):
+    """Source loading is read independently of the prescribed face work."""
+    case,document=make_case(tmp_path,electric=True)
+    loads=tmp_path/"loads.npz"
+    with np.load(loads,allow_pickle=False) as z:
+        mechanical=z["mechanical_load"].copy()
+        volume=np.ones_like(z["free_charge"])
+    np.savez_compressed(loads,mechanical_load=mechanical,free_charge=volume)
+    document["electric_faces"]={"inner":None,
+        "outer":{"mode":"CHARGE","charge_c_per_m2":1.e20}}
+    document["load_time_law"]=dict(kind="TABULATED_LINEAR",
+        time_s=[0.,.02],mechanical_scale=[1.,1.],electric_scale=[0.,1.e20])
+    case.write_text(json.dumps(document),encoding="utf8")
+    parsed=native.load_case(case)
+    program=parsed["load_program"]
+    np.testing.assert_array_equal(program.charge,volume)
+    np.testing.assert_allclose(program.at(.02)[1],
+                               program.face_charge+volume*1.e20)
+    assert not (tmp_path/"output").exists()
+
+
 @pytest.mark.parametrize("condition",("POTENTIAL","UNKNOWN"))
 def test_unsupported_face_modes_do_not_launch_solver(tmp_path,condition):
     case,document=make_case(tmp_path,electric=True)

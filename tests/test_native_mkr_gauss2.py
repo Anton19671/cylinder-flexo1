@@ -52,6 +52,26 @@ def test_stage_kinematics_exact_for_constant_acceleration():
     np.testing.assert_allclose(ve,v+h*acc,rtol=1e-13,atol=1e-13)
 
 
+@pytest.mark.parametrize("dt",[1.e-300,1.e200])
+def test_unrepresentable_stage_coefficients_rejected_before_loads(dt):
+    model,solver,initial=setup()
+    calls=[]
+    with pytest.raises(ValueError,match="MKR_GAUSS_UNREPRESENTABLE_TIME_COEFFICIENTS"):
+        solver.advance(initial,dt,mechanical_state_scale=1.,
+            mechanical_equation_scale=1.,loads_at=lambda t:calls.append(t))
+    assert not calls
+    q=np.zeros(model.shape)
+    with pytest.raises(ValueError,match="MKR_GAUSS_UNREPRESENTABLE_TIME_COEFFICIENTS"):
+        gauss.gauss_stage_kinematics(np.stack([q,q]),q,q,dt)
+
+
+def test_gauss_endpoint_rejects_finite_inputs_with_nonfinite_output():
+    q=np.full((1,2,2),1.e308)
+    stages=np.full((2,1,2,2),1.e308)
+    with pytest.raises(ValueError,match="MKR_GAUSS_NONFINITE_ENDPOINT"):
+        gauss.gauss_end_kinematics(q,q,stages,stages,2.)
+
+
 def test_stage_electric_unknowns_are_simultaneous_and_no_mvi(monkeypatch):
     model,solver,initial=setup(electric=True)
     seen=[]

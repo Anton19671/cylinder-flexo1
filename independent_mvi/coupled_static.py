@@ -129,8 +129,8 @@ def solve_coupled_mvi_static(
     if axis_sequence not in (("Y","X"),("X",)):
         raise ValueError("MVI_STATIC_INVALID_AXIS_SEQUENCE")
     _check_end_factors(surface,factors,program)
-    _active_field_ids(surface,active_fields)
-    _scales(surface,field_scales,energy_scale_j)
+    components=_active_field_ids(surface,active_fields)
+    scales,_=_scales(surface,field_scales,energy_scale_j)
     history=[]
     accepted=factors
     previous=surface.reconstruct(accepted)
@@ -178,9 +178,13 @@ def solve_coupled_mvi_static(
             mechanical_load,free_charge,work_evaluator=work_evaluator,
             active_fields=active_fields)
         next_field=surface.reconstruct(candidate)
-        change=float(np.linalg.norm(next_field-previous)/
-                     max(np.linalg.norm(next_field),
-                         np.linalg.norm(previous),1.e-30))
+        # Each active physical field has its own units and magnitude.
+        # A large voltage or an inactive fixed field must not hide a
+        # changing displacement (and vice versa).
+        change=max(float(np.linalg.norm(next_field[c]-previous[c])/
+                         max(np.linalg.norm(next_field[c]),
+                             np.linalg.norm(previous[c]),1.e-30*scales[c]))
+                   for c in components)
         # Full Y->X sweep becomes the ONLY accepted updated iterate.
         accepted=candidate
         previous=next_field

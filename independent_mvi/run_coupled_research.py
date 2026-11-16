@@ -229,6 +229,8 @@ def load_case(path, *, allow_existing_output=False):
     # Preserve the original volume-charge source: face charge is a
     # distinct physical boundary input and never scales with the
     # time-dependent volume-charge multiplier.
+    original_charge=(None if "free_charge" not in loads else
+                     loads["free_charge"].copy())
     face_charge=None
     faces=case.get("electric_faces")
     if faces is not None:
@@ -272,9 +274,6 @@ def load_case(path, *, allow_existing_output=False):
             case["load_time_law"],
             horizon_s=float(opts["dt_s"])*opts["steps"],
             electric_active=surface.electrical_on)
-    original_charge=(None if "free_charge" not in loads else
-                     loads["free_charge"] if face_charge is None
-                     else loads["free_charge"]-face_charge)
     load_program=CoupledLoadProgram(
         loads["mechanical_load"],original_charge,
         face_charge=face_charge,law=load_law)

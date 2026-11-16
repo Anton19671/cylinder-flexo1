@@ -43,17 +43,29 @@ for _matrix in (GAUSS_C,GAUSS_A,GAUSS_B,GAUSS_A2_INV):
     _matrix.setflags(write=False)
 
 
+def _stage_time_scale(h):
+    """Reject unrepresentable inverse-time coefficients before solving."""
+    h2=h*h
+    if (not isfinite(h2) or h2==0. or
+            h2<float(np.max(np.abs(GAUSS_A2_INV)))/np.finfo(float).max):
+        raise ValueError("MKR_GAUSS_UNREPRESENTABLE_TIME_COEFFICIENTS")
+    return h2
+
+
 def gauss_stage_kinematics(q_stages, q0, v0, dt_s):
     """Two-stage collocation kinematics; q_stages[0:2] are unknown fields."""
     h=_finite_number(dt_s,"Gauss step",positive=True)
+    h2=_stage_time_scale(h)
     base=np.asarray(q0,float)
+    if base.ndim!=3 or min(base.shape)<1 or not np.isfinite(base).all():
+        raise ValueError("finite initial displacement field required")
     velocity=_field(v0,base.shape,"initial velocity")
     stages=np.asarray(q_stages,float)
     if stages.shape!=(2,*base.shape) or not np.isfinite(stages).all():
         raise ValueError("two finite mechanical collocation fields required")
     rhs=stages-base[None]-h*GAUSS_C[:,None,None,None]*velocity[None]
     acceleration=np.einsum("ij,j...->i...",GAUSS_A2_INV,rhs,
-                           optimize=True)/h**2
+                           optimize=True)/h2
     stage_velocities=velocity[None]+h*np.einsum(
         "ij,j...->i...",GAUSS_A,acceleration,optimize=True)
     if not (np.isfinite(acceleration).all() and
@@ -66,14 +78,20 @@ def gauss_end_kinematics(q0, v0, stage_velocities, stage_accelerations, dt_s):
     """Exact Runge-Kutta endpoint quadrature for q and v."""
     h=_finite_number(dt_s,"Gauss step",positive=True)
     q0=np.asarray(q0,float)
+    if q0.ndim!=3 or min(q0.shape)<1 or not np.isfinite(q0).all():
+        raise ValueError("finite initial displacement field required")
     v0=_field(v0,q0.shape,"velocity")
     v=np.asarray(stage_velocities,float)
     a=np.asarray(stage_accelerations,float)
     if v.shape!=(2,*q0.shape) or a.shape!=v.shape or not (
             np.isfinite(v).all() and np.isfinite(a).all()):
         raise ValueError("two finite Gauss stage velocity/acceleration fields required")
-    return (q0+h*np.einsum("i,i...->...",GAUSS_B,v),
-            v0+h*np.einsum("i,i...->...",GAUSS_B,a))
+    with np.errstate(over="ignore",invalid="ignore"):
+        q_end=q0+h*np.einsum("i,i...->...",GAUSS_B,v)
+        v_end=v0+h*np.einsum("i,i...->...",GAUSS_B,a)
+    if not (np.isfinite(q_end).all() and np.isfinite(v_end).all()):
+        raise ValueError("MKR_GAUSS_NONFINITE_ENDPOINT")
+    return q_end,v_end
 
 
 @dataclass(frozen=True)
@@ -104,6 +122,7 @@ class NativeStrongGauss2:
         if not isinstance(settings,StrongNewtonSettings):
             raise TypeError("StrongNewtonSettings required")
         h=_finite_number(dt_s,"Gauss step",positive=True)
+        _stage_time_scale(h)
         engine=self.engine
         shape=engine.model.shape
         q0=_field(state.mechanical,shape,"initial displacement")
