@@ -210,7 +210,12 @@ def load_case(filename, *, expected_schema=SCHEMA):
     if (b["electric"]=="INSULATED_FLOATING" and model.electrical_on
             and opts["integrator"]!="GAUSS_IRK4"):
         max_unknowns+=1
-    if max_unknowns>opts["max_dofs"]:
+    # Direct strong Newton uses all physical grid unknowns. The separate
+    # energy-FDM schema eliminates exact essential constraints and a global
+    # electric gauge *before* Newton. Its true reduced DOF cap is checked
+    # by its own runner after constructing the constrained trial space.
+    # Reusing this full-grid guard would reject valid reduced problems.
+    if (expected_schema==SCHEMA and max_unknowns>opts["max_dofs"]):
         raise ValueError("MKR_COUPLED_STRONG_DOF_BUDGET_TOO_SMALL: "+str(max_unknowns))
     program=compile_native_mkr_end_program(
         model,axial_orders=b["axial_orders"],mechanical=b["mechanical"],
