@@ -71,7 +71,9 @@ class DirectStrongFDMTests(unittest.TestCase):
                     x[None,:,None]**power,
                     (1,grid.nx,grid.ns)).copy()
                 expected=(np.zeros_like(values) if power<2 else
-                    power*(power-1)*x[None,:,None]**(power-2))
+                    np.broadcast_to(
+                        power*(power-1)*x[None,:,None]**(power-2),
+                        values.shape))
                 np.testing.assert_allclose(
                     jets.derivative(values,2,0),expected,
                     atol=2.e-10,rtol=2.e-10)
