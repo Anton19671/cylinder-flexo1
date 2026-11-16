@@ -287,3 +287,47 @@ def test_real_constitutive_enthalpy_gateaux_matches_native_energy_fdm(
     independent=(ep-em)/(2*step)
     np.testing.assert_allclose(
         derivative,independent,rtol=7.e-5,atol=4.e-7)
+
+
+
+@pytest.mark.parametrize("theory",[
+    "KL","FSDT","REDDY","CUF_TE1","CUF_TE2","CUF_TE3","CUF_TE4"])
+@pytest.mark.parametrize("electric",[False,True])
+def test_native_energy_tangent_is_reciprocal_on_coupled_field_directions(
+        theory,electric):
+    """Real nonlinear electromechanical Hessian must satisfy reciprocity.
+
+    This is stronger than a manufactured polynomial-jet test: both
+    independent perturbations pass through the complete native thickness
+    constitutive kernels. The electric tangent need not be positive,
+    because electric enthalpy is a saddle functional, but must be
+    reciprocal as a Hessian of one differentiable potential.
+    No nonlinear shell solve, boundary certificate or time step is run.
+    """
+    fdm=_setup(theory,electric,nx=7,ns=4)
+    model=fdm.model
+    rng=np.random.default_rng(2026111607)
+    q=1.e-5*rng.standard_normal(model.shape)
+    p=(1.e-5*rng.standard_normal((2,model.grid.nx,model.grid.ns))
+       if electric else None)
+    dq1=rng.standard_normal(model.shape)
+    dq2=rng.standard_normal(model.shape)
+    dp1=(rng.standard_normal(p.shape) if electric else None)
+    dp2=(rng.standard_normal(p.shape) if electric else None)
+
+    def directional_tangent(dq,dp):
+        h=1.e-6
+        plus=fdm.balance(q+h*dq,None if p is None else p+h*dp)
+        minus=fdm.balance(q-h*dq,None if p is None else p-h*dp)
+        return (plus.mechanical-minus.mechanical)/(2*h),(
+            None if not electric else
+            (plus.electrical-minus.electrical)/(2*h))
+
+    r2_m,r2_e=directional_tangent(dq2,dp2)
+    r1_m,r1_e=directional_tangent(dq1,dp1)
+    left=float(np.sum(dq1*r2_m))
+    right=float(np.sum(dq2*r1_m))
+    if electric:
+        left+=float(np.sum(dp1*r2_e))
+        right+=float(np.sum(dp2*r1_e))
+    np.testing.assert_allclose(left,right,rtol=3.e-4,atol=3.e-6)
