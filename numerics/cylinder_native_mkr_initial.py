@@ -152,10 +152,17 @@ def initialize_consistent_native_mkr(
                         rows.mechanical[c,node]=balance.mechanical_bulk[c,node]
         return rows.mechanical,rows.electrical
 
+    # The unknown is acceleration: essential rows carry acceleration traces,
+    # not force residuals. Enforce the same absolute support tolerance used
+    # for post-solve acceptance, without scaling the interior mass equations.
+    from cylinder_native_mkr_newmark import _time_step_mechanical_equation_scale
+    initial_equation_scale=_time_step_mechanical_equation_scale(
+        engine,mechanical_equation_scale,1.,settings,
+        support_absolute_tolerance=tol)
     nonlinear=solve_strong_nonlinear_equations(
         equations,a0,p0,
         mechanical_state_scale=mechanical_state_scale,
-        mechanical_equation_scale=mechanical_equation_scale,
+        mechanical_equation_scale=initial_equation_scale,
         electrical_state_scale=electrical_state_scale,
         electrical_equation_scale=electrical_equation_scale,
         electric_gauge=engine.electric_gauge,settings=settings)
