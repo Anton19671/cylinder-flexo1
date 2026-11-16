@@ -181,3 +181,61 @@ def test_native_energy_differs_from_uncertified_direct_strong_operator():
         coeff,model.derivative_orders,model.grid).mechanical_bulk
     assert not np.allclose(
         energy,model.area_weights[None,:,:]*strong,rtol=1.e-8,atol=1.e-10)
+
+
+
+def test_native_energy_electric_natural_work_uses_prescribed_outward_flux():
+    """Target Q_n=value: the algebraic residual is weak work minus boundary work."""
+    engine=_setup("KL",True)
+    model=engine.model
+    ends={side:[
+        [{"kind":"NATURAL","value":0.}]
+        for _ in range(model.n_mechanical)]
+        for side in ("left","right")}
+    electric_ends={
+        "left":[{"kind":"ESSENTIAL","value":0.},
+                {"kind":"NATURAL","value":-.3}],
+        "right":[{"kind":"ESSENTIAL","value":0.},
+                 {"kind":"NATURAL","value":.6}],
+    }
+    space=NativeEnergyEndSpace(
+        engine,axial_orders=(1,)*model.n_mechanical,
+        mechanical_ends=ends,electrical_ends=electric_ends)
+    virtual=np.zeros((2,model.grid.nx,model.grid.ns))
+    virtual[1,0,:]=.2
+    virtual[1,-1,:]=-.4
+    external=space.electrical_spaces[1].external_work
+    target=model.grid.ds*model.grid.ns*(.2*(-.3)-.4*.6)
+    np.testing.assert_allclose(
+        float(np.sum(virtual[1]*external)),
+        target,rtol=1.e-12,atol=1.e-12)
+
+
+def test_native_energy_static_reduced_solve_does_not_use_strong_bulk(monkeypatch):
+    """One algebraic quadratic energy: a single exact Newton correction."""
+    engine=_setup("KL",False,nx=7,ns=4)
+    model=engine.model
+    ends={side:[
+        [{"kind":"ESSENTIAL","value":0.}]
+        for _ in range(model.n_mechanical)]
+        for side in ("left","right")}
+    space=NativeEnergyEndSpace(
+        engine,axial_orders=(1,)*model.n_mechanical,
+        mechanical_ends=ends)
+    rng=np.random.default_rng(197)
+    target=rng.normal(size=space.reduced_size)*.01
+    desired,_=space.decode(target)
+    def algebraic_weak(q,p,**kwargs):
+        assert p is None
+        return NativeEnergyWork(q-desired,None)
+    monkeypatch.setattr(engine,"balance",algebraic_weak)
+    guess=np.zeros(model.shape)
+    got=space.solve_static(
+        guess,reduced_state_scale=1.,
+        reduced_equation_scale=1.,
+        settings=StrongNewtonSettings(
+            max_dofs=200,max_iterations=5,
+            scaled_absolute_tolerance=1.e-9))
+    assert got.nonlinear.converged,got.nonlinear.status
+    np.testing.assert_allclose(got.mechanical,desired,atol=1.e-7)
+    assert got.electrical is None
