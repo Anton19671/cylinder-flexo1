@@ -206,6 +206,50 @@ def test_free_zeroth_order_natural_end_retains_initial_mass_equation(
         np.testing.assert_allclose(answer.state.acceleration,target,atol=1.e-9)
 
 
+def test_acceleration_dependent_free_end_traction_is_solved_not_discarded(monkeypatch):
+    """Manufactured gradient-inertial free-end equation; no shell solve.
+
+    Interior mass balance requires a=0.125; free-end dynamic traction
+    requires a=0.2. A solver dropping the end traction solves a=0.125
+    everywhere and then incorrectly reports incompatible initial data.
+    """
+    model,_=configured()
+    ends={side:[[{"kind":"NATURAL","value":0.}]
+                for _ in range(model.n_mechanical)]
+          for side in ("left","right")}
+    engine=NativeStrongNewmark(
+        model,axial_orders=(1,)*model.n_mechanical,
+        mechanical_ends=ends,density_kg_m3=3.)
+    q=np.zeros(model.shape)
+    target=np.full_like(q,.125)
+    def balance(actual_q,p,**kwargs):
+        np.testing.assert_array_equal(actual_q,q)
+        acceleration=kwargs["acceleration"]
+        traction=np.stack((
+            acceleration[:,0,:]-.2,
+            acceleration[:,-1,:]-.2))
+        return DirectStrongBalance(
+            acceleration-target,None,traction,None,None,None,
+            tuple(range(1,model.grid.nx-1)),1)
+    monkeypatch.setattr(model,"balance",balance)
+    active=native_initial._acceleration_dependent_natural_tractions(
+        engine,q,q,q,None,None,None)
+    assert active==frozenset(
+        (side,c) for side in ("left","right")
+        for c in range(model.n_mechanical))
+    answer=native_initial.initialize_consistent_native_mkr(
+        engine,q,q,mechanical_state_scale=1.,
+        mechanical_equation_scale=1.,
+        settings=native_initial.StrongNewtonSettings(
+            max_iterations=5,scaled_absolute_tolerance=1.e-10))
+    assert answer.state is not None,answer.nonlinear.status
+    assert answer.nonlinear.converged
+    np.testing.assert_allclose(
+        answer.state.acceleration[:,1:-1,:],.125,atol=1.e-8)
+    np.testing.assert_allclose(
+        answer.state.acceleration[:,[0,-1],:],.2,atol=1.e-8)
+
+
 @pytest.mark.parametrize("natural_defect",[0.,.2])
 def test_higher_static_natural_rows_do_not_replace_initial_mass_balance(
         monkeypatch,natural_defect):
