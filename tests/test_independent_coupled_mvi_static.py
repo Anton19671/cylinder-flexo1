@@ -170,8 +170,11 @@ def test_free_interior_nodal_direction_is_checked():
     surface.weak_work=lambda *a,**k:SimpleNamespace(
         gradient_x=np.zeros_like(fac.x),gradient_y=np.zeros_like(fac.y),
         nodal_gradient=node)
-    assert engine._projected_norms(surface,fac,program,
-                        np.ones(surface.n_fields),1.,None,None)==(0.,0.,.05)
+    xnorm,ynorm,full=engine._projected_norms(surface,fac,program,
+                        np.ones(surface.n_fields),1.,None,None)
+    # The projections are derived from the same supplied nodal work,
+    # not from inconsistent fake zero factor gradients.
+    assert xnorm>0. and ynorm>0. and full==pytest.approx(.05)
 
 
 def test_rank_five_keeps_five_separated_slots_at_every_sweep(monkeypatch):
@@ -255,6 +258,69 @@ def test_projected_norms_invariant_to_rank_two_basis_change():
     two=engine._projected_norms(surface,other,program,scales,1.,None,None,
                                 work_evaluator=work)
     np.testing.assert_allclose(one,two,atol=1.e-12,rtol=1.e-12)
+
+
+def test_dependent_basis_change_must_not_change_projected_norm():
+    """Known defect reproduced with synthetic nodal work, without shell solve."""
+    from types import SimpleNamespace
+    surface,_,program=build()
+    x=np.zeros((surface.n_fields,2,surface.grid.nx))
+    x[:,:,1:-1]=.2
+    y=np.broadcast_to(np.array([[1.,1.,1.,1.,1.],
+                               [1.,-1.,0.,1.,-1.]]),
+                      (surface.n_fields,2,surface.grid.ns)).copy()
+    factors=CoupledMVIFactors(x,y)
+    transform=np.array([[1.,-1.],[0.,1.]])
+    other=CoupledMVIFactors(
+        np.einsum("ab,cbi->cai",transform,x),
+        np.einsum("ab,cbj->caj",np.linalg.inv(transform).T,y))
+    assert factors.rank==other.rank==2
+    np.testing.assert_allclose(surface.reconstruct(factors),
+                               surface.reconstruct(other),atol=1.e-15)
+    nodal=np.random.default_rng(12).normal(size=surface.shape)
+    def work(current):
+        return SimpleNamespace(
+            nodal_gradient=nodal,
+            gradient_x=np.einsum("cij,crj->cri",nodal,current.y),
+            gradient_y=np.einsum("cij,cri->crj",nodal,current.x))
+    first=engine._projected_norms(surface,factors,program,np.ones(surface.n_fields),
+                                  1.,None,None,work_evaluator=work)
+    second=engine._projected_norms(surface,other,program,np.ones(surface.n_fields),
+                                   1.,None,None,work_evaluator=work)
+    np.testing.assert_allclose(first,second,rtol=1.e-12,atol=1.e-12)
+
+
+@pytest.mark.parametrize("axis",("X","Y"))
+def test_nearly_dependent_profiles_fail_closed_without_rank_reduction(monkeypatch,axis):
+    from types import SimpleNamespace
+    surface,_,program=build()
+    x=np.zeros((surface.n_fields,2,surface.grid.nx))
+    x[:,:,1:-1]=.2
+    y=np.broadcast_to(np.array([[1.,1.,1.,1.,1.],
+                               [1.,-1.,0.,1.,-1.]]),
+                      (surface.n_fields,2,surface.grid.ns)).copy()
+    if axis=="Y":
+        x[:,1,4]+=1.e-14
+    else:
+        y[:,1]=y[:,0]
+        y[:,1,2]+=1.e-14
+        x[:,1,4]+=.1  # axial family independent for this test
+    factors=CoupledMVIFactors(x,y)
+    nodal=np.ones(surface.shape)
+    def work(current):
+        return SimpleNamespace(nodal_gradient=nodal)
+    monkeypatch.setattr(engine,"solve_coupled_mvi_halfstep",
+        lambda surf,factors,*,axis,**kw:
+            CoupledMVIHalfstepResult(factors,True,"STATIONARY",axis,0,0.,()))
+    result=engine.solve_coupled_mvi_static(
+        surface,factors,program=program,field_scales=np.ones(surface.n_fields),
+        energy_scale_j=1.,work_evaluator=work,
+        settings=engine.CoupledMVISweepSettings(allow_projected_convergence=True))
+    assert not result.converged
+    assert result.status=="MVI_PROJECTED_BASIS_AMBIGUOUS"
+    assert result.factors.rank==2
+    np.testing.assert_array_equal(result.factors.x,x)
+    np.testing.assert_array_equal(result.factors.y,y)
 
 
 @pytest.mark.parametrize("axis",("X","Y"))

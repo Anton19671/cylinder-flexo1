@@ -29,7 +29,7 @@ from independent_mvi.coupled_newmark import (
 )
 from independent_mvi.coupled_static import (
     CoupledMVISweepSettings, CoupledMVISweepResult,
-    _projected_norms, solve_coupled_mvi_static,
+    _projected_norms, solve_coupled_mvi_static, ProjectedBasisAmbiguous,
 )
 from independent_mvi.coupled_surface import CoupledMVIWork, CoupledMVIFactors
 from independent_mvi.coupled_rank_endpoint import fit_mvi_endpoint_field
@@ -339,10 +339,13 @@ class NativeCoupledMVIGauss2:
             nodals=[]
             for index in (0,1):
                 work=lambda f,index=index: effective(index,f,factors)
-                m,e,full=_projected_norms(
-                    surface,factors[index],config.program,
-                    field_scales,energy_scale_j,*forcing[index],
-                    work_evaluator=work)
+                try:
+                    m,e,full=_projected_norms(
+                        surface,factors[index],config.program,
+                        field_scales,energy_scale_j,*forcing[index],
+                        work_evaluator=work)
+                except ProjectedBasisAmbiguous:
+                    return result("MVI_GAUSS_PROJECTED_BASIS_AMBIGUOUS")
                 nodals.append(max(m,e,full))
             final_norm=max(nodals)
             if on_iteration is not None:

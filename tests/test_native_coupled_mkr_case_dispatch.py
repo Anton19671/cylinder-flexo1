@@ -128,6 +128,21 @@ def test_electric_floating_gauge_is_one_physical_global_mode(tmp_path):
     assert result["engine"].electric_gauge is gauge
 
 
+@pytest.mark.parametrize("integrator",("NEWMARK","BATHE","GAUSS_IRK4"))
+def test_floating_gauge_degree_budget_matches_integrator_system(tmp_path,integrator):
+    path,case=make_case(tmp_path,electric=True,integrator=integrator)
+    case["boundary"]["electric"]="INSULATED_FLOATING"
+    n=(5+1)*9*5
+    required=2*n if integrator=="GAUSS_IRK4" else n+1
+    case["solver"]["max_dofs"]=required-1
+    path.write_text(json.dumps(case))
+    with pytest.raises(ValueError,match="DOF_BUDGET_TOO_SMALL"):
+        native.load_case(path)
+    case["solver"]["max_dofs"]=required
+    path.write_text(json.dumps(case))
+    assert native.run(path,validate_only=True)["validated_only"]
+
+
 def test_curved_inner_outer_electrode_charge_is_native_and_independent(tmp_path):
     path,case=make_case(tmp_path,electric=True)
     case["electric_faces"]={

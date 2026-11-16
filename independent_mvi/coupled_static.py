@@ -12,6 +12,7 @@ The result is opt-in research-only. An unfinished sweep is never accepted.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from fractions import Fraction
 import math
 import numpy as np
 
@@ -21,8 +22,12 @@ from independent_mvi.coupled_surface import (
 from independent_mvi.coupled_halfstep import (
     CoupledMVIEndProgram, CoupledMVIHalfstepSettings,
     _check_end_factors, _scales, _active_field_ids,
-    solve_coupled_mvi_halfstep, normalized_mvi_factors,
+    solve_coupled_mvi_halfstep,
 )
+
+
+class ProjectedBasisAmbiguous(ValueError):
+    """Near-dependent directions cannot be safely classified in float64."""
 
 
 @dataclass(frozen=True)
@@ -65,34 +70,59 @@ def _projected_norms(surface,factors,program,field_scales,energy_scale_j,
     scale,energy=_scales(surface,field_scales,energy_scale_j)
     free=_check_end_factors(surface,factors,program)
     components=_active_field_ids(surface,active_fields)
-    # Use the same frozen-partner coordinates as each halfstep.  Reciprocal
-    # X/Y rescaling must not alter the full-rank stationarity decision.
-    # Dependent partners use the halfstep's invertible per-row scaling;
-    # dormant slots stay dormant and no profiles are discarded.
-    def evaluate(current):
-        return (surface.weak_work(current,mechanical_load=mechanical_load,
-                                  free_charge=free_charge)
-                if work_evaluator is None else work_evaluator(current))
-    x_work=evaluate(normalized_mvi_factors(surface,factors,program,"X"))
-    y_work=evaluate(normalized_mvi_factors(surface,factors,program,"Y"))
-    gx=x_work.gradient_x
-    gy=y_work.gradient_y
-    # A QR basis can rotate within a fixed-rank span.  RMS Frobenius
-    # norms are invariant to those orthogonal rotations, unlike max(abs).
-    # Halfsteps still enforce their own coordinate-wise tolerance and the
-    # independent full-nodal acceptance gate below remains mandatory.
-    def rms(value):
-        array=np.asarray(value,dtype=float)
-        return float(np.linalg.norm(array.ravel())/np.sqrt(array.size))
-    norm_x=max(rms(gx[c][:,ids]*scale[c]/energy)
-               for c in components for ids in (free[c],))
-    norm_y=max(rms(gy[c]*scale[c]/energy) for c in components)
-    nodal=getattr(x_work,"nodal_gradient",None)
+    work=(surface.weak_work(factors,mechanical_load=mechanical_load,
+                            free_charge=free_charge)
+          if work_evaluator is None else work_evaluator(factors))
+    nodal=getattr(work,"nodal_gradient",None)
     if nodal is None:
         raise ValueError("MVI_OWN_FULL_NODAL_FIRST_VARIATION_REQUIRED")
     nodal=np.asarray(nodal,dtype=float)
     if nodal.shape!=surface.shape or not np.isfinite(nodal).all():
         raise ValueError("MVI_INVALID_FULL_NODAL_FIRST_VARIATION")
+    def basis(rows):
+        # Only exact zero/proportional rows are known redundant without a
+        # floating-point rank assumption. They remain intact in
+        # the solver; this is solely a virtual-work diagnostic.
+        def exactly_proportional(row,other):
+            pivot=int(np.flatnonzero(other)[0])
+            # Cheap screening before expensive exact binary-rational checks.
+            if not np.allclose(row/np.max(np.abs(row)),
+                               other/np.max(np.abs(other)),rtol=1.e-12,atol=1.e-14) and not np.allclose(
+                               row/np.max(np.abs(row)),
+                               -other/np.max(np.abs(other)),rtol=1.e-12,atol=1.e-14):
+                return False
+            factor=Fraction.from_float(float(row[pivot]))/Fraction.from_float(float(other[pivot]))
+            return all(Fraction.from_float(float(a))==factor*Fraction.from_float(float(b))
+                       for a,b in zip(row,other))
+        unique=[]
+        for row in rows:
+            if not np.any(row):
+                continue
+            if any(exactly_proportional(row,other) for other in unique):
+                continue
+            unique.append(row)
+        if not unique:
+            return np.empty((rows.shape[1],0))
+        values=np.stack(unique)
+        amplitudes=np.max(np.abs(values),axis=1)
+        matrix=(values/amplitudes[:,None]).T
+        q,r=np.linalg.qr(matrix,mode="reduced")
+        diagonal=np.abs(np.diag(r))
+        cutoff=1.e-12*float(np.linalg.norm(r,ord="fro"))
+        if len(diagonal)!=len(unique) or np.any(diagonal<=cutoff):
+            raise ProjectedBasisAmbiguous("MVI_PROJECTED_BASIS_AMBIGUOUS")
+        return q
+    def rms(value):
+        return float(np.linalg.norm(value)/np.sqrt(value.size)) if value.size else 0.
+    x_values=[]
+    y_values=[]
+    for c in components:
+        ids=free[c]
+        residual=nodal[c,ids,:]*scale[c]/energy
+        x_values.append(rms(residual@basis(factors.y[c])))
+        y_values.append(rms(basis(factors.x[c][:,ids]).T@residual))
+    norm_x=max(x_values)
+    norm_y=max(y_values)
     # Restrict tests to the independently declared essential axial traces.
     # Each electric mode can have a different admissible endpoint subset.
     norm_full=max(float(np.max(np.abs(nodal[c,ids,:]*scale[c]/energy),
@@ -173,10 +203,16 @@ def solve_coupled_mvi_static(
                 return finish(False,"MVI_"+axis+"_"+response.status,
                               sweep-1,float("inf"),float("inf"))
             candidate=response.factors
-        norm_x,norm_y,full_norm=_projected_norms(
-            surface,candidate,program,field_scales,energy_scale_j,
-            mechanical_load,free_charge,work_evaluator=work_evaluator,
-            active_fields=active_fields)
+        try:
+            norm_x,norm_y,full_norm=_projected_norms(
+                surface,candidate,program,field_scales,energy_scale_j,
+                mechanical_load,free_charge,work_evaluator=work_evaluator,
+                active_fields=active_fields)
+        except ProjectedBasisAmbiguous:
+            history.append(dict(sweep=sweep,rank=candidate.rank,rejected=True,
+                                status="MVI_PROJECTED_BASIS_AMBIGUOUS"))
+            return finish(False,"MVI_PROJECTED_BASIS_AMBIGUOUS",
+                          sweep-1,float("inf"),float("inf"))
         next_field=surface.reconstruct(candidate)
         # Each active physical field has its own units and magnitude.
         # A large voltage or an inactive fixed field must not hide a

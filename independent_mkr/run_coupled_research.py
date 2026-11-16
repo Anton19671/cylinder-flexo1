@@ -198,7 +198,11 @@ def load_case(filename):
     # Gauss has two independent implicit stage fields in ONE Newton system.
     if opts["integrator"]=="GAUSS_IRK4":
         max_unknowns*=2
-    if (b["electric"]=="INSULATED_FLOATING") and model.electrical_on:
+    # The one-stage Newton driver augments its system with a gauge
+    # multiplier. Gauss instead replaces one electric equation per stage
+    # with its gauge condition, so its packed 2N system has no extra DOF.
+    if (b["electric"]=="INSULATED_FLOATING" and model.electrical_on
+            and opts["integrator"]!="GAUSS_IRK4"):
         max_unknowns+=1
     if max_unknowns>opts["max_dofs"]:
         raise ValueError("MKR_COUPLED_STRONG_DOF_BUDGET_TOO_SMALL: "+str(max_unknowns))

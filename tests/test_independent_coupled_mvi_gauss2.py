@@ -133,6 +133,21 @@ def test_failed_stage_prevents_endpoint(monkeypatch,failed_stage):
     assert state.time_s==0.
 
 
+def test_gauss_ambiguous_joint_basis_rejects_whole_step(monkeypatch):
+    surf,solver,state=configured()
+    monkeypatch.setattr(gauss,"solve_coupled_mvi_static",
+                        lambda surface,factors,**kw:sweep(factors))
+    def ambiguous(*args,**kwargs):
+        raise gauss.ProjectedBasisAmbiguous("MVI_PROJECTED_BASIS_AMBIGUOUS")
+    monkeypatch.setattr(gauss,"_projected_norms",ambiguous)
+    monkeypatch.setattr(gauss,"fit_mvi_endpoint_field",
+                        lambda *a,**kw:pytest.fail("endpoint fit after ambiguity"))
+    result=solver.advance(state,.02,field_scales=np.ones(surf.n_fields),energy_scale_j=1.)
+    assert result.state is None
+    assert result.status=="MVI_GAUSS_PROJECTED_BASIS_AMBIGUOUS"
+    assert state.factors.rank==1 and state.time_s==0.
+
+
 def test_rank_insufficient_endpoint_cannot_be_accepted(monkeypatch):
     surf,solver,state=configured()
     monkeypatch.setattr(gauss,"solve_coupled_mvi_static",
