@@ -98,6 +98,23 @@ def test_opt_in_and_invalid_case_fail_closed(tmp_path,key,value,error):
     assert not (tmp_path/"output").exists()
 
 
+def test_malformed_free_charge_is_rejected_before_face_charge_addition(tmp_path):
+    path,document=make_case(tmp_path,electric=True)
+    document["electric_faces"]={
+        "inner":{"mode":"CHARGE","charge_c_per_m2":0.},
+        "outer":{"mode":"CHARGE","charge_c_per_m2":0.},
+    }
+    path.write_text(json.dumps(document),encoding="utf8")
+    np.savez_compressed(
+        tmp_path/"loads.npz",
+        mechanical_load=np.zeros((6,9,5)),
+        free_charge=np.empty((0,9,5)),
+    )
+    with pytest.raises(ValueError,match="COUPLED_MVI_FREE_CHARGE_SHAPE_INVALID"):
+        native.run(path,validate_only=True)
+    assert not (tmp_path/"output").exists()
+
+
 def test_reference_schema_never_accepted_as_coupled_research(tmp_path):
     path,_=make_case(tmp_path)
     data=json.loads(path.read_text())

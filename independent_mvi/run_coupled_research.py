@@ -226,6 +226,15 @@ def load_case(path, *, allow_existing_output=False):
     if surface.electrical_on:
         expected_load.add("free_charge")
     loads=_read_npz(load_path,expected_load)
+    # Validate archive shapes before indexing a charge mode, adding face
+    # charge, or checking floating-gauge compatibility.  Otherwise malformed
+    # free_charge inputs leak NumPy IndexError/broadcast errors instead of
+    # the stable public preflight diagnostic below.
+    for name,shape in (
+        ("mechanical_load",(surface.n_mechanical,surface.grid.nx,surface.grid.ns)),
+        ("free_charge",(surface.n_electric,surface.grid.nx,surface.grid.ns))):
+        if name in loads and loads[name].shape!=shape:
+            raise ValueError("COUPLED_MVI_"+name.upper()+"_SHAPE_INVALID")
     # Preserve the original volume-charge source: face charge is a
     # distinct physical boundary input and never scales with the
     # time-dependent volume-charge multiplier.
@@ -261,11 +270,6 @@ def load_case(path, *, allow_existing_output=False):
         if absolute>0 and abs(net)>5.e-11*absolute:
             raise ValueError(
                 "MVI_FLOATING_GAUGE_INCOMPATIBLE_TOTAL_FREE_CHARGE")
-    for name,shape in (
-        ("mechanical_load",(surface.n_mechanical,surface.grid.nx,surface.grid.ns)),
-        ("free_charge",(surface.n_electric,surface.grid.nx,surface.grid.ns))):
-        if name in loads and loads[name].shape!=shape:
-            raise ValueError("COUPLED_MVI_"+name.upper()+"_SHAPE_INVALID")
     load_law=None
     if "load_time_law" in case:
         if opts["kind"]!="DYNAMIC":
