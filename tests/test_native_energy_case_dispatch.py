@@ -123,3 +123,44 @@ def test_static_energy_runner_accepts_toy_reduced_zero_equilibrium(
     assert summary["accepted_steps"]==1
     with np.load(tmp_path/"result"/"STATIC_ACCEPTED.npz") as f:
         np.testing.assert_array_equal(f["mechanical"],0.)
+
+
+
+@pytest.mark.parametrize("integrator,multiplier",(
+    (None,1),("GAUSS_IRK4",2),
+))
+def test_energy_dof_budget_is_reduced_not_old_full_strong_budget(
+        tmp_path,integrator,multiplier):
+    kind="STATIC" if integrator is None else "DYNAMIC"
+    path,case=make_case(tmp_path,theory="KL",kind=kind,
+                        integrator=integrator,electric=False)
+    case["schema"]=energy.SCHEMA
+    # Three KL fields, nx=9, ns=5, two fixed ends per field.
+    reduced=3*(9-2)*5*multiplier
+    full=3*9*5*multiplier
+    assert reduced<full
+    case["solver"]["max_dofs"]=reduced
+    path.write_text(json.dumps(case),encoding="utf-8")
+    parsed=energy.load_case(path)
+    assert parsed["settings"].max_dofs==reduced
+    case["solver"]["max_dofs"]=reduced-1
+    path.write_text(json.dumps(case),encoding="utf-8")
+    with pytest.raises(ValueError,match="REDUCED_DOF_BUDGET_TOO_SMALL"):
+        energy.load_case(path)
+
+
+def test_energy_case_source_is_strictly_disjoint_from_mvi_numeric_backend():
+    import ast
+    from pathlib import Path
+    for module in (energy,):
+        root=ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
+        imports=[]
+        for node in ast.walk(root):
+            if isinstance(node,ast.Import):
+                imports.extend(alias.name for alias in node.names)
+            elif isinstance(node,ast.ImportFrom):
+                imports.append(node.module or "")
+        assert not any(p.startswith((
+            "independent_mvi","cylinder_variational_mvi",
+            "cylinder_sbp_green_reduction","cylinder_reference_case",
+        )) for p in imports)
