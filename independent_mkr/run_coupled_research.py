@@ -448,7 +448,8 @@ def run(filename,*,validate_only):
                                 best_trial_alpha=nonlinear.line_search_best_alpha,
                                 admissible_trials=nonlinear.line_search_admissible_trials,
                                 invalid_trials=nonlinear.line_search_invalid_trials,
-                                direction_inf_norm=nonlinear.line_search_direction_inf_norm)
+                                direction_inf_norm=nonlinear.line_search_direction_inf_norm,
+                                linearized_relative_defect=nonlinear.line_search_linearized_relative_defect)
                     summary["last_step_nonlinear_diagnostics"]=diagnostics
                     raise RuntimeError("MKR_STEP_"+status)
                 state=next_step.state
