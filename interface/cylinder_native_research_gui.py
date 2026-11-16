@@ -163,6 +163,7 @@ class NativeResearchWindow(tk.Toplevel):
 
     def open_case(self):
         try:
+            self._require_idle()
             path=filedialog.askopenfilename(
                 parent=self,title="Нативный CASE",
                 filetypes=[("CASE JSON","*.json")])
@@ -209,11 +210,20 @@ class NativeResearchWindow(tk.Toplevel):
 
     def choose_results(self):
         try:
+            self._require_idle()
             case=self._edited()
-            folder=filedialog.askdirectory(parent=self,title="Новая папка результатов")
+            folder=filedialog.askdirectory(parent=self,title="Где создать папку результатов")
             if not folder:
                 return
-            case["output_dir"]=folder
+            # askdirectory selects an EXISTING parent; every native runner
+            # deliberately requires a NEW output directory to protect data.
+            name=(self.case_path.stem if self.case_path else "native")+"_results"
+            output=Path(folder)/name
+            suffix=1
+            while output.exists():
+                output=Path(folder)/f"{name}_{suffix:03d}"
+                suffix+=1
+            case["output_dir"]=str(output)
             self.editor.delete("1.0","end")
             self.editor.insert("1.0",json.dumps(case,ensure_ascii=False,indent=2))
             self._show_output(case,self.case_path.parent if self.case_path else Path.cwd())
@@ -243,6 +253,10 @@ class NativeResearchWindow(tk.Toplevel):
             raise ValueError("Изменения CASE не сохранены")
         self._show_output(saved,self.case_path.parent)
         return saved
+
+    def _require_idle(self):
+        if self.process is not None and self.process.poll() is None:
+            raise ValueError("Дождитесь остановки расчёта перед сменой CASE или папки")
 
     def validate(self):
         try:
@@ -296,6 +310,9 @@ class NativeResearchWindow(tk.Toplevel):
             for line in process.stdout:
                 self.read_queue.put(line)
         finally:
+            # EOF can precede process exit. Publish completion only after
+            # the exit code is known, so success cannot appear as code None.
+            process.wait()
             self.read_queue.put(("finished",process))
 
     def _control(self,name):
@@ -320,12 +337,40 @@ class NativeResearchWindow(tk.Toplevel):
             self._log("Продолжить расчёт")
 
     def stop(self):
+        if self.process is None or self.process.poll() is not None:
+            self._log("Нет запущенного процесса")
+            return
         self.stop_requested=True
         self._control("CONTROL_STOP")
         if self.process is not None and self.process.poll() is None:
             self.process.terminate()
-            self._log("Остановлен процесс расчёта; уже принятые шаги сохранены.")
-        self.state_description.set("Расчёт остановлен")
+            self._log("Остановка процесса запрошена; принятые шаги сохранены.")
+            process=self.process
+            self.after(2000,lambda:self._kill_if_running(process))
+        self.state_description.set("Остановка расчёта")
+
+    def _kill_if_running(self,process):
+        if process.poll() is None:
+            process.kill()
+
+    def _record_stopped(self):
+        # The worker has exited before this method runs: no concurrent
+        # summary writer and no alteration of already committed states.
+        if self.results_dir is None:
+            return
+        path=self.results_dir/"RUN_SUMMARY.json"
+        if not path.is_file():
+            return
+        summary=json.loads(path.read_text(encoding="utf-8"))
+        summary.update(status="STOPPED_BY_USER",stopped_by_user=True)
+        temporary=path.with_name(path.name+".gui.pending")
+        try:
+            temporary.write_text(json.dumps(
+                summary,ensure_ascii=False,allow_nan=False,indent=2)+"\n",
+                encoding="utf-8")
+            temporary.replace(path)
+        finally:
+            temporary.unlink(missing_ok=True)
 
     def _radial_index(self,theory):
         if theory.startswith("CUF_TE"):
@@ -355,7 +400,12 @@ class NativeResearchWindow(tk.Toplevel):
                 self.seen_steps.add(str(path))
             except (OSError,ValueError,KeyError,IndexError,TypeError):
                 continue
-        completed=max(0,len(self.history)-1) if self.expected_steps>1 else len(self.history)
+        # STEP_0000 is an initial state, including in a one-step run.
+        completed=sum(
+            Path(name).name=="STATIC_ACCEPTED.npz" or
+            (Path(name).stem.startswith("STEP_") and
+             int(Path(name).stem[5:])>0)
+            for name in self.seen_steps)
         self.progress["value"]=(100*min(completed,self.expected_steps)/
                                 max(1,self.expected_steps))
         self._draw_graph()
@@ -405,6 +455,8 @@ class NativeResearchWindow(tk.Toplevel):
                     code=process.poll()
                     self.run_button.configure(state="normal")
                     if self.stop_requested:
+                        try:self._record_stopped()
+                        except Exception as exc:self._log("Ошибка записи остановки: "+str(exc))
                         status="Остановлен пользователем"
                     elif code==0:
                         status="Экспериментальный расчёт завершён; физическая верификация не подтверждена"
@@ -425,6 +477,18 @@ class NativeResearchWindow(tk.Toplevel):
                     parent=self):
                 return
             self.stop()
+            self._finish_close(self.process)
+            return
+        self.closed=True
+        self.destroy()
+
+    def _finish_close(self,process):
+        # Keep Tk alive for the pending terminate/kill and summary commit.
+        if process.poll() is None:
+            self.after(100,lambda:self._finish_close(process))
+            return
+        try:self._record_stopped()
+        except Exception as exc:self._log("Ошибка записи остановки: "+str(exc))
         self.closed=True
         self.destroy()
 

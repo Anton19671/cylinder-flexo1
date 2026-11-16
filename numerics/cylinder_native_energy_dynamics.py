@@ -201,6 +201,7 @@ class NativeEnergyDynamics:
 
     def _loads(self,loads_at,time_s):
         if loads_at is None:
+            self.space.check_electric_source(None)
             return None,None
         if not callable(loads_at):
             raise TypeError("loads_at must be a physical-time load callback")
@@ -217,6 +218,7 @@ class NativeEnergyDynamics:
             e=_finite_field(e,(
                 len(self.space.electrical_spaces),*self.model.shape[1:]),
                 "free electric charge").copy()
+        self.space.check_electric_source(e)
         return q,e
 
     def _work(self,q,p,v,a,loads):

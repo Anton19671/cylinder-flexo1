@@ -13,9 +13,12 @@ mesh convergence, physical gradient boundary closure or benchmarks.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 from pathlib import Path
+import shutil
+import subprocess
 
 from cylinder_paths import activate
 activate()
@@ -58,9 +61,13 @@ def _norm_projection(space,physical_mechanical,physical_electric,label):
     values=[]
     for c,subspace in enumerate(space.spaces):
         # Each reduced coefficient acts on one circumferential column.
-        norms=np.sqrt(np.einsum(
+        # Normalize before squaring: dimensional micro/nano scales must
+        # not disappear through underflow (or overflow at large scales).
+        amplitude=np.max(fields[c],axis=0)
+        normalized=fields[c]/amplitude[None,:]
+        norms=amplitude[None,:]*np.sqrt(np.einsum(
             "ik,ij,ik->kj",
-            subspace.null,fields[c]**2,subspace.null,optimize=True))
+            subspace.null,normalized**2,subspace.null,optimize=True))
         values.append(norms.ravel())
     output=np.concatenate(values)
     if space.gauge_pivot is not None:
@@ -103,7 +110,14 @@ def load_case(filename):
     data["reduced_state_scale"]=_norm_projection(
         space,data["qscale"],data["escale"],"ENERGY_FDM_STATE")
     data["reduced_equation_scale"]=_norm_projection(
-        space,data["rscale"],data["erescale"],"ENERGY_FDM_EQUATION")
+        space,model.area_weights[None,:,:]*data["rscale"],
+        (None if data["erescale"] is None else
+         model.area_weights[None,:,:]*data["erescale"]),
+        "ENERGY_FDM_EQUATION")
+    # rscale/erescale are physical equation DENSITIES inherited from CASE.
+    # Native energy residuals are integrated nodal work, so both residual
+    # and its normalization need the same area weights before projection.
+    # Otherwise shrinking the shell/mesh can accept a loaded zero state.
     return data
 
 
@@ -136,6 +150,51 @@ def _save_state(path,state):
         acceleration=state.acceleration,
         **({"electrical":state.electrical}
            if state.electrical is not None else {}))
+
+
+def _snapshot_inputs(data,out):
+    """Keep raw input archives, including charge BEFORE face-source addition.
+
+    A copied CASE with paths relative to its former directory is not a
+    reproducible run bundle. Give the saved CASE local input names and a
+    fresh replay destination; retain the user's original CASE separately.
+    """
+    original=data["case"]
+    saved=dict(original)
+    hashes={}
+    for key,name in (("initial_state_npz","INPUT_INITIAL.npz"),
+                     ("loads_npz","INPUT_LOADS.npz")):
+        source=Path(original[key]).expanduser()
+        if not source.is_absolute():
+            source=data["path"].parent/source
+        destination=out/name
+        shutil.copyfile(source,destination)
+        hashes[name]=hashlib.sha256(destination.read_bytes()).hexdigest()
+        saved[key]=name
+    saved["output_dir"]="replay_output"
+    _atomic_json(out/"ORIGINAL_CASE.json",original)
+    _atomic_json(out/"CASE.json",saved)
+    hashes["CASE.json"]=hashlib.sha256((out/"CASE.json").read_bytes()).hexdigest()
+    revision=None
+    dirty=None
+    root=Path(__file__).resolve().parents[1]
+    try:
+        revision=subprocess.run(
+            ["git","-C",str(root),"rev-parse","HEAD"],check=True,
+            capture_output=True,text=True,timeout=5).stdout.strip()
+        if len(revision)!=40 or any(c not in "0123456789abcdef" for c in revision):
+            revision=None
+        status=subprocess.run(["git","-C",str(root),"status","--porcelain"],
+            check=True,capture_output=True,text=True,timeout=5).stdout
+        dirty=bool(status.strip())
+    except (OSError,subprocess.SubprocessError):
+        # ZIP installations may not include .git. Absence is explicit and
+        # must never be represented as a verified source revision.
+        pass
+    manifest=dict(input_sha256=hashes,git_sha=revision,source_dirty=dirty,
+                  source_revision_verified=revision is not None and dirty is False)
+    _atomic_json(out/"INPUT_MANIFEST.json",manifest)
+    return manifest
 
 
 def _diagnostics(nonlin):
@@ -186,7 +245,7 @@ def run(filename,*,validate_only):
         return summary
     out=data["output"]
     out.mkdir(parents=True,exist_ok=False)
-    _atomic_json(out/"CASE.json",data["case"])
+    summary.update(_snapshot_inputs(data,out))
     summary["status"]="IN_PROGRESS"
     _atomic_json(out/"RUN_SUMMARY.json",summary)
     kwargs=dict(reduced_state_scale=data["reduced_state_scale"],

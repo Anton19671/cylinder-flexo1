@@ -155,3 +155,16 @@ def test_energy_drivers_reject_unrepresentable_tiny_steps(monkeypatch,method):
         getattr(solver,method)(
             state,1.e-300,reduced_state_scale=1.,
             reduced_equation_scale=1.,settings=_settings())
+
+
+@pytest.mark.parametrize("method",("newmark","bathe","gauss"))
+def test_gauge_cannot_hide_new_incompatible_charge_at_a_time_stage(monkeypatch,method):
+    solver,model=_engine(monkeypatch,electric=True,gauge=True)
+    q=np.zeros(model.shape)
+    initial=solver.initialize(q,q,reduced_state_scale=1.,
+        reduced_equation_scale=1.,settings=_settings())
+    assert initial.state is not None
+    with pytest.raises(ValueError,match="INCOMPATIBLE_INSULATED_CHARGE"):
+        getattr(solver,method)(initial.state,.05,
+            loads_at=lambda t:(None,np.ones((1,*model.shape[1:]))),
+            reduced_state_scale=1.,reduced_equation_scale=1.,settings=_settings())

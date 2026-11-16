@@ -22,7 +22,7 @@ class AlgorithmOrderTraceTests(unittest.TestCase):
         # End values must be sampled at x=0/L with the SAME native
         # kinematic stencil as the constitutive jets. A second-order
         # one-sided first derivative is not cubic-exact at the end:
-        # D_x(x**3)(0)=2*dx**2, unlike the exact derivative zero.
+        # D_x(x**3)(0)=-2*dx**2; the LEFT OUTWARD trace is +2*dx**2.
         ends={side:[[
             bc("ESSENTIAL",native_kinematic_normal_trace(q,grid,0,k,side))
             for k in (0,1,2)]]
@@ -40,7 +40,7 @@ class AlgorithmOrderTraceTests(unittest.TestCase):
                     native_kinematic_normal_trace(q,grid,0,order,side),
                     outward*exact)
         left_slope=native_kinematic_normal_trace(q,grid,0,1,"left")
-        np.testing.assert_allclose(left_slope,-2*grid.dx**2,atol=1e-12)
+        np.testing.assert_allclose(left_slope,2*grid.dx**2,atol=1e-12)
         # The previous continuum-exact slope request is NOT equivalent
         # to the discrete clamp, and cannot be used as a zero-residual
         # assertion for the native second-order endpoint operator.
@@ -49,7 +49,7 @@ class AlgorithmOrderTraceTests(unittest.TestCase):
         legacy=assemble_physical_end_rows(
             b,q,grid,axial_orders=(3,),mechanical_ends=old_ends)
         np.testing.assert_allclose(
-            legacy.mechanical[0,1,:],-2*grid.dx**2,atol=1e-12)
+            legacy.mechanical[0,1,:],2*grid.dx**2,atol=1e-12)
 
     def test_classification_is_not_guessed_from_shell_name(self):
         matrices={2:np.diag([1.,1.,1.]),4:np.diag([0.,1.,0.]),

@@ -350,3 +350,24 @@ def test_bounded_stencil_probes_match_full_native_jet_actions(nx,ns):
             reconstructed,actual,rtol=2.e-12,atol=1.e-10)
     assert all(not m.flags.writeable for m in (
         *fdm.axial,*fdm.angular))
+
+
+def test_insulated_source_compatibility_includes_prescribed_axial_end_flux():
+    engine=_setup("KL",True)
+    model=engine.model
+    ends={side:[[{"kind":"ESSENTIAL","value":0.}]
+                for _ in range(model.n_mechanical)] for side in ("left","right")}
+    electric={"left":[{"kind":"NATURAL","value":0.}],
+              "right":[{"kind":"NATURAL","value":model.grid.length_m}]}
+    weights=(model.area_weights/np.sum(model.area_weights))[None,:,:]
+    space=NativeEnergyEndSpace(engine,axial_orders=(1,)*model.n_mechanical,
+        mechanical_ends=ends,electrical_ends=electric,
+        electric_gauge=StrongElectricGauge(weights))
+    charge=np.ones((1,*model.shape[1:]))
+    space.check_electric_source(charge)
+    with pytest.raises(ValueError,match="INCOMPATIBLE_INSULATED_CHARGE"):
+        space.check_electric_source(None)
+    with pytest.raises(ValueError,match="INCOMPATIBLE_INSULATED_CHARGE"):
+        space.solve_static(np.zeros(model.shape),np.zeros_like(charge),
+            electrical_charge=2.*charge,reduced_state_scale=1.,
+            reduced_equation_scale=1.)

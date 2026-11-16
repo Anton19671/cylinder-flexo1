@@ -242,6 +242,7 @@ class NativeEnergyEndSpace:
                              mechanical=True))
         self.electrical_spaces=[]
         self.electric_gauge=electric_gauge
+        self.insulated_constant_mode=False
         if model.electrical_on:
             if not isinstance(electrical_ends,dict) or set(electrical_ends)!={"left","right"}:
                 raise ValueError("EXPLICIT_ELECTRIC_LEFT_RIGHT_ENDS_REQUIRED")
@@ -259,6 +260,7 @@ class NativeEnergyEndSpace:
                                  mechanical=False))
             all_nat=all(electrical_ends[s][0]["kind"]=="NATURAL"
                         for s in ("left","right"))
+            self.insulated_constant_mode=all_nat
             if all_nat and electric_gauge is None:
                 raise ValueError("UNGAUGED_INSULATED_ELECTRICAL_MODE")
         elif electrical_ends is not None or electric_gauge is not None:
@@ -295,6 +297,37 @@ class NativeEnergyEndSpace:
         self.reduced_size=self.free_size-int(self.gauge_pivot is not None)
         if self.reduced_size<1:
             raise ValueError("NATIVE_ENERGY_ZERO_REDUCED_DOF")
+
+    def check_electric_source(self,charge):
+        """A gauge fixes the potential reference, never an unbalanced source.
+
+        The constant virtual-potential direction requires total volume/face
+        charge to equal the prescribed outward axial electric end work.
+        Eliminating its coordinate must not hide an incompatible Neumann
+        problem. Test source work before any Newton or material evaluation.
+        """
+        if charge is not None:
+            value=np.asarray(charge,float)
+            shape=(len(self.electrical_spaces),*self.engine.model.shape[1:])
+            if value.shape!=shape or not np.isfinite(value).all():
+                raise ValueError("NATIVE_ENERGY_CHARGE_INVALID")
+        else:
+            value=None
+        if not self.insulated_constant_mode:
+            return
+        source=(np.zeros_like(self.engine.weight) if value is None else
+                self.engine.weight*value[0])
+        external=self.electrical_spaces[0].external_work
+        # Scale before summation to retain dimensional extremes.
+        scale=max(float(np.max(np.abs(source))),float(np.max(np.abs(external))))
+        if scale==0.:
+            return
+        source=source/scale
+        external=external/scale
+        net=math.fsum(source.ravel())-math.fsum(external.ravel())
+        total=math.fsum(np.abs(source).ravel())+math.fsum(np.abs(external).ravel())
+        if abs(net)>1.e-10*total:
+            raise ValueError("NATIVE_ENERGY_INCOMPATIBLE_INSULATED_CHARGE")
 
     def _full_from_reduced(self,free):
         vector=np.asarray(free,float).ravel()
@@ -376,6 +409,7 @@ class NativeEnergyEndSpace:
         Reduced scales must be supplied in their true mixed mechanical/
         electric dimensions. No source rank, auto order, or gauge is guessed.
         """
+        self.check_electric_source(electrical_charge)
         guess=self.encode(mechanical_guess,electrical_guess)
         packed=guess.reshape(1,1,-1)
         def equations(y,_unused):

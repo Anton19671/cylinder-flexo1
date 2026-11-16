@@ -125,6 +125,15 @@ def test_static_energy_runner_accepts_toy_reduced_zero_equilibrium(
     assert summary["accepted_steps"]==1
     with np.load(tmp_path/"result"/"STATIC_ACCEPTED.npz") as f:
         np.testing.assert_array_equal(f["mechanical"],0.)
+    # The saved case is portable after the original inputs are removed.
+    (tmp_path/"initial.npz").unlink()
+    (tmp_path/"loads.npz").unlink()
+    replay=energy.load_case(tmp_path/"result"/"CASE.json")
+    assert replay["output"]==tmp_path/"result"/"replay_output"
+    manifest=json.loads((tmp_path/"result"/"INPUT_MANIFEST.json").read_text())
+    assert set(manifest["input_sha256"])=={
+        "INPUT_INITIAL.npz","INPUT_LOADS.npz","CASE.json"}
+    assert (tmp_path/"result"/"ORIGINAL_CASE.json").exists()
 
 
 
@@ -166,3 +175,66 @@ def test_energy_case_source_is_strictly_disjoint_from_mvi_numeric_backend():
             "independent_mvi","cylinder_variational_mvi",
             "cylinder_sbp_green_reduction","cylinder_reference_case",
         )) for p in imports)
+
+
+@pytest.mark.parametrize("electric",(False,True))
+def test_equation_density_scales_follow_area_without_false_zero_convergence(
+        tmp_path,electric):
+    """Algebraic virtual load work only; no physical shell is solved."""
+    norms=[]
+    for index,factor in enumerate((1.,1.e-3,1.e-6)):
+        directory=tmp_path/str(index)
+        directory.mkdir()
+        path,case=make_case(directory,theory="KL",kind="STATIC",electric=electric)
+        case["schema"]=energy.SCHEMA
+        case["grid"]["length_m"]*=factor
+        case["grid"]["radius_m"]*=factor
+        case["physics"]["thickness_m"]*=factor
+        case["physics"]["material"]["ell_m"]*=factor
+        case["solver"]["mechanical_equation_scale"]=1.e4
+        if electric:
+            case["solver"]["electrical_equation_scale"]=1.e4
+        path.write_text(json.dumps(case),encoding="utf-8")
+        data=energy.load_case(path)
+        model=data["model"]
+        force=np.full(model.shape,100.)
+        coefficients=np.zeros((len(model.derivative_orders),*model.shape))
+        ec=np.zeros((3,1,*model.shape[1:])) if electric else None
+        charge=np.full((1,*model.shape[1:]),100.) if electric else None
+        work=data["energy"].jet_action(
+            coefficients,ec,mechanical_load=force,electrical_charge=charge)
+        residual=data["space"].residual(work)/data["reduced_equation_scale"]
+        norms.append(np.max(np.abs(residual)))
+        assert norms[-1]>data["settings"].scaled_absolute_tolerance
+        np.testing.assert_allclose(np.abs(residual),.01,rtol=2.e-14)
+    np.testing.assert_allclose(norms,norms[0],rtol=2.e-14)
+
+
+@pytest.mark.parametrize("factor",(1.e-200,1.e200))
+def test_reduced_scale_projection_does_not_square_dimensional_extremes(tmp_path,factor):
+    path,case=make_case(tmp_path,theory="KL",kind="STATIC")
+    case["schema"]=energy.SCHEMA
+    path.write_text(json.dumps(case),encoding="utf-8")
+    data=energy.load_case(path)
+    value=energy._norm_projection(
+        data["space"],np.full(data["model"].shape,factor),None,"TEST")
+    np.testing.assert_allclose(value/factor,1.,rtol=1.e-14)
+
+
+def test_small_geometry_toy_loaded_static_run_requires_a_nonzero_solution(tmp_path,monkeypatch):
+    """Synthetic Hooke spring work only, not a physical shell solve."""
+    path,case=make_case(tmp_path,theory="KL",kind="STATIC")
+    case["schema"]=energy.SCHEMA
+    case["grid"].update(length_m=1.2e-6,radius_m=2.e-6)
+    case["physics"]["thickness_m"]=1.e-7
+    case["physics"]["material"]["ell_m"]=1.e-8
+    case["solver"].update(mechanical_state_scale=1.e-4,
+                         mechanical_equation_scale=1.e4)
+    path.write_text(json.dumps(case))
+    def toy_work(self,q,p,**kwargs):
+        return NativeEnergyWork(self.weight[None,:,:]*(1.e6*q-100.),None)
+    monkeypatch.setattr(NativeEnergyFDM,"balance",toy_work)
+    summary=energy.run(path,validate_only=False)
+    assert summary["static_nonlinear_diagnostics"]["iterations"]>0
+    with np.load(tmp_path/"result"/"STATIC_ACCEPTED.npz") as f:
+        np.testing.assert_allclose(f["mechanical"][:,1:-1,:],1.e-4,rtol=1.e-7)
