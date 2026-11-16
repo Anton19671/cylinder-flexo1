@@ -7,6 +7,7 @@ on:
       - "numerics/cylinder_native_mkr_*.py"
       - "numerics/cylinder_mkr_field_jets.py"
       - "numerics/cylinder_direct_strong_fdm.py"
+      - "numerics/cylinder_direct_strong_boundary.py"
       - "numerics/cylinder_strong_axial_green_audit.py"
       - "independent_mkr/run_coupled_research.py"
       - "interface/cylinder_independent_dispatch.py"
