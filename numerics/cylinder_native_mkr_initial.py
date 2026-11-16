@@ -90,6 +90,71 @@ def _acceleration_ends(ends):
     return transformed
 
 
+def _acceleration_dependent_natural_tractions(
+        engine,q,v,a0,p0,load_m,load_e):
+    """Identify zeroth-order natural rows involving UNKNOWN acceleration.
+
+    KL and Reddy director inertia depends on acceleration *gradients*;
+    its true free-end traction must therefore be solved at t0, not
+    dismissed as compatibility of given q0/v0. In contrast, a
+    natural action independent of acceleration cannot replace an
+    acceleration mass equation: its tangent row is identically zero.
+
+    Compare actual physical end actions for several independent finite
+    acceleration probes. This is a strict detection diagnostic, NOT a
+    general rank/well-posedness certificate or an excuse to weaken the
+    original post-solve natural end check.
+    """
+    candidates=[]
+    for side_index,side in enumerate(("left","right")):
+        for c,conditions in enumerate(engine.mechanical_ends[side]):
+            kind,_=_condition(conditions[0],engine.model.grid.ns,
+                              "initial zeroth natural trace")
+            if kind=="NATURAL":
+                candidates.append((side_index,side,c))
+    if not candidates:
+        return frozenset()
+    grid=engine.model.grid
+
+    def traction(acceleration):
+        balance=engine.model.balance(
+            q,p0,mechanical_load=load_m,electrical_charge=load_e,
+            velocity=v,acceleration=acceleration,density_kg_m3=engine.density_kg_m3,
+            eta_s=engine.eta_s,mass_damping_rate_per_s=engine.mass_damping_rate_per_s)
+        array=np.asarray(balance.mechanical_end_displacement,float)
+        expected=(2,engine.model.n_mechanical,grid.ns)
+        if array.shape!=expected or not np.isfinite(array).all():
+            raise ValueError("INITIAL_NATURAL_TRACTION_SHAPE_INVALID")
+        return array
+
+    base=traction(a0)
+    # Linear acceleration metric with spatially varying probes. Uniform
+    # acceleration alone cannot detect the Reddy w_x inertial trace.
+    axis=np.linspace(-1.,1.,grid.nx)[None,:,None]
+    angle=(2.*np.pi*np.arange(grid.ns)/grid.ns)[None,None,:]
+    fields=(1.+np.arange(engine.model.n_mechanical))[:,None,None]
+    magnitude=max(1.,float(np.max(np.abs(a0))))
+    shapes=(
+        fields*(axis+.29*np.cos(angle)),
+        (fields+.37)*(axis**2+.19*np.sin(angle)),
+        (fields+.73)*(axis**3+.23*np.cos(2.*angle)),
+    )
+    responses=[]
+    for shape in shapes:
+        perturbation=np.broadcast_to(shape,q.shape)*magnitude
+        responses.append(traction(a0+perturbation))
+    active=set()
+    for side_index,side,c in candidates:
+        b=base[side_index,c]
+        values=[v[side_index,c] for v in responses]
+        signal=max(float(np.max(np.abs(v-b))) for v in values)
+        scale=max(1.,float(np.max(np.abs(b))),
+                  *(float(np.max(np.abs(v))) for v in values))
+        if signal>128.*np.finfo(float).eps*scale:
+            active.add((side,c))
+    return frozenset(active)
+
+
 def initialize_consistent_native_mkr(
         engine: NativeStrongNewmark, mechanical, velocity,
         electrical_guess=None, *, time_s=0., acceleration_guess=None,
@@ -106,11 +171,14 @@ def initialize_consistent_native_mkr(
     and trial a0. The potential uses its original, simultaneous electric
     bulk/end equations and optional ONE global gauge.
 
-    Natural displacement traces are compatibility conditions on
-    q0/v0/phi0, not acceleration boundary equations. Keep mass balance
-    at those adjacent nodes and check their original physical actions
-    after closing phi0 and a0. Otherwise a local mass law acquires zero
-    Jacobian rows from static slope/curvature actions.
+    Higher natural traces and acceleration-independent zeroth actions
+    are compatibility conditions on prescribed q0/v0/phi0, not
+    acceleration equations: keep the mass balance at those rows, then
+    check original natural actions. Acceleration-dependent zeroth natural
+    actions (possible with KL/Reddy director-gradient inertia) ARE
+    equations for unknown a0 and remain in the coupled solve.
+    Otherwise the initializer either acquires zero Jacobian rows or
+    discards real dynamic free-end conditions.
 
     Mechanical load and electrical charge are generalized surface
     densities at t0. Return state=None unless the coupled solve converges.
@@ -138,6 +206,8 @@ def initialize_consistent_native_mkr(
             engine._electric_field(electrical_charge,"initial electric charge"))
     engine._check_insulated_charge(load_e)
     acceleration_ends=_acceleration_ends(engine.mechanical_ends)
+    dynamic_natural=_acceleration_dependent_natural_tractions(
+        engine,q,v,a0,p0,load_m,load_e)
 
     def equations(a,p):
         balance=engine.model.balance(
@@ -152,16 +222,21 @@ def initialize_consistent_native_mkr(
             axial_orders=engine.axial_orders,mechanical_ends=acceleration_ends,
             electrical=p,electrical_ends=engine.electrical_ends,
             gauge_closed_elsewhere=engine.electric_gauge is not None)
-        # Natural end actions are conditions on the given initial fields;
-        # they do not replace the acceleration equations at t0. This is
-        # true for the zeroth (free-traction) trace as well as higher
-        # slope/curvature actions. All original natural conditions are
-        # checked on the reconstructed initial state below.
+        # Higher natural actions have no acceleration-gradient coefficient
+        # beyond q_x in the implemented KL/Reddy inertia. They are checked
+        # as compatibility of the prescribed initial q/v after the solve.
+        # Zeroth natural traction is different: KL/Reddy gradient inertia
+        # can make it an equation for UNKNOWN acceleration. Retain such a
+        # physical equation, rather than silently replacing it by mass.
+        # Zeroth actions insensitive to acceleration still need mass rows,
+        # or the Newton tangent acquires an exactly zero row. Every
+        # physical natural action is checked again after the solve.
         for side in ("left","right"):
             for c,conditions in enumerate(engine.mechanical_ends[side]):
                 for order,item in enumerate(conditions):
                     kind,_=_condition(item,engine.model.grid.ns,"initial natural trace")
-                    if kind=="NATURAL":
+                    if kind=="NATURAL" and not (
+                            order==0 and (side,c) in dynamic_natural):
                         node=order if side=="left" else engine.model.grid.nx-1-order
                         rows.mechanical[c,node]=balance.mechanical_bulk[c,node]
         return rows.mechanical,rows.electrical
