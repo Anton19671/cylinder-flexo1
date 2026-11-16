@@ -141,6 +141,8 @@ class DirectStrongNewtonTests(unittest.TestCase):
         self.assertGreater(result.line_search_best_scaled_norm,
                            result.scaled_equation_norm)
         self.assertGreater(result.line_search_direction_inf_norm,0.)
+        self.assertIsNotNone(result.line_search_linearized_relative_defect)
+        self.assertLess(result.line_search_linearized_relative_defect,1.e-5)
 
     def test_singular_tangent_rejected(self):
         q=np.zeros((1,7,4))
