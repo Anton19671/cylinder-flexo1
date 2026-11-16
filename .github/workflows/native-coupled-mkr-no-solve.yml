@@ -16,6 +16,7 @@ on:
       - "tests/test_native_mkr_initial.py"
       - "tests/test_strong_axial_green_audit.py"
       - "tests/test_direct_strong_fdm.py"
+      - "tests/test_direct_strong_boundary.py"
       - "tests/test_native_direct_strong_model.py"
       - ".github/workflows/native-coupled-mkr-no-solve.yml"
 permissions:
@@ -51,4 +52,4 @@ jobs:
       - name: Own strong MKR CASE and initial-state contracts (no shell)
         run: python -m pytest -q tests/test_native_coupled_mkr_case_dispatch.py tests/test_native_mkr_initial.py
       - name: Audit independent axial stencils and their Green identity (no shell)
-        run: python -m pytest -q tests/test_direct_strong_fdm.py tests/test_strong_axial_green_audit.py tests/test_native_direct_strong_model.py::test_native_third_axial_jet_exact_for_polynomials_at_physical_ends
+        run: python -m pytest -q tests/test_direct_strong_fdm.py tests/test_direct_strong_boundary.py tests/test_strong_axial_green_audit.py tests/test_native_direct_strong_model.py::test_native_third_axial_jet_exact_for_polynomials_at_physical_ends
