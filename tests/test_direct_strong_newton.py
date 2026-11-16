@@ -102,6 +102,46 @@ class DirectStrongNewtonTests(unittest.TestCase):
                 mechanical_state_scale=1.,mechanical_equation_scale=1.,
                 settings=StrongNewtonSettings(max_dofs=10))
 
+    def test_line_search_failure_reports_admissible_trials(self):
+        q=np.zeros((1,2,2))
+        def equations(q,p):
+            return q*q+1.,None
+        result=solve_strong_nonlinear_equations(
+            equations,q,
+            mechanical_state_scale=1.,mechanical_equation_scale=1.,
+            settings=StrongNewtonSettings(max_dofs=4,max_iterations=2))
+        # A zero Jacobian is diagnosed before the line search.
+        self.assertFalse(result.converged)
+        self.assertEqual(result.status,"SINGULAR_STRONG_TANGENT")
+
+    def test_line_search_failure_keeps_best_trial_evidence(self):
+        # Deliberately inconsistent nonlinear residual: a full-rank local
+        # Jacobian but no trial can lower the current infinity norm.
+        q=np.zeros((1,2,2))
+        offsets=np.array([1.,1.,1.,1.]).reshape(q.shape)
+        def equations(q,p):
+            flattened=q.reshape(-1)
+            residual=np.array([
+                1.+flattened[0]+10.*flattened[0]**2,
+                1.+flattened[1]+10.*flattened[1]**2,
+                1.+flattened[2]+10.*flattened[2]**2,
+                1.+flattened[3]+10.*flattened[3]**2,
+            ]).reshape(q.shape)
+            return residual,None
+        result=solve_strong_nonlinear_equations(
+            equations,q,
+            mechanical_state_scale=1.,mechanical_equation_scale=1.,
+            settings=StrongNewtonSettings(max_dofs=4,
+                line_search_halvings=0,difference_step=1.e-6))
+        self.assertFalse(result.converged)
+        self.assertEqual(result.status,"NEWTON_LINE_SEARCH_FAILED")
+        self.assertEqual(result.line_search_admissible_trials,1)
+        self.assertEqual(result.line_search_invalid_trials,0)
+        self.assertEqual(result.line_search_best_alpha,1.)
+        self.assertGreater(result.line_search_best_scaled_norm,
+                           result.scaled_equation_norm)
+        self.assertGreater(result.line_search_direction_inf_norm,0.)
+
     def test_singular_tangent_rejected(self):
         q=np.zeros((1,7,4))
         result=solve_strong_nonlinear_equations(
