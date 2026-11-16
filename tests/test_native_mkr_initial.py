@@ -137,6 +137,35 @@ def test_initial_electric_unknown_is_solved_simultaneously(monkeypatch):
 
 
 @pytest.mark.parametrize("natural_defect",[0.,.2])
+def test_free_zeroth_order_natural_end_retains_initial_mass_equation(
+        monkeypatch,natural_defect):
+    """Free traction at t0 must not erase the acceleration equation."""
+    model,_=configured()
+    ends={side:[[{"kind":"NATURAL","value":0.}]
+                for _ in range(model.n_mechanical)] for side in ("left","right")}
+    engine=NativeStrongNewmark(
+        model,axial_orders=(1,)*model.n_mechanical,
+        mechanical_ends=ends,density_kg_m3=3.)
+    q=np.zeros(model.shape)
+    target=np.full_like(q,.125)
+    def balance(actual_q,p,**kwargs):
+        np.testing.assert_array_equal(actual_q,q)
+        return DirectStrongBalance(
+            kwargs["acceleration"]-target,None,
+            np.full((2,model.n_mechanical,model.grid.ns),natural_defect),
+            None,None,None,tuple(range(1,model.grid.nx-1)),1)
+    monkeypatch.setattr(model,"balance",balance)
+    answer=native_initial.initialize_consistent_native_mkr(
+        engine,q,q,mechanical_state_scale=1.,mechanical_equation_scale=1.)
+    if natural_defect:
+        assert answer.state is None
+        assert answer.nonlinear.status=="INITIAL_NATURAL_TRACE_INCOMPATIBLE"
+    else:
+        assert answer.state is not None
+        np.testing.assert_allclose(answer.state.acceleration,target,atol=1.e-9)
+
+
+@pytest.mark.parametrize("natural_defect",[0.,.2])
 def test_higher_static_natural_rows_do_not_replace_initial_mass_balance(
         monkeypatch,natural_defect):
     """Manufactured diagonal mass: no physical cylinder calculation.
