@@ -6,6 +6,12 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/native-gradient-fdm-recheck.yml"
+      - "ci/native_gradient_fdm_mvi_campaign.py"
+      - "independent_mkr/run_coupled_research.py"
+      - "numerics/cylinder_mkr_field_jets.py"
+      - "numerics/cylinder_native_mkr_newmark.py"
+      - "numerics/cylinder_native_mkr_bathe.py"
+      - "numerics/cylinder_native_mkr_gauss2.py"
 permissions:
   contents: read
 jobs:

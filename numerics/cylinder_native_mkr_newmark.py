@@ -17,7 +17,9 @@ import math
 
 import numpy as np
 
-from cylinder_direct_strong_boundary import assemble_physical_end_rows
+from cylinder_direct_strong_boundary import (
+    _condition, assemble_physical_end_rows,
+)
 from cylinder_direct_strong_model import DirectStrongShell
 from cylinder_direct_strong_newton import (
     StrongElectricGauge, StrongNewtonResult, StrongNewtonSettings,
@@ -48,6 +50,42 @@ def _frozen_field(value, shape, name):
     out = _field(value, shape, name).copy()
     out.setflags(write=False)
     return out
+
+
+def _time_step_mechanical_equation_scale(engine, base_scale,
+                                        acceleration_gain, settings):
+    """Scale essential displacement rows to the acceleration accuracy needed.
+
+    Strong equations contain both bulk forces and displacement traces. A
+    scalar force scale can otherwise let a small displacement-row residual
+    pass Newton and then amplify it through the integrator's displacement to
+    acceleration map into a false nonzero acceleration on a fixed edge.
+    """
+    raw=np.asarray(base_scale)
+    if raw.dtype.kind=="b":
+        raise ValueError("mechanical equation scale cannot be boolean")
+    scale=np.asarray(base_scale,dtype=float)
+    if scale.ndim==0:
+        scale=np.full(engine.model.shape,float(scale))
+    if (scale.shape!=engine.model.shape or not np.isfinite(scale).all()
+            or np.any(scale<=0)):
+        raise ValueError("mechanical equation scale must be positive finite and match the field")
+    scale=scale.copy()
+    gain=_finite_number(acceleration_gain,"support acceleration gain",positive=True)
+    step_tolerance=(1.e-9/gain/settings.scaled_absolute_tolerance)
+    if not np.isfinite(step_tolerance) or step_tolerance<=0:
+        raise ValueError("MKR_NEWMARK_SUPPORT_TOLERANCE_UNREPRESENTABLE")
+    nx=engine.model.grid.nx
+    for side in ("left","right"):
+        for comp,conditions in enumerate(engine.mechanical_ends[side]):
+            for order,item in enumerate(conditions):
+                kind,_=_condition(item,engine.model.grid.ns,
+                                  "Newmark support equation scale")
+                if kind=="ESSENTIAL":
+                    node=order if side=="left" else nx-1-order
+                    scale[comp,node,:]=np.minimum(
+                        scale[comp,node,:],step_tolerance)
+    return scale
 
 
 @dataclass(frozen=True)
@@ -259,7 +297,9 @@ class NativeStrongNewmark:
         nonlinear = solve_strong_nonlinear_equations(
             equations, qguess, pguess,
             mechanical_state_scale=mechanical_state_scale,
-            mechanical_equation_scale=mechanical_equation_scale,
+            mechanical_equation_scale=_time_step_mechanical_equation_scale(
+                self,mechanical_equation_scale,1./acceleration_denominator,
+                settings),
             electrical_state_scale=electrical_state_scale,
             electrical_equation_scale=electrical_equation_scale,
             electric_gauge=self.electric_gauge, settings=settings)

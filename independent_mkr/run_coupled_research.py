@@ -414,6 +414,22 @@ def run(filename,*,validate_only):
                 if next_step.state is None:
                     status=(next_step.status if hasattr(next_step,"status")
                             else next_step.nonlinear.status)
+                    nonlinear=getattr(next_step,"nonlinear",None)
+                    if nonlinear is None:
+                        nonlinear=(getattr(next_step,"final_nonlinear",None) or
+                                   getattr(next_step,"first_nonlinear",None))
+                    diagnostics=dict(step=k,integrator=opts["integrator"],
+                                     driver_status=status)
+                    if nonlinear is not None:
+                        diagnostics.update(
+                            newton_status=nonlinear.status,
+                            iterations=int(nonlinear.iterations),
+                            converged=bool(nonlinear.converged),
+                            scaled_equation_norm=(
+                                float(nonlinear.scaled_equation_norm)
+                                if math.isfinite(nonlinear.scaled_equation_norm)
+                                else None))
+                    summary["last_step_nonlinear_diagnostics"]=diagnostics
                     raise RuntimeError("MKR_STEP_"+status)
                 state=next_step.state
                 summary["last_electric_faces"]=face_diagnostic(

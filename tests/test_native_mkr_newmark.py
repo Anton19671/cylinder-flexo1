@@ -62,6 +62,19 @@ def test_native_newmark_constructor_rejects_missing_physical_data():
                             density_kg_m3=3.,beta=.1,gamma=.5)
 
 
+def test_time_integrators_scale_fixed_trace_rows_for_derived_acceleration_tolerance():
+    import cylinder_native_mkr_newmark as module
+    model,engine=make_engine()
+    settings=StrongNewtonSettings(scaled_absolute_tolerance=1.e-8)
+    gain=1./(engine.beta*1.e-4**2)
+    scale=module._time_step_mechanical_equation_scale(
+        engine,1.e4,gain,settings)
+    expected=1.e-9/gain/settings.scaled_absolute_tolerance
+    np.testing.assert_allclose(scale[:,0,:],expected,rtol=1.e-15,atol=0.)
+    np.testing.assert_allclose(scale[:,-1,:],expected,rtol=1.e-15,atol=0.)
+    np.testing.assert_allclose(scale[:,1:-1,:],1.e4,rtol=0.,atol=0.)
+
+
 @pytest.mark.parametrize("dt",(1.e-200,1.e200))
 def test_newmark_rejects_unrepresentable_time_coefficients_before_solve(monkeypatch,dt):
     import cylinder_native_mkr_newmark as module

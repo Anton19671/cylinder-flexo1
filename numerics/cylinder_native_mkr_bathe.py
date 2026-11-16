@@ -20,6 +20,7 @@ from cylinder_direct_strong_newton import (
 )
 from cylinder_native_mkr_newmark import (
     NativeNewmarkState, NativeStrongNewmark, _finite_number, _field,
+    _time_step_mechanical_equation_scale,
 )
 from cylinder_native_mkr_initial import _verify_fixed_initial_supports
 
@@ -82,7 +83,8 @@ class NativeStrongBathe:
         result=solve_strong_nonlinear_equations(
             equations,qguess,pguess,
             mechanical_state_scale=mechanical_state_scale,
-            mechanical_equation_scale=mechanical_equation_scale,
+            mechanical_equation_scale=_time_step_mechanical_equation_scale(
+                engine,mechanical_equation_scale,kappa,settings),
             electrical_state_scale=electrical_state_scale,
             electrical_equation_scale=electrical_equation_scale,
             electric_gauge=engine.electric_gauge,settings=settings)

@@ -32,6 +32,7 @@ from cylinder_native_mkr_initial import (
 )
 from cylinder_native_mkr_newmark import (
     NativeNewmarkState, NativeStrongNewmark, _field, _finite_number,
+    _time_step_mechanical_equation_scale,
 )
 
 GAUSS_C = np.array(((3.-sqrt(3.))/6., (3.+sqrt(3.))/6.))
@@ -122,7 +123,7 @@ class NativeStrongGauss2:
         if not isinstance(settings,StrongNewtonSettings):
             raise TypeError("StrongNewtonSettings required")
         h=_finite_number(dt_s,"Gauss step",positive=True)
-        _stage_time_scale(h)
+        h2=_stage_time_scale(h)
         engine=self.engine
         shape=engine.model.shape
         q0=_field(state.mechanical,shape,"initial displacement")
@@ -164,7 +165,11 @@ class NativeStrongGauss2:
         qforce=_positive_scale(mechanical_equation_scale,shape,"mechanical equation")
         packed_q_guess=np.concatenate((qguess[0],qguess[1]),axis=0)
         packed_q_scale=np.concatenate((qscale,qscale),axis=0)
-        packed_force=np.concatenate((qforce,qforce),axis=0)
+        stage_acceleration_gain=(
+            float(np.max(np.sum(np.abs(GAUSS_A2_INV),axis=1)))/h2)
+        stage_force=_time_step_mechanical_equation_scale(
+            engine,qforce,stage_acceleration_gain,settings)
+        packed_force=np.concatenate((stage_force,stage_force),axis=0)
 
         if p0 is None:
             pshape=None
