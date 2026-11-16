@@ -74,6 +74,10 @@ class StrongNewtonResult:
     line_search_admissible_trials: int = 0
     line_search_invalid_trials: int = 0
     line_search_direction_inf_norm: float | None = None
+    # Independent true linearized J*delta+residual check on a failed
+    # line search. The GMRES info flag alone does not diagnose whether
+    # the accepted Krylov direction solves the actual scaled tangent.
+    line_search_linearized_relative_defect: float | None = None
 
 
 @dataclass(frozen=True)
@@ -322,6 +326,22 @@ def solve_strong_nonlinear_equations(
                 accepted = True
                 break
         if not accepted:
+            # Follow the sandwich MKR safeguard: verify the ORIGINAL
+            # linearized correction with the real operator, not GMRES info.
+            # Diagnostic only: the current candidate remains rejected and
+            # neither Newton's tolerance nor the physical equations change.
+            linearized_defect=None
+            try:
+                actual_jdelta=apply(delta)
+                denominator=max(float(np.linalg.norm(fun)),
+                                np.finfo(float).tiny)
+                candidate_defect=float(np.linalg.norm(actual_jdelta+fun)/denominator)
+                if math.isfinite(candidate_defect):
+                    linearized_defect=candidate_defect
+            except (ValueError, FloatingPointError, OverflowError):
+                # Tangent probes can fail at the deformation boundary;
+                # never mask the original line-search failure.
+                pass
             return finish(
                 z,iteration-1,False,'NEWTON_LINE_SEARCH_FAILED',norm,
                 line_search_diagnostics=dict(
@@ -331,7 +351,8 @@ def solve_strong_nonlinear_equations(
                     line_search_admissible_trials=admissible_trials,
                     line_search_invalid_trials=invalid_trials,
                     line_search_direction_inf_norm=float(
-                        np.max(np.abs(delta)))))
+                        np.max(np.abs(delta))),
+                    line_search_linearized_relative_defect=linearized_defect))
         if norm <= settings.scaled_absolute_tolerance:
             return finish(z,iteration,True,'CONVERGED',norm)
     return finish(z,settings.max_iterations,False,'MAX_NEWTON_ITERATIONS',norm)
