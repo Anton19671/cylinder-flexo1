@@ -5,7 +5,8 @@ from the principal symbol: 2, 4, or 6. This does NOT dispatch a solver.
 """
 from dataclasses import dataclass
 import numpy as np
-from cylinder_direct_strong_fdm import DirectStrongGrid, DirectStrongBalance, direct_coefficient_derivative
+from cylinder_direct_strong_fdm import DirectStrongGrid, DirectStrongBalance
+from cylinder_mkr_field_jets import MKRFieldJets
 
 @dataclass(frozen=True)
 class StrongEndSystem:
@@ -68,6 +69,38 @@ def _condition(value, ns, label):
         raise ValueError(label + ": nonfinite or incorrect shape")
     return value["kind"],v
 
+def native_kinematic_normal_trace(field, grid, component, normal_order, side,
+                                  *, prepared_jet=None):
+    """Outward-normal essential trace from the SAME MKR kinematic stencil.
+
+    The strong coefficient divergence is deliberately a different
+    approximation. Reusing that divergence operator for an essential
+    slope/curvature would constrain a different field than the one in
+    the actual constitutive strains (and can pass a false clamp).
+    """
+    if side not in ("left","right"):
+        raise ValueError("invalid physical axial side")
+    if (type(normal_order) is not int or normal_order not in (0,1,2)):
+        raise ValueError("essential normal trace order must be 0, 1 or 2")
+    if not isinstance(grid,DirectStrongGrid):
+        raise TypeError("direct strong grid required")
+    values=np.asarray(field,float)
+    if (values.ndim!=3 or values.shape[1:]!=(grid.nx,grid.ns)
+            or not np.isfinite(values).all()
+            or type(component) is not int
+            or not 0<=component<values.shape[0]):
+        raise ValueError("invalid physical mechanical trace field/component")
+    if prepared_jet is None:
+        jet=MKRFieldJets(grid).derivative(values,normal_order,0)
+    else:
+        jet=np.asarray(prepared_jet,float)
+        if jet.shape!=values.shape or not np.isfinite(jet).all():
+            raise ValueError("invalid prepared physical trace jet")
+    physical_end=0 if side=="left" else -1
+    outward_sign=-1. if side=="left" and normal_order%2 else 1.
+    return outward_sign*jet[component,physical_end,:]
+
+
 def assemble_physical_end_rows(balance, mechanical, grid, *, axial_orders,
                                mechanical_ends, electrical=None,
                                electrical_ends=None, gauge_closed_elsewhere=False):
@@ -90,6 +123,10 @@ def assemble_physical_end_rows(balance, mechanical, grid, *, axial_orders,
     if not isinstance(mechanical_ends,dict) or set(mechanical_ends)!={"left","right"}:
         raise ValueError("left and right mechanical end data required")
     result=bulk.copy()
+    # Prepare each kinematic derivative once and reuse it at BOTH physical
+    # ends. The same jets enter native constitutive strain evaluation.
+    kinematic=MKRFieldJets(grid)
+    essential_jets={0:q}
     for side_index, side in enumerate(("left","right")):
         conditions=mechanical_ends[side]
         if not isinstance(conditions,(tuple,list)) or len(conditions)!=len(q):
@@ -101,11 +138,10 @@ def assemble_physical_end_rows(balance, mechanical, grid, *, axial_orders,
                 kind,value=_condition(item,grid.ns,f"{side} component {i} trace {k}")
                 node=k if side_index==0 else grid.nx-1-k
                 if kind=="ESSENTIAL":
-                    field=q[i] if k==0 else direct_coefficient_derivative(q[i],k,0,grid)
-                    # Evaluate each essential trace at the physical end.
-                    # Adjacent rows hold additional equations, not trace samples.
-                    physical_end=0 if side_index==0 else -1
-                    trace=field[physical_end,:] * (-1 if k==1 and side_index==0 else 1)
+                    if k not in essential_jets:
+                        essential_jets[k]=kinematic.derivative(q,k,0)
+                    trace=native_kinematic_normal_trace(
+                        q,grid,i,k,side,prepared_jet=essential_jets[k])
                 else:
                     actions=(balance.mechanical_end_displacement,
                              balance.mechanical_end_slope,
@@ -142,4 +178,5 @@ def assemble_physical_end_rows(balance, mechanical, grid, *, axial_orders,
             raise ValueError("constant electric mode requires electrode or gauge closure")
     return StrongEndSystem(result,electric,tuple(axial_orders))
 
-__all__=("StrongEndSystem","CUFParallelEndConditions","assemble_physical_end_rows")
+__all__=("StrongEndSystem","CUFParallelEndConditions","assemble_physical_end_rows",
+         "native_kinematic_normal_trace")

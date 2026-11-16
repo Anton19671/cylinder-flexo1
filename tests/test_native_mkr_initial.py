@@ -103,6 +103,25 @@ def test_fixed_initial_trace_error_names_end_component_and_defect(which,expected
     assert "tolerance=1.000000e-09" in detail
 
 
+@pytest.mark.parametrize("power,order",[(3,1),(4,2)])
+def test_initial_support_trace_identical_to_assembled_kinematic_boundary(power,order):
+    from cylinder_direct_strong_boundary import native_kinematic_normal_trace
+    from cylinder_mkr_field_jets import MKRFieldJets
+    model,engine=configured()
+    g=model.grid
+    x=np.arange(g.nx)*g.dx
+    q=np.broadcast_to(x[None,:,None]**power,model.shape).copy()
+    derivative=MKRFieldJets(g).derivative(q,order,0)
+    for side,at in (("left",0),("right",-1)):
+        sign=(-1 if side=="left" and order%2 else 1)
+        np.testing.assert_allclose(
+            native_initial._normal_trace(q,g,0,order,side),
+            native_kinematic_normal_trace(q,g,0,order,side))
+        np.testing.assert_allclose(
+            native_initial._normal_trace(q,g,0,order,side),
+            sign*derivative[0,at])
+
+
 def test_initial_state_rejects_unmet_essential_displacement():
     model,engine=configured()
     q=np.zeros(model.shape)

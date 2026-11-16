@@ -18,9 +18,8 @@ from dataclasses import dataclass, replace
 import numpy as np
 
 from cylinder_direct_strong_boundary import (
-    _condition, assemble_physical_end_rows,
+    _condition, assemble_physical_end_rows, native_kinematic_normal_trace,
 )
-from cylinder_direct_strong_fdm import direct_coefficient_derivative
 from cylinder_direct_strong_newton import (
     StrongNewtonResult, StrongNewtonSettings, solve_strong_nonlinear_equations,
 )
@@ -37,13 +36,11 @@ class NativeInitialStateResult:
 
 
 def _normal_trace(field, grid, component, normal_order, side):
-    node=0 if side=="left" else -1
-    if normal_order==0:
-        return field[component,node,:]
-    derivative=direct_coefficient_derivative(field[component],
-                                             normal_order,0,grid)
-    sign = -1. if side=="left" and normal_order%2 else 1.
-    return sign*derivative[node,:]
+    # Must match essential rows in assemble_physical_end_rows and native
+    # strain jets. A separate seven-point coefficient-flux stencil is NOT
+    # the displacement/acceleration slope enforced by this integrator.
+    return native_kinematic_normal_trace(
+        field,grid,component,normal_order,side)
 
 
 def _verify_fixed_initial_supports(engine, q, v, *, absolute_tolerance, acceleration=None):
