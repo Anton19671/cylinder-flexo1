@@ -325,6 +325,21 @@ def _save_state(path,state):
                  if state.electrical is not None else {}))
 
 
+def _failed_step_nonlinear(step):
+    """Select the failing nonlinear stage without losing Gauss endpoint evidence."""
+    for attribute, stage in (
+        ("nonlinear", "NEWMARK_STEP"),
+        ("endpoint_nonlinear", "GAUSS_ENDPOINT"),
+        ("stage_nonlinear", "GAUSS_STAGES"),
+        ("final_nonlinear", "BATHE_SECOND_STAGE"),
+        ("first_nonlinear", "BATHE_FIRST_STAGE"),
+    ):
+        value=getattr(step,attribute,None)
+        if value is not None:
+            return value,stage
+    return None,None
+
+
 def run(filename,*,validate_only):
     args=load_case(filename)
     model=args["model"]
@@ -414,22 +429,7 @@ def run(filename,*,validate_only):
                 if next_step.state is None:
                     status=(next_step.status if hasattr(next_step,"status")
                             else next_step.nonlinear.status)
-                    nonlinear=getattr(next_step,"nonlinear",None)
-                    failure_stage=None
-                    if nonlinear is not None:
-                        failure_stage="NEWMARK_STEP"
-                    elif getattr(next_step,"endpoint_nonlinear",None) is not None:
-                        nonlinear=next_step.endpoint_nonlinear
-                        failure_stage="GAUSS_ENDPOINT"
-                    elif getattr(next_step,"stage_nonlinear",None) is not None:
-                        nonlinear=next_step.stage_nonlinear
-                        failure_stage="GAUSS_STAGES"
-                    elif getattr(next_step,"final_nonlinear",None) is not None:
-                        nonlinear=next_step.final_nonlinear
-                        failure_stage="BATHE_SECOND_STAGE"
-                    elif getattr(next_step,"first_nonlinear",None) is not None:
-                        nonlinear=next_step.first_nonlinear
-                        failure_stage="BATHE_FIRST_STAGE"
+                    nonlinear,failure_stage=_failed_step_nonlinear(next_step)
                     diagnostics=dict(step=k,integrator=opts["integrator"],
                                      driver_status=status,
                                      failure_stage=failure_stage)
