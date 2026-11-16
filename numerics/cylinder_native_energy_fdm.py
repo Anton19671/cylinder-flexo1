@@ -366,9 +366,23 @@ class NativeEnergyEndSpace:
             work=self.engine.balance(q,p,mechanical_load=mechanical_load,
                                      electrical_charge=electrical_charge)
             return self.residual(work).reshape(1,1,-1),None
+        def packed_scale(value,label):
+            # StrongNewton accepts a scalar or a tensor with the EXACT
+            # (component,nx,ns) shape. This reduced chart packs all
+            # independent degrees of freedom as (1,1,nfree).
+            scale=np.asarray(value,float)
+            if scale.ndim==0:
+                return float(scale)
+            if scale.shape!=(self.reduced_size,):
+                raise ValueError(label+" requires scalar or reduced free size")
+            return scale.reshape(1,1,self.reduced_size)
+
         newton=solve_strong_nonlinear_equations(
-            equations,packed,mechanical_state_scale=reduced_state_scale,
-            mechanical_equation_scale=reduced_equation_scale,
+            equations,packed,
+            mechanical_state_scale=packed_scale(
+                reduced_state_scale,"NATIVE_ENERGY_STATE_SCALE"),
+            mechanical_equation_scale=packed_scale(
+                reduced_equation_scale,"NATIVE_ENERGY_EQUATION_SCALE"),
             settings=settings)
         if not newton.converged:
             return NativeEnergySolution(None,None,newton)
