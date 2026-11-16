@@ -103,6 +103,8 @@ def test_run_native_energy_drivers_on_zero_manufactured_work_only(
     assert summary["status"]=="EXPERIMENTAL_COMPLETED_UNCERTIFIED"
     assert summary["accepted_steps"]==1
     assert summary["physical_steps_computed"]==1
+    assert summary["steps"]==1
+    assert summary["requested_steps"]==1
     with np.load(tmp_path/"result"/"STEP_0001.npz") as state:
         np.testing.assert_array_equal(state["mechanical"],0.)
         np.testing.assert_array_equal(state["acceleration"],0.)

@@ -173,7 +173,8 @@ def run(filename,*,validate_only):
         physical_boundary_closure_certified=False,
         theory=model.theory,gradient_model=model.material.gradient_model,
         geometry_model=model.geometry_model,kind=opts["kind"],
-        integrator=opts["integrator"],requested_steps=opts["steps"],
+        integrator=opts["integrator"],steps=opts["steps"],
+        requested_steps=opts["steps"],
         physical_steps_computed=0,accepted_steps=0,time_s=0.,
         physical_unknowns=(
             model.n_mechanical+(data["case"]["physics"]["potential_order"]+1

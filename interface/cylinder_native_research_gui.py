@@ -1,4 +1,4 @@
-"""Separate Tk research CASE manager for fully independent nonlinear MKR/MVI.
+"""Separate Tk research CASE manager for independent strong/energy FDM and MVI.
 
 Available from the existing cylinder GUI without changing legacy tabs.
 Only explicit native JSON CASEs; no hidden physics defaults or solver
@@ -24,6 +24,7 @@ from cylinder_final_stage11a_dispatcher import validate_final_case
 
 SCHEMAS=frozenset((
     "INDEPENDENT_MKR_COUPLED_RESEARCH_V1",
+    "INDEPENDENT_ENERGY_FDM_COUPLED_RESEARCH_V1",
     "INDEPENDENT_MVI_COUPLED_RESEARCH_V1",
 ))
 
@@ -43,7 +44,7 @@ class NativeResearchWindow(tk.Toplevel):
 
     def __init__(self,parent):
         super().__init__(parent)
-        self.title("Нативные МКР / МВИ — связанный решатель G3D/Gz")
+        self.title("Нативные FDM / МВИ — связанный решатель G3D/Gz")
         self.geometry("1050x800")
         self.minsize(760,560)
         self.case_path=None
