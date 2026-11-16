@@ -57,15 +57,30 @@ def _verify_fixed_initial_supports(engine, q, v, *, absolute_tolerance, accelera
                     continue
                 qtrace=_normal_trace(q,engine.model.grid,comp,order,side)
                 vtrace=_normal_trace(v,engine.model.grid,comp,order,side)
-                if np.max(np.abs(qtrace-value)) > absolute_tolerance:
-                    raise ValueError("INITIAL_DISPLACEMENT_ESSENTIAL_TRACE_MISMATCH")
-                if np.max(np.abs(vtrace)) > absolute_tolerance:
-                    raise ValueError("INITIAL_MOVING_SUPPORT_NOT_SUPPORTED")
+                # A failed dynamic support is a physical trace defect.
+                # Report its end, field, derivative order and magnitude;
+                # the runner retains this detail in RUN_SUMMARY.json.
+                qdef=float(np.max(np.abs(qtrace-value)))
+                if qdef>absolute_tolerance:
+                    raise ValueError(
+                        "INITIAL_DISPLACEMENT_ESSENTIAL_TRACE_MISMATCH: "
+                        f"side={side} component={comp} normal_order={order} "
+                        f"max_abs_defect={qdef:.6e} tolerance={absolute_tolerance:.6e}")
+                vdef=float(np.max(np.abs(vtrace)))
+                if vdef>absolute_tolerance:
+                    raise ValueError(
+                        "INITIAL_MOVING_SUPPORT_NOT_SUPPORTED: "
+                        f"side={side} component={comp} normal_order={order} "
+                        f"max_abs_defect={vdef:.6e} tolerance={absolute_tolerance:.6e}")
                 if acceleration is not None:
                     atrace=_normal_trace(acceleration,engine.model.grid,
                                          comp,order,side)
-                    if np.max(np.abs(atrace)) > absolute_tolerance:
-                        raise ValueError("INITIAL_ACCELERATION_ESSENTIAL_TRACE_MISMATCH")
+                    adef=float(np.max(np.abs(atrace)))
+                    if adef>absolute_tolerance:
+                        raise ValueError(
+                            "INITIAL_ACCELERATION_ESSENTIAL_TRACE_MISMATCH: "
+                            f"side={side} component={comp} normal_order={order} "
+                            f"max_abs_defect={adef:.6e} tolerance={absolute_tolerance:.6e}")
 
 
 def _acceleration_ends(ends):

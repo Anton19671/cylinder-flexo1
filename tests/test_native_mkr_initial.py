@@ -81,6 +81,28 @@ def test_initial_acceleration_essential_rows_use_support_scale(monkeypatch):
     np.testing.assert_allclose(scale[:,1:-1,:],1.e4)
 
 
+@pytest.mark.parametrize("which,expected",[
+    ("q","INITIAL_DISPLACEMENT_ESSENTIAL_TRACE_MISMATCH"),
+    ("v","INITIAL_MOVING_SUPPORT_NOT_SUPPORTED"),
+    ("a","INITIAL_ACCELERATION_ESSENTIAL_TRACE_MISMATCH"),
+])
+def test_fixed_initial_trace_error_names_end_component_and_defect(which,expected):
+    model,engine=configured()
+    q=np.zeros(model.shape)
+    v=np.zeros_like(q)
+    a=np.zeros_like(q)
+    {"q":q,"v":v,"a":a}[which][0,-1,:]=.025
+    with pytest.raises(ValueError,match=expected) as captured:
+        native_initial._verify_fixed_initial_supports(
+            engine,q,v,acceleration=a,absolute_tolerance=1.e-9)
+    detail=str(captured.value)
+    assert "side=right" in detail
+    assert "component=0" in detail
+    assert "normal_order=0" in detail
+    assert "max_abs_defect=2.500000e-02" in detail
+    assert "tolerance=1.000000e-09" in detail
+
+
 def test_initial_state_rejects_unmet_essential_displacement():
     model,engine=configured()
     q=np.zeros(model.shape)
