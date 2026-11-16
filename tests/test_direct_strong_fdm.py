@@ -43,6 +43,39 @@ class DirectStrongFDMTests(unittest.TestCase):
                     self.assertAlmostEqual(float(np.sum(q*balance.mechanical_bulk)),
                                            float(np.sum(derivative**2)),places=9)
 
+    def test_axial_curvature_uses_direct_laplacian_and_detects_checkerboard(self):
+        for nx in (7,11,17):
+            with self.subTest(nx=nx):
+                grid=DirectStrongGrid(nx,6,1.5,2.)
+                jets=MKRFieldJets(grid)
+                signal=np.broadcast_to(
+                    (-1.)**np.arange(nx)[None,:,None],
+                    (1,nx,grid.ns)).copy()
+                curvature=jets.derivative(signal,2,0)
+                np.testing.assert_allclose(
+                    curvature[:,1:-1,:],
+                    -4.*signal[:,1:-1,:]/grid.dx**2)
+                self.assertGreater(
+                    float(np.linalg.norm(curvature[:,1:-1,:])),0.)
+                np.testing.assert_allclose(
+                    jets.prepare(signal,(("qxx",2,0),))[0],
+                    curvature,rtol=0.,atol=0.)
+
+    def test_axial_second_derivative_polynomial_accuracy_at_both_ends(self):
+        grid=DirectStrongGrid(11,6,1.5,2.)
+        jets=MKRFieldJets(grid)
+        x=np.arange(grid.nx)*grid.dx
+        for power in (0,1,2,3):
+            with self.subTest(power=power):
+                values=np.broadcast_to(
+                    x[None,:,None]**power,
+                    (1,grid.nx,grid.ns)).copy()
+                expected=(np.zeros_like(values) if power<2 else
+                    power*(power-1)*x[None,:,None]**(power-2))
+                np.testing.assert_allclose(
+                    jets.derivative(values,2,0),expected,
+                    atol=2.e-10,rtol=2.e-10)
+
     def test_polynomials_through_axial_order_three(self):
         g=DirectStrongGrid(11,6,1.5,2.)
         x=np.arange(g.nx)*g.dx
