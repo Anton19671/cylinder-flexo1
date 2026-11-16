@@ -94,7 +94,7 @@ def initialize_consistent_native_mkr(
     and trial a0. The potential uses its original, simultaneous electric
     bulk/end equations and optional ONE global gauge.
 
-    Higher natural displacement traces are compatibility conditions on
+    Natural displacement traces are compatibility conditions on
     q0/v0/phi0, not acceleration boundary equations. Keep mass balance
     at those adjacent nodes and check their original physical actions
     after closing phi0 and a0. Otherwise a local mass law acquires zero
@@ -140,14 +140,16 @@ def initialize_consistent_native_mkr(
             axial_orders=engine.axial_orders,mechanical_ends=acceleration_ends,
             electrical=p,electrical_ends=engine.electrical_ends,
             gauge_closed_elsewhere=engine.electric_gauge is not None)
-        # Only prescribed kinematic traces have prescribed time
-        # derivatives. Natural higher actions constrain the given q0/v0
-        # and phi0; they cannot replace equations for unknown a0.
+        # Natural end actions are conditions on the given initial fields;
+        # they do not replace the acceleration equations at t0. This is
+        # true for the zeroth (free-traction) trace as well as higher
+        # slope/curvature actions. All original natural conditions are
+        # checked on the reconstructed initial state below.
         for side in ("left","right"):
             for c,conditions in enumerate(engine.mechanical_ends[side]):
                 for order,item in enumerate(conditions):
                     kind,_=_condition(item,engine.model.grid.ns,"initial natural trace")
-                    if kind=="NATURAL" and order>0:
+                    if kind=="NATURAL":
                         node=order if side=="left" else engine.model.grid.nx-1-order
                         rows.mechanical[c,node]=balance.mechanical_bulk[c,node]
         return rows.mechanical,rows.electrical
