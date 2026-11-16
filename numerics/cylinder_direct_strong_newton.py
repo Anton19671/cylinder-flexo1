@@ -19,6 +19,13 @@ import numpy as np
 from scipy.sparse.linalg import LinearOperator, gmres
 
 
+def _invalid_deformation_error(error):
+    """Physical mapping failures eligible for a smaller trial step."""
+    return str(error).partition(":")[0] in (
+        "INVALID_DEFORMATION_MAPPING", "INVALID_KL_DEFORMATION_MAPPING",
+        "INVALID_KL_MIDSURFACE_NORMAL", "INVALID_KL_NORMAL")
+
+
 @dataclass(frozen=True)
 class StrongNewtonSettings:
     max_dofs: int = 512
@@ -241,7 +248,7 @@ def solve_strong_nonlinear_equations(
                     minus = evaluate(z - step*vec)
                     return (plus-minus)/(2*step)
                 except ValueError as exc:
-                    if "INVALID_DEFORMATION_MAPPING" not in str(exc):
+                    if not _invalid_deformation_error(exc):
                         raise
                     step *= .5
             raise ValueError('DIRECT_STRONG_INVALID_TANGENT_PROBE')
@@ -285,7 +292,11 @@ def solve_strong_nonlinear_equations(
             test = z + alpha*delta
             try:
                 check = evaluate(test)
-            except (ValueError, FloatingPointError, OverflowError):
+            except ValueError as exc:
+                if not _invalid_deformation_error(exc):
+                    raise
+                continue
+            except (FloatingPointError, OverflowError):
                 continue
             next_norm = float(np.max(np.abs(check)))
             if next_norm < norm or next_norm <= settings.scaled_absolute_tolerance:

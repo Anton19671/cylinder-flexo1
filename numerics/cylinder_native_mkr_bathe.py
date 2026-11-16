@@ -139,14 +139,23 @@ class NativeStrongBathe:
             return qm,charge
 
         delta=BATHE_GAMMA*h
+        delta2=delta*delta
+        if not math.isfinite(delta2) or delta2 < 4./np.finfo(float).max:
+            raise ValueError("MKR_BATHE_UNREPRESENTABLE_TIME_COEFFICIENTS")
+        c1=(1.-BATHE_GAMMA)/delta
+        c2=-1./((1.-BATHE_GAMMA)*delta)
+        c3=(2.-BATHE_GAMMA)/((1.-BATHE_GAMMA)*h)
+        kappa2=c3*c3
+        if not all(math.isfinite(vv) for vv in (c1,c2,c3,kappa2)) or kappa2<=0.:
+            raise ValueError("MKR_BATHE_UNREPRESENTABLE_TIME_COEFFICIENTS")
         load1,charge1=stage_load(t1)
-        qp1=q+delta*v+.25*delta**2*a
+        qp1=q+delta*v+.25*delta2*a
         vp1=v+.5*delta*a
         if not np.isfinite(qp1).all() or not np.isfinite(vp1).all():
             raise ValueError("nonfinite Bathe first predictor")
         first,first_result=self._stage(
             state,t_next=t1,q_predictor=qp1,v_predictor=vp1,
-            kappa=4./delta**2,velocity_accel_factor=.5*delta,
+            kappa=4./delta2,velocity_accel_factor=.5*delta,
             mechanical_load=load1,electrical_charge=charge1,
             qguess=qp1,pguess=p,mechanical_state_scale=mechanical_state_scale,
             mechanical_equation_scale=mechanical_equation_scale,
@@ -157,18 +166,15 @@ class NativeStrongBathe:
                                      "FIRST_STAGE_"+first_result.status)
 
         load2,charge2=stage_load(t2)
-        c1=(1.-BATHE_GAMMA)/(BATHE_GAMMA*h)
-        c2=-1./((1.-BATHE_GAMMA)*BATHE_GAMMA*h)
-        c3=(2.-BATHE_GAMMA)/((1.-BATHE_GAMMA)*h)
         displacement_history=c1*q+c2*first.mechanical
         velocity_history=c1*v+c2*first.velocity
-        qp2=-(c3*displacement_history+velocity_history)/c3**2
+        qp2=-(c3*displacement_history+velocity_history)/kappa2
         vp2=-velocity_history/c3
         if not np.isfinite(qp2).all() or not np.isfinite(vp2).all():
             raise ValueError("nonfinite Bathe second predictor")
         final,final_result=self._stage(
             first,t_next=t2,q_predictor=qp2,v_predictor=vp2,
-            kappa=c3**2,velocity_accel_factor=1./c3,
+            kappa=kappa2,velocity_accel_factor=1./c3,
             mechanical_load=load2,electrical_charge=charge2,
             qguess=first.mechanical,pguess=first.electrical,
             mechanical_state_scale=mechanical_state_scale,

@@ -389,7 +389,10 @@ class NativeCoupledMVIGauss2:
                           stage_states,fit.relative_error)
         return CoupledMVIGaussStep(
             endpoint.state,stage_states,last_solvers,
-            t_end,"MVI_GAUSS_CONVERGED",final_norm,
+            t_end,("MVI_GAUSS_CONVERGED_PROJECTED" if
+                endpoint.electric_status=="CONVERGED_PROJECTED" or any(
+                    item.status=="CONVERGED_PROJECTED" for item in last_solvers)
+                else "MVI_GAUSS_CONVERGED"),final_norm,
             fit.relative_error)
 
 

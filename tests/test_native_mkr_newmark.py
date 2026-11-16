@@ -62,6 +62,18 @@ def test_native_newmark_constructor_rejects_missing_physical_data():
                             density_kg_m3=3.,beta=.1,gamma=.5)
 
 
+@pytest.mark.parametrize("dt",(1.e-200,1.e200))
+def test_newmark_rejects_unrepresentable_time_coefficients_before_solve(monkeypatch,dt):
+    import cylinder_native_mkr_newmark as module
+    model,engine=make_engine()
+    q=np.zeros(model.shape)
+    state=NativeNewmarkState(0.,q,q,q)
+    monkeypatch.setattr(module,"solve_strong_nonlinear_equations",
+                        lambda *a,**k:pytest.fail("must reject before solve"))
+    with pytest.raises(ValueError,match="MKR_NEWMARK_UNREPRESENTABLE_TIME_COEFFICIENTS"):
+        engine.advance(state,dt,mechanical_state_scale=1.,mechanical_equation_scale=1.)
+
+
 def test_controlled_step_uses_newmark_kinematics_and_does_not_call_mvi(monkeypatch):
     import cylinder_native_mkr_newmark as module
     model,engine=make_engine()

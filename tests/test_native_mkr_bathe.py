@@ -56,6 +56,18 @@ def fake_balance(model, history):
     return evaluate
 
 
+@pytest.mark.parametrize("dt",(1.e-323,1.e-200,1.e160))
+def test_invalid_stage_coefficients_rejected_before_loads_or_solve(monkeypatch,dt):
+    model,driver,initial=setup()
+    initial=NativeNewmarkState(0.,initial.mechanical,initial.velocity,initial.acceleration)
+    def forbidden(*args,**kwargs):
+        pytest.fail("invalid time coefficients must be rejected first")
+    monkeypatch.setattr(driver,"_stage",forbidden)
+    with pytest.raises(ValueError,match="MKR_BATHE_UNREPRESENTABLE_TIME_COEFFICIENTS"):
+        driver.advance(initial,dt,loads_at=forbidden,mechanical_state_scale=1.,
+                       mechanical_equation_scale=1.)
+
+
 def test_bathe_two_stages_follow_three_point_formula(monkeypatch):
     model,engine,initial=setup()
     seen=[]

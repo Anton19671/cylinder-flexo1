@@ -12,7 +12,7 @@ import pytest
 import independent_mvi.coupled_newmark as dynamic
 from independent_mvi.coupled_inertia import NativeCoupledMVIInertia
 from independent_mvi.coupled_halfstep import CoupledMVIEndProgram
-from independent_mvi.coupled_static import CoupledMVISweepResult
+from independent_mvi.coupled_static import CoupledMVISweepResult, CoupledMVISweepSettings
 from independent_mvi.coupled_surface import (
     CoupledMVISurfaceGrid,CoupledMVIFactors,NativeCoupledMVISurface,
     CoupledMVIWork,
@@ -112,6 +112,28 @@ def test_failure_never_accepts_unfinished_mvi_time_step(monkeypatch):
     assert step.state is None
     assert not step.solver.converged
     assert state.time_s==0.
+
+
+def test_projected_newmark_step_is_not_labeled_full_convergence(monkeypatch):
+    surf,driver,state=build()
+    monkeypatch.setattr(dynamic,"solve_coupled_mvi_static",lambda *a,**kw:
+        CoupledMVISweepResult(state.factors,True,"CONVERGED_PROJECTED",
+                              1,0.,0.,0.,(),.1))
+    step=driver.advance(state,.03,field_scales=np.ones(surf.n_fields),
+                        energy_scale_j=1.,settings=CoupledMVISweepSettings(
+                            allow_projected_convergence=True))
+    assert step.state is not None
+    assert step.status=="MVI_NEWMARK_CONVERGED_PROJECTED"
+    assert step.solver.full_nodal_norm==pytest.approx(.1)
+
+
+@pytest.mark.parametrize("dt",(1.e-200,1.e200))
+def test_newmark_rejects_unrepresentable_coefficients_before_solving(monkeypatch,dt):
+    surf,driver,state=build()
+    monkeypatch.setattr(dynamic,"solve_coupled_mvi_static",
+                        lambda *a,**k:pytest.fail("must reject before solve"))
+    with pytest.raises(ValueError,match="MVI_NEWMARK_UNREPRESENTABLE_TIME_COEFFICIENTS"):
+        driver.advance(state,dt,field_scales=np.ones(surf.n_fields),energy_scale_j=1.)
 
 
 def test_moving_support_rejected_before_any_newton(monkeypatch):

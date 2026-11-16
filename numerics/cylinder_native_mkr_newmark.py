@@ -213,12 +213,17 @@ class NativeStrongNewmark:
         time_next = state.time_s + dt
         if not math.isfinite(time_next) or time_next <= state.time_s:
             raise ValueError("time step does not advance representable time")
+        dt2=dt*dt
+        acceleration_denominator=self.beta*dt2
+        if (not math.isfinite(dt2) or not math.isfinite(acceleration_denominator)
+                or acceleration_denominator < 1./np.finfo(float).max):
+            raise ValueError("MKR_NEWMARK_UNREPRESENTABLE_TIME_COEFFICIENTS")
         load_m = (self.mechanical_load if mechanical_load is None else
                   _frozen_field(mechanical_load, self.model.shape, "step mechanical load"))
         load_e = (self.electrical_charge if electrical_charge is None else
                   self._electric_field(electrical_charge, "step electric charge"))
         self._check_insulated_charge(load_e)
-        predictor = q0 + dt*v0 + (0.5-self.beta)*dt**2*a0
+        predictor = q0 + dt*v0 + (0.5-self.beta)*dt2*a0
         velocity_predictor = v0 + (1.-self.gamma)*dt*a0
         if not np.isfinite(predictor).all() or not np.isfinite(velocity_predictor).all():
             raise ValueError("nonfinite Newmark predictor")
@@ -231,7 +236,7 @@ class NativeStrongNewmark:
             pguess = None
 
         def kinematics(q):
-            a = (q-predictor)/(self.beta*dt**2)
+            a = (q-predictor)/acceleration_denominator
             v = velocity_predictor + self.gamma*dt*a
             if not np.isfinite(a).all() or not np.isfinite(v).all():
                 raise ValueError("nonfinite Newmark velocity/acceleration")

@@ -458,7 +458,8 @@ def _dynamic_solution_quality(diagnostic,tolerance):
     solves=diagnostic["solves"]
     if not solves:
         return {}  # Missing evidence must not manufacture equilibrium.
-    projected=any(item["status"]=="CONVERGED_PROJECTED" for item in solves)
+    projected=(str(diagnostic["status"]).endswith("CONVERGED_PROJECTED") or
+               any(item["status"]=="CONVERGED_PROJECTED" for item in solves))
     norms=[item["full_nodal_norm"] for item in solves]
     joint=diagnostic["joint_nodal_norm"]
     if joint is not None:
@@ -684,6 +685,7 @@ def _run_loaded_case(items,*,validate_only,resume=False):
                 result=prior
                 result.pop("error_type",None)
                 result.pop("detail",None)
+                result.pop("failed_time_step",None)
                 result["status"]="IN_PROGRESS"
                 _write_json(output/"RUN_SUMMARY.json",result)
             else:

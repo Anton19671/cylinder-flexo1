@@ -129,11 +129,13 @@ class NativeCoupledMVINewmark:
                 mechanical_load=None,free_charge=None,
                 settings=CoupledMVISweepSettings(),
                 on_iteration=None,cancelled=None):
-        """One implicit step, accepted ONLY on full nodal stationarity.
+        """One implicit step with explicitly configured stationarity gate.
 
         Inertia is the actual derivative of kinetic energy; all mechanical
         unknowns are changed through fixed-rank factors. Quasi-static
-        electric modes remain in the SAME nonlinear Y/X iteration.
+        electric modes remain in the SAME nonlinear Y/X iteration. When
+        projected stationarity is explicitly allowed, the returned step
+        status retains that distinction and does not imply full equilibrium.
         """
         surf=self.surface
         q,v0,a0=self._validate_state(state)
@@ -141,12 +143,17 @@ class NativeCoupledMVINewmark:
         target_time=state.time_s+dt
         if not math.isfinite(target_time) or target_time<=state.time_s:
             raise ValueError("MVI_DYNAMIC_UNREPRESENTABLE_TIME")
+        dt2=dt*dt
+        acceleration_denominator=self.beta*dt2
+        if (not math.isfinite(dt2) or not math.isfinite(acceleration_denominator)
+                or acceleration_denominator < 1./np.finfo(float).max):
+            raise ValueError("MVI_NEWMARK_UNREPRESENTABLE_TIME_COEFFICIENTS")
         if not isinstance(settings,CoupledMVISweepSettings):
             raise TypeError("CoupledMVISweepSettings required")
         _scales(surf,field_scales,energy_scale_j)
         mechanical0=q[:surf.n_mechanical]
         q_predictor=(mechanical0+dt*v0+
-                     (.5-self.beta)*dt**2*a0)
+                     (.5-self.beta)*dt2*a0)
         v_predictor=v0+(1.-self.gamma)*dt*a0
         if not np.isfinite(q_predictor).all() or not np.isfinite(v_predictor).all():
             raise ValueError("MVI_DYNAMIC_NONFINITE_PREDICTOR")
@@ -160,7 +167,7 @@ class NativeCoupledMVINewmark:
             work=surf.weak_work(factors,mechanical_load=mechanical_load,
                                 free_charge=free_charge)
             qm=work.mechanical
-            acceleration=(qm-q_predictor)/(self.beta*dt**2)
+            acceleration=(qm-q_predictor)/acceleration_denominator
             velocity=v_predictor+self.gamma*dt*acceleration
             inertia_nodal=self.inertia.apply(qm,velocity,acceleration)
             full=np.asarray(work.nodal_gradient,float).copy()
@@ -187,13 +194,15 @@ class NativeCoupledMVINewmark:
             return CoupledMVIDynamicStep(None,result,target_time,
                                           "MVI_NEWMARK_"+result.status)
         next_q=surf.reconstruct(result.factors)[:surf.n_mechanical]
-        next_a=(next_q-q_predictor)/(self.beta*dt**2)
+        next_a=(next_q-q_predictor)/acceleration_denominator
         next_v=v_predictor+self.gamma*dt*next_a
         next_state=CoupledMVIDynamicState(
             target_time,result.factors,next_v,next_a)
         self._validate_state(next_state)
         return CoupledMVIDynamicStep(
-            next_state,result,target_time,"MVI_NEWMARK_CONVERGED")
+            next_state,result,target_time,
+            "MVI_NEWMARK_CONVERGED_PROJECTED" if result.status=="CONVERGED_PROJECTED"
+            else "MVI_NEWMARK_CONVERGED")
 
 
 __all__=("CoupledMVIDynamicState","CoupledMVIDynamicStep",

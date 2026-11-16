@@ -97,6 +97,25 @@ def test_gauss_joint_stages_and_endpoint_are_both_required(monkeypatch):
                                .02*gauss.GAUSS_C[1],.02])
 
 
+def test_gauss_projected_electric_endpoint_is_reported(monkeypatch):
+    surf,solver,state=configured()
+    monkeypatch.setattr(gauss,"solve_coupled_mvi_static",
+                        lambda surface,factors,**kw:sweep(factors))
+    monkeypatch.setattr(gauss,"_projected_norms",lambda *a,**kw:(0.,0.,0.))
+    monkeypatch.setattr(gauss,"fit_mvi_endpoint_field",
+        lambda surface,seed,field,program,**kw:
+            MVIRankEndpointFit(seed,True,"MVI_ENDPOINT_EXACT_RANK",0.,0))
+    def closure(config,factors,velocity,**kw):
+        result=CoupledMVIDynamicState(kw["time_s"],factors,velocity,
+                                     np.zeros_like(velocity))
+        return MVIAccelerationResult(result,"MVI_INITIAL_EQUILIBRIUM_CLOSED",
+                                     None,"CONVERGED_PROJECTED")
+    monkeypatch.setattr(gauss,"close_mvi_instantaneous_state",closure)
+    result=solver.advance(state,.02,field_scales=np.ones(surf.n_fields),energy_scale_j=1.)
+    assert result.state is not None
+    assert result.status=="MVI_GAUSS_CONVERGED_PROJECTED"
+
+
 @pytest.mark.parametrize("failed_stage",(1,2))
 def test_failed_stage_prevents_endpoint(monkeypatch,failed_stage):
     surf,solver,state=configured()

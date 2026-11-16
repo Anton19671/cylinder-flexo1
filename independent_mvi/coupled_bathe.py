@@ -3,7 +3,8 @@
 Independent of MKR temporal/spatial drivers and legacy variational
 dynamic MVI. Each stage solves its own nonlinear stationary effective
 virtual-work equations in the separated Y/X directions. Both stages
-require the full admissible nodal first-variation gate to pass.
+use the supplied stationarity gate; opt-in projected convergence is
+reported distinctly from full nodal stationarity.
 
 No global FDM Newton, SVD, electric inertia, artificial rank growth,
 production CASE dispatch or loaded physical test is introduced.
@@ -123,7 +124,10 @@ class NativeCoupledMVIBathe:
         # implicit coefficients (the 1/dt**2 terms can overflow).
         # Validate BOTH Bathe stage scales before evaluating any load
         # or material weak work.
-        acceleration_factor1=4./(delta*delta) if delta*delta else float("inf")
+        delta2=delta*delta
+        if not math.isfinite(delta2) or delta2 < 4./np.finfo(float).max:
+            raise ValueError("MVI_BATHE_UNREPRESENTABLE_TIME_COEFFICIENTS")
+        acceleration_factor1=4./delta2
         c1=(1.-BATHE_GAMMA)/(BATHE_GAMMA*dt)
         c2=-1./((1.-BATHE_GAMMA)*BATHE_GAMMA*dt)
         c3=(2.-BATHE_GAMMA)/((1.-BATHE_GAMMA)*dt)
@@ -134,7 +138,7 @@ class NativeCoupledMVIBathe:
                 or c3<=0. or c1==0. or c2==0.):
             raise ValueError("MVI_BATHE_UNREPRESENTABLE_TIME_COEFFICIENTS")
         initial_q=q[:surf.n_mechanical]
-        predictor1=initial_q+delta*v+delta**2*a/4.
+        predictor1=initial_q+delta*v+delta2*a/4.
         velocity1=v+delta*a/2.
         if not (np.isfinite(predictor1).all() and np.isfinite(velocity1).all()):
             raise ValueError("MVI_BATHE_NONFINITE_FIRST_PREDICTOR")
@@ -189,7 +193,9 @@ class NativeCoupledMVIBathe:
                 raise ValueError("MVI_BATHE_THREE_POINT_IDENTITY_FAILURE")
         return CoupledMVIBatheStep(
             final,first,first_result,final_result,t2,
-            "MVI_BATHE_CONVERGED")
+            "MVI_BATHE_CONVERGED_PROJECTED" if any(
+                item.status=="CONVERGED_PROJECTED"
+                for item in (first_result,final_result)) else "MVI_BATHE_CONVERGED")
 
 
 __all__=("BATHE_GAMMA","CoupledMVIBatheStep","NativeCoupledMVIBathe")

@@ -31,6 +31,33 @@ class DirectStrongNewtonTests(unittest.TestCase):
         self.assertFalse(result.converged)
         self.assertEqual(result.status,'INVALID_TANGENT_PERTURBATION')
 
+    def test_kl_mapping_failures_also_shrink_tangent_probe(self):
+        for code in ('INVALID_KL_DEFORMATION_MAPPING',
+                     'INVALID_KL_MIDSURFACE_NORMAL','INVALID_KL_NORMAL'):
+            with self.subTest(code=code):
+                q=np.full((1,2,2),.9999)
+                def equations(q,p):
+                    if np.any(q>=1.):
+                        raise ValueError(code+': synthetic invalid mapping')
+                    return q-.5,None
+                result=solve_strong_nonlinear_equations(
+                    equations,q,mechanical_state_scale=1.,mechanical_equation_scale=1.,
+                    settings=StrongNewtonSettings(max_dofs=4,difference_step=.001,
+                                                 line_search_halvings=15))
+                self.assertTrue(result.converged,result.status)
+                np.testing.assert_allclose(result.mechanical,.5,atol=1.e-8)
+
+    def test_line_search_does_not_hide_unrelated_value_errors(self):
+        q=np.zeros((1,2,2))
+        def equations(q,p):
+            if np.any(q>.5):
+                raise ValueError('SYNTHETIC_ASSEMBLY_CONTRACT_ERROR')
+            return q-1.,None
+        with self.assertRaisesRegex(ValueError,'SYNTHETIC_ASSEMBLY_CONTRACT_ERROR'):
+            solve_strong_nonlinear_equations(
+                equations,q,mechanical_state_scale=1.,mechanical_equation_scale=1.,
+                settings=StrongNewtonSettings(max_dofs=4))
+
     def test_manufactured_coupled_second_order(self):
         grid=DirectStrongGrid(9,4,1.6,2.)
         x=np.arange(grid.nx)[:,None]*grid.dx

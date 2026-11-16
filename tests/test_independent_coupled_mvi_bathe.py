@@ -14,7 +14,7 @@ from independent_mvi.coupled_newmark import (
     CoupledMVIDynamicState,NativeCoupledMVINewmark,
 )
 from independent_mvi.coupled_inertia import NativeCoupledMVIInertia
-from independent_mvi.coupled_static import CoupledMVISweepResult
+from independent_mvi.coupled_static import CoupledMVISweepResult, CoupledMVISweepSettings
 from independent_mvi.coupled_bathe import NativeCoupledMVIBathe,BATHE_GAMMA
 from flexo_gradient_g3d import G3DMaterial
 
@@ -88,6 +88,24 @@ def test_failed_stage_never_accepts_full_step(monkeypatch,failed_stage):
     assert state.time_s==0.
 
 
+@pytest.mark.parametrize("projected_stage",(1,2))
+def test_projected_bathe_stage_is_not_labeled_full(monkeypatch,projected_stage):
+    import independent_mvi.coupled_bathe as module
+    surf,solver,state=configured()
+    count=[0]
+    def fake(surface,factors,**kw):
+        count[0]+=1
+        if count[0]==projected_stage:
+            return CoupledMVISweepResult(factors,True,"CONVERGED_PROJECTED",
+                                         1,0.,0.,0.,(),.1)
+        return accepted(factors)
+    monkeypatch.setattr(module,"solve_coupled_mvi_static",fake)
+    out=solver.advance(state,.01,field_scales=np.ones(surf.n_fields),energy_scale_j=1.,
+                       settings=CoupledMVISweepSettings(allow_projected_convergence=True))
+    assert out.state is not None
+    assert out.status=="MVI_BATHE_CONVERGED_PROJECTED"
+
+
 def test_zero_dt_rejected_before_any_stage(monkeypatch):
     import independent_mvi.coupled_bathe as module
     surf,solver,state=configured()
@@ -129,7 +147,7 @@ def test_bathe_viscosity_is_applied_on_both_stages_without_electric_inertia(monk
     assert len(stages)==2
 
 
-@pytest.mark.parametrize("dt",(1.e-200,1.e-155))
+@pytest.mark.parametrize("dt",(1.e-323,1.e-200,1.e-155))
 def test_bathe_rejects_unrepresentable_implicit_coefficients_before_loads(
         monkeypatch,dt):
     import independent_mvi.coupled_bathe as module

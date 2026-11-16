@@ -335,6 +335,13 @@ def test_dynamic_nodal_norms_and_failure_history_survive_runner(
     assert record["state_accepted"] is accepted
     assert record["requested_rank"]==1
     assert record["solves"][0]["history"][0]["condition"] is None
+    if not accepted:
+        # A successful resume must not leave the rejected attempt in the
+        # current summary when the retried step succeeds.
+        mock_drivers(monkeypatch)
+        resumed=native.run(path,validate_only=False,resume=True)
+        assert resumed["accepted_steps"]==1
+        assert "failed_time_step" not in resumed
 
 
 def test_unmeasured_or_projected_dynamic_work_is_never_marked_full():
@@ -346,6 +353,12 @@ def test_unmeasured_or_projected_dynamic_work_is_never_marked_full():
     assert report["solution_status"]=="CONVERGED_PROJECTED"
     assert report["full_nodal_equilibrium_satisfied"] is False
     assert report["solution_quality"]=="PROJECTED_EQUILIBRIUM"
+    solve.update(status="FULL",full_nodal_norm=1.e-10)
+    diagnostic["status"]="MVI_GAUSS_CONVERGED_PROJECTED"
+    report=native._dynamic_solution_quality(diagnostic,1.e-8)
+    assert report["full_nodal_equilibrium_satisfied"] is False
+    assert report["solution_status"]=="CONVERGED_PROJECTED"
+    diagnostic["status"]="ACCEPTED"
     solve.update(status="FULL",full_nodal_norm=None)
     report=native._dynamic_solution_quality(diagnostic,1.e-8)
     assert report["full_nodal_equilibrium_satisfied"] is None
