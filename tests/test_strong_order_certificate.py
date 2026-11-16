@@ -2,7 +2,8 @@
 import unittest
 import numpy as np
 from cylinder_direct_strong_fdm import DirectStrongGrid,DirectStrongBalance
-from cylinder_direct_strong_boundary import assemble_physical_end_rows
+from cylinder_direct_strong_boundary import assemble_physical_end_rows, native_kinematic_normal_trace
+from cylinder_mkr_field_jets import MKRFieldJets
 from cylinder_strong_order_certificate import certify_decoupled_axial_orders
 
 def bc(kind,v=0.):
@@ -18,12 +19,37 @@ class AlgorithmOrderTraceTests(unittest.TestCase):
         edges=np.zeros((2,1,grid.ns))
         b=DirectStrongBalance(zeros,None,edges,edges,edges,None,
                              tuple(range(3,8)),3)
-        ends={"left":[[bc("ESSENTIAL",0.),bc("ESSENTIAL",0.),bc("ESSENTIAL",0.)]],
-              "right":[[bc("ESSENTIAL",8.),bc("ESSENTIAL",12.),bc("ESSENTIAL",12.)]]}
+        # End values must be sampled at x=0/L with the SAME native
+        # kinematic stencil as the constitutive jets. A second-order
+        # one-sided first derivative is not cubic-exact at the end:
+        # D_x(x**3)(0)=2*dx**2, unlike the exact derivative zero.
+        ends={side:[[
+            bc("ESSENTIAL",native_kinematic_normal_trace(q,grid,0,k,side))
+            for k in (0,1,2)]]
+            for side in ("left","right")}
         result=assemble_physical_end_rows(
             b,q,grid,axial_orders=(3,),mechanical_ends=ends)
         np.testing.assert_allclose(result.mechanical[0,:3],0,atol=1e-9)
         np.testing.assert_allclose(result.mechanical[0,-3:],0,atol=1e-9)
+        jets=MKRFieldJets(grid)
+        for side,node in (("left",0),("right",-1)):
+            for order in (0,1,2):
+                exact=jets.derivative(q,order,0)[0,node,:]
+                outward=(-1 if side=="left" and order%2 else 1)
+                np.testing.assert_allclose(
+                    native_kinematic_normal_trace(q,grid,0,order,side),
+                    outward*exact)
+        left_slope=native_kinematic_normal_trace(q,grid,0,1,"left")
+        np.testing.assert_allclose(left_slope,-2*grid.dx**2,atol=1e-12)
+        # The previous continuum-exact slope request is NOT equivalent
+        # to the discrete clamp, and cannot be used as a zero-residual
+        # assertion for the native second-order endpoint operator.
+        old_ends={side:[list(items[0])] for side,items in ends.items()}
+        old_ends["left"][0][1]=bc("ESSENTIAL",0.)
+        legacy=assemble_physical_end_rows(
+            b,q,grid,axial_orders=(3,),mechanical_ends=old_ends)
+        np.testing.assert_allclose(
+            legacy.mechanical[0,1,:],-2*grid.dx**2,atol=1e-12)
 
     def test_classification_is_not_guessed_from_shell_name(self):
         matrices={2:np.diag([1.,1.,1.]),4:np.diag([0.,1.,0.]),
