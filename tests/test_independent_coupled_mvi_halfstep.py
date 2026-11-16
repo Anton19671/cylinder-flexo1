@@ -202,8 +202,13 @@ def test_duplicate_or_zero_angular_modes_not_silently_replaced(rank):
         assert out.rank==rank
         np.testing.assert_allclose(surface.reconstruct(out),
                                    surface.reconstruct(start),atol=1.e-14)
-        np.testing.assert_array_equal(out.x,start.x)
-        np.testing.assert_array_equal(out.y,start.y)
+        # Reciprocal normalization may change coordinates, but cannot
+        # erase, replace or redistribute the user's individual terms.
+        np.testing.assert_allclose(
+            np.einsum("cri,crj->crij",out.x,out.y),
+            np.einsum("cri,crj->crij",start.x,start.y),atol=1.e-14)
+        np.testing.assert_array_equal(out.y[:,0],0.)
+        assert np.all(np.linalg.norm(out.y[:,1:],axis=2)>0.)
 
 
 @pytest.mark.parametrize("rank",range(1,9))

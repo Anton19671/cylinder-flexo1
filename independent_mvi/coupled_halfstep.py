@@ -191,26 +191,44 @@ def normalized_mvi_factors(surface, factors, program, axis):
         # X seed in a Y-halfstep would destroy every prescribed Y mode
         # before the first X iteration could activate it.
         #
-        # Normalize only a FULL ROW RANK frozen family; otherwise keep
-        # the original rank-R coordinates unchanged. This uses QR only,
-        # never an SVD rank estimate or an automatic rank reduction.
+        # A dependent frozen family cannot be orthogonalized by an
+        # invertible QR transform. Normalize its NONZERO rows separately
+        # instead. Leaving them unscaled makes the stationarity tolerance
+        # depend on arbitrary reciprocal X/Y factors. All R slots and
+        # every dormant partner are retained; no SVD or rank reduction.
+        def normalize_nonzero_rows(amplitudes,partner):
+            active=amplitudes>0.
+            if not np.any(active):
+                return
+            unit=partner[active]/amplitudes[active,None]
+            lengths=np.linalg.norm(unit,axis=1)
+            if axis=="X":
+                y[c,active]=unit/lengths[:,None]
+                x[c,active]=(amplitudes[active,None]*x[c,active])*lengths[:,None]
+            else:
+                x[c,active]=(x[c,active]/amplitudes[active,None])/lengths[:,None]
+                y[c,active]=(amplitudes[active,None]*y[c,active])*lengths[:,None]
         if axis=="X":
             amplitudes=np.max(np.abs(y[c]),axis=1)
             if np.any(amplitudes==0.):
+                normalize_nonzero_rows(amplitudes,y[c])
                 continue
             Q,R=np.linalg.qr((y[c]/amplitudes[:,None]).T,mode="reduced")
             size=float(np.linalg.norm(R,ord="fro"))
             if size==0. or float(np.min(np.abs(np.diag(R))))<=1.e-12*size:
+                normalize_nonzero_rows(amplitudes,y[c])
                 continue
             y[c]=Q.T
             x[c]=R@(amplitudes[:,None]*x[c])
         else:
             amplitudes=np.max(np.abs(x[c][:,ids]),axis=1)
             if np.any(amplitudes==0.):
+                normalize_nonzero_rows(amplitudes,x[c][:,ids])
                 continue
             Q,R=np.linalg.qr((x[c][:,ids]/amplitudes[:,None]).T,mode="reduced")
             size=float(np.linalg.norm(R,ord="fro"))
             if size==0. or float(np.min(np.abs(np.diag(R))))<=1.e-12*size:
+                normalize_nonzero_rows(amplitudes,x[c][:,ids])
                 continue
             x[c]=0.
             x[c][:,ids]=Q.T

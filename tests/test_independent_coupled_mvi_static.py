@@ -234,6 +234,50 @@ def test_projected_norms_invariant_to_rank_two_basis_change():
     np.testing.assert_allclose(one,two,atol=1.e-12,rtol=1.e-12)
 
 
+@pytest.mark.parametrize("axis",("X","Y"))
+@pytest.mark.parametrize("dormant",(False,True))
+def test_dependent_frozen_profiles_keep_gauge_invariant_work_norms(axis,dormant):
+    """Synthetic nodal work only; dependent and dormant rank slots remain.
+
+    QR cannot invert a dependent partner. Reciprocal row scaling still
+    must not change the projected stationarity decision by six orders.
+    """
+    from types import SimpleNamespace
+    from independent_mvi.coupled_halfstep import normalized_mvi_factors
+    surface,_,program=build()
+    x=np.zeros((surface.n_fields,2,surface.grid.nx))
+    x[:,:,1:-1]=1.e-6
+    y=np.broadcast_to(np.array([[1.,1.,1.,1.,1.],
+                               [1.,-1.,0.,1.,-1.]]),
+                       (surface.n_fields,2,surface.grid.ns)).copy()
+    if axis=="X":
+        y[:,1]=y[:,0]
+    if dormant:
+        (y if axis=="X" else x)[:,1]=0.
+    factors=CoupledMVIFactors(x,y)
+    row_scaling=np.array([1.e6,1.e-4])[None,:,None]
+    other=CoupledMVIFactors(x*row_scaling,y/row_scaling)
+    rng=np.random.default_rng(12)
+    nodal=rng.normal(size=surface.shape)
+    def work(current):
+        return SimpleNamespace(nodal_gradient=nodal,
+            gradient_x=np.einsum("cij,crj->cri",nodal,current.y),
+            gradient_y=np.einsum("cij,cri->crj",nodal,current.x))
+    one=engine._projected_norms(surface,factors,program,np.ones(surface.n_fields),
+                               1.,None,None,work_evaluator=work)
+    two=engine._projected_norms(surface,other,program,np.ones(surface.n_fields),
+                               1.,None,None,work_evaluator=work)
+    np.testing.assert_allclose(one,two,rtol=1.e-12,atol=1.e-12)
+    normalized=normalized_mvi_factors(surface,factors,program,axis)
+    assert normalized.rank==2
+    np.testing.assert_allclose(surface.reconstruct(normalized),
+                               surface.reconstruct(factors),rtol=1.e-12,atol=1.e-18)
+    if dormant:
+        # A zero frozen row cannot erase its original active partner.
+        np.testing.assert_array_equal(normalized.x[:,1] if axis=="X" else normalized.y[:,1],
+                                      x[:,1] if axis=="X" else y[:,1])
+
+
 def test_explicit_projected_static_result_preserves_full_residual(monkeypatch):
     surface,fac,program=build()
     def half(surf,factors,*,axis,**kwargs):

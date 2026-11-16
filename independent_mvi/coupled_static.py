@@ -67,8 +67,8 @@ def _projected_norms(surface,factors,program,field_scales,energy_scale_j,
     components=_active_field_ids(surface,active_fields)
     # Use the same frozen-partner coordinates as each halfstep.  Reciprocal
     # X/Y rescaling must not alter the full-rank stationarity decision.
-    # Rank-deficient partners retain the halfstep's existing fail-closed
-    # normalization behavior; no profiles are discarded.
+    # Dependent partners use the halfstep's invertible per-row scaling;
+    # dormant slots stay dormant and no profiles are discarded.
     def evaluate(current):
         return (surface.weak_work(current,mechanical_load=mechanical_load,
                                   free_charge=free_charge)
