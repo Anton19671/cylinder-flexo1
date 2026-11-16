@@ -3,9 +3,46 @@ import unittest
 import numpy as np
 from cylinder_direct_strong_fdm import (
     DirectStrongGrid,direct_coefficient_derivative,direct_strong_jet_balance)
+from cylinder_mkr_field_jets import MKRFieldJets
 
 
 class DirectStrongFDMTests(unittest.TestCase):
+    def test_periodic_gradient_energies_have_nonnegative_checkerboard_stiffness(self):
+        # Pure manufactured coefficient laws A=derivative(q), no shell.
+        # The old D+² field jet combined with the centered coefficient
+        # derivative gave a NEGATIVE fourth-order checkerboard stiffness.
+        for ns in (4,8,12):
+            g=DirectStrongGrid(7,ns,1.2,2.)
+            jets=MKRFieldJets(g)
+            q=np.broadcast_to((-1.)**np.arange(ns),(1,g.nx,ns)).copy()
+            for order in (1,2,3):
+                with self.subTest(ns=ns,order=order):
+                    field_derivative=jets.derivative(q,0,order)
+                    coeff=np.stack((np.zeros_like(q),field_derivative))
+                    result=direct_strong_jet_balance(
+                        coeff,(("q",0,0),("qs",0,order)),g)
+                    expected=(4./g.ds**2)**order*q
+                    np.testing.assert_allclose(result.mechanical_bulk,expected,
+                                               rtol=1.e-12,atol=1.e-12)
+                    self.assertGreater(float(np.sum(q*result.mechanical_bulk)),0.)
+                    np.testing.assert_allclose(
+                        jets.prepare(q,(("jet",0,order),))[0],field_derivative)
+
+    def test_periodic_gradient_work_matches_energy_for_general_fields(self):
+        rng=np.random.default_rng(247)
+        for ns in (5,8):
+            g=DirectStrongGrid(7,ns,1.2,2.)
+            jets=MKRFieldJets(g)
+            q=rng.normal(size=(1,g.nx,ns))
+            for order in (1,2,3):
+                with self.subTest(ns=ns,order=order):
+                    derivative=jets.derivative(q,0,order)
+                    balance=direct_strong_jet_balance(
+                        np.stack((np.zeros_like(q),derivative)),
+                        (("q",0,0),("qs",0,order)),g)
+                    self.assertAlmostEqual(float(np.sum(q*balance.mechanical_bulk)),
+                                           float(np.sum(derivative**2)),places=9)
+
     def test_polynomials_through_axial_order_three(self):
         g=DirectStrongGrid(11,6,1.5,2.)
         x=np.arange(g.nx)*g.dx

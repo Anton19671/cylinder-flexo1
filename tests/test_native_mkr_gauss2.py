@@ -116,6 +116,17 @@ def test_gauss_stage_failure_rejects_endpoint(monkeypatch):
     assert result.status=="GAUSS_STAGES_LINEAR_TANGENT_NOT_SOLVED"
 
 
+def test_gauss_rejects_accepted_stage_with_nonzero_support_velocity(monkeypatch):
+    model,solver,initial=setup()
+    def fake(equation,q,p,**kwargs):
+        trial=q.copy();trial[:model.n_mechanical,0]=1.e-10
+        return StrongNewtonResult(trial,p,0,True,"CONVERGED",0.)
+    monkeypatch.setattr(gauss,"solve_strong_nonlinear_equations",fake)
+    with pytest.raises(ValueError,match="INITIAL_MOVING_SUPPORT_NOT_SUPPORTED"):
+        solver.advance(initial,.001,mechanical_state_scale=1.,
+                       mechanical_equation_scale=1.)
+
+
 def test_gauss_endpoint_failure_rejects_full_step(monkeypatch):
     model,solver,initial=setup()
     def mock_balance(q,p,**kwargs):

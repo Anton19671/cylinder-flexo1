@@ -241,6 +241,9 @@ class NativeStrongGauss2:
 
         qs,ps=unpack(stage_solution.mechanical,stage_solution.electrical)
         vs,accelerations=gauss_stage_kinematics(qs,q0,v0,h)
+        for i in range(2):
+            _verify_fixed_initial_supports(engine,qs[i],vs[i],
+                acceleration=accelerations[i],absolute_tolerance=1.e-9)
         if engine.electric_gauge is not None:
             _,original_e=stage_physics(qs,ps,vs,accelerations,
                                        substitute_gauge=False)

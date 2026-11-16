@@ -266,6 +266,12 @@ class NativeStrongNewmark:
         if not nonlinear.converged:
             return NativeNewmarkStep(None, nonlinear, time_next)
         velocity, acceleration = kinematics(nonlinear.mechanical)
+        # A small displacement residual at a fixed edge can be magnified
+        # by 1/dt and 1/dt² in the reconstructed velocity/acceleration.
+        # Never publish a state that the next step would reject.
+        _verify_fixed_initial_supports(self,nonlinear.mechanical,velocity,
+                                       acceleration=acceleration,
+                                       absolute_tolerance=1.e-9)
         accepted = NativeNewmarkState(time_next, nonlinear.mechanical,
                                       velocity, acceleration, nonlinear.electrical)
         return NativeNewmarkStep(accepted, nonlinear, time_next)

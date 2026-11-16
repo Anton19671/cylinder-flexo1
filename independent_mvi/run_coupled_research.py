@@ -492,6 +492,7 @@ def _green_audit(surface,factors,mechanical_load,free_charge):
     return dict(
         status=green.status,
         conservative_only=True,
+        floating_gauge_reaction_included=(work.gauge_reaction_density is not None),
         physical_boundary_closure_certified=False,
         identity_max_abs_error=float(green.identity_max_abs_error),
         identity_relative_error=float(green.identity_relative_error),

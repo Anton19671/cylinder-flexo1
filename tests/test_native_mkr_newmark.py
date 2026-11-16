@@ -153,6 +153,20 @@ def test_nonlinear_failure_never_accepts_time_step(monkeypatch):
     assert state.time_s==0.
 
 
+def test_small_accepted_displacement_defect_cannot_publish_moving_support(monkeypatch):
+    import cylinder_native_mkr_newmark as module
+    model,engine=make_engine()
+    q=np.zeros(model.shape)
+    state=NativeNewmarkState(0.,q,q,q)
+    def fake(*args,**kwargs):
+        trial=q.copy();trial[:,0]=1.e-10
+        return StrongNewtonResult(trial,None,0,True,"CONVERGED",0.)
+    monkeypatch.setattr(module,"solve_strong_nonlinear_equations",fake)
+    with pytest.raises(ValueError,match="INITIAL_MOVING_SUPPORT_NOT_SUPPORTED"):
+        engine.advance(state,.001,mechanical_state_scale=1.,
+                       mechanical_equation_scale=1.)
+
+
 def test_electric_modes_are_in_same_step_and_dont_get_inertia(monkeypatch):
     import cylinder_native_mkr_newmark as module
     model,engine=make_engine(electric=True)

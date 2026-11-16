@@ -89,6 +89,8 @@ class NativeStrongBathe:
         if not result.converged:
             return None,result
         v,a=kinematics(result.mechanical)
+        _verify_fixed_initial_supports(engine,result.mechanical,v,
+                                       acceleration=a,absolute_tolerance=1.e-9)
         return NativeNewmarkState(t_next,result.mechanical,v,a,result.electrical),result
 
     def advance(self,state: NativeNewmarkState,dt_s,*,loads_at=None,

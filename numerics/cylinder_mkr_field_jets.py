@@ -1,8 +1,9 @@
 """MKR-owned field preparation for the existing experimental strong route.
 
 Preserves the former uniform-trapezoid kinematic stencils: second-order
-centered/one-sided x derivative and forward periodic s derivative, composed
-for higher/mixed jets. Coefficient divergences are assembled separately by
+centered/one-sided x derivative and forward periodic first s derivative.
+Second s derivatives use the compatible periodic Laplacian; the third
+uses its forward derivative. Coefficient divergences are assembled separately by
 cylinder_direct_strong_fdm. No CylinderFunctional, MVI, SBP or shared surface
 matrix operations are called. This extraction is not a new stencil scheme
 or certification of the full compatible nonlinear face-flux discretization.
@@ -46,12 +47,20 @@ class MKRFieldJets:
     def _s(self, value):
         return (np.roll(value,-1,axis=-1)-value)/self.grid.ds
 
+    def _ss(self, value):
+        return (np.roll(value,-1,axis=-1)-2*value+
+                np.roll(value,1,axis=-1))/self.grid.ds**2
+
     def derivative(self, value, axial_order, circum_order):
         if (type(axial_order) is not int or type(circum_order) is not int or
                 min(axial_order,circum_order)<0 or axial_order+circum_order>3):
             raise ValueError("MKR field derivative orders require integers with total <=3")
         out=self._field(value).copy()
-        for _ in range(circum_order):
+        if circum_order>=2:
+            out=self._ss(out)
+            if circum_order==3:
+                out=self._s(out)
+        elif circum_order==1:
             out=self._s(out)
         for _ in range(axial_order):
             out=self._x(out)
@@ -65,7 +74,12 @@ class MKRFieldJets:
         def get(ax,ss):
             key=(ax,ss)
             if key not in cache:
-                cache[key]=(self._x(get(ax-1,ss)) if ax else self._s(get(0,ss-1)))
+                if ax:
+                    cache[key]=self._x(get(ax-1,ss))
+                elif ss==2:
+                    cache[key]=self._ss(get(0,0))
+                else:
+                    cache[key]=self._s(get(0,ss-1))
             return cache[key]
         result=[]
         for entry in orders:

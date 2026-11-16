@@ -141,6 +141,7 @@ class CoupledMVIWork:
     nodal_gradient: np.ndarray | None=None
     coefficient_jets: np.ndarray | None=None
     external_end_gradient: np.ndarray | None=None
+    gauge_reaction_density: np.ndarray | None=None
 
 
 class NativeCoupledMVISurface:
@@ -382,6 +383,28 @@ class NativeCoupledMVISurface:
                           optimize=True)
             gy+=np.einsum("jp,crj->crp",self._ds_power[ang],wy_contracted,
                           optimize=True)
+        gauge_reaction=None
+        if self.floating_gauge:
+            # reconstruct() subtracts a volume-mean potential depending on
+            # EVERY electric coefficient. Apply its chain rule even when
+            # charge compatibility holds only within the admitted relative
+            # tolerance. Otherwise a constant raw-potential shift changes
+            # the reported gradient despite leaving the physical field and
+            # energy unchanged. The zero-order reaction is included in the
+            # effective weak jets so the discrete Green identity sees the
+            # same constrained first variation as the solver.
+            net=math.fsum(nodal[self.n_mechanical].ravel())
+            denom=float(self._floating_moments[0]*np.sum(weights))
+            gauge_reaction=(-net/denom)*self._floating_moments
+            for mode,value in enumerate(gauge_reaction):
+                c=self.n_mechanical+mode
+                coeff[c,0]+=value
+                correction=value*weights
+                nodal[c]+=correction
+                gx[c]+=np.einsum("ij,rj->ri",correction,factors.y[c],optimize=True)
+                gy[c]+=np.einsum("ij,ri->rj",correction,factors.x[c],optimize=True)
+            gauge_reaction=gauge_reaction.copy()
+            gauge_reaction.setflags(write=False)
         if not (math.isfinite(energy) and np.isfinite(gx).all() and
                 np.isfinite(gy).all() and np.isfinite(nodal).all()):
             raise ValueError("nonfinite MVI surface first variation")
@@ -397,8 +420,10 @@ class NativeCoupledMVISurface:
         if (float(np.max(np.abs(nx-gx),initial=0.))>1.e-9*scale or
                 float(np.max(np.abs(ny-gy),initial=0.))>1.e-9*scale):
             raise ValueError("MVI_WEAK_WORK_CHAIN_RULE_FAILED")
-        # Retain the physical weak jet coefficients for an opt-in end-action
-        # audit. These are NOT automatically imposed as boundary rows.
+        # Retain the effective weak jet coefficients for an opt-in end-action
+        # audit. With a floating gauge they include its explicit zero-order
+        # reaction; this is not a constitutive stress or boundary traction.
+        # These are NOT automatically imposed as boundary rows.
         # A read-only snapshot prevents a caller changing the diagnostics
         # without recomputing the same physical state and loading.
         source_coeff=coeff.copy()
@@ -419,7 +444,8 @@ class NativeCoupledMVISurface:
         return CoupledMVIWork(energy,q.copy(),None if p is None else p.copy(),
                               gx,gy,factors.rank,nodal_gradient=nodal,
                               coefficient_jets=source_coeff,
-                              external_end_gradient=external)
+                              external_end_gradient=external,
+                              gauge_reaction_density=gauge_reaction)
 
 
 __all__=("THEORIES","MECHANICAL_MULTI","ELECTRIC_MULTI",

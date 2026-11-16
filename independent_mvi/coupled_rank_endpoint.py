@@ -43,7 +43,28 @@ def _trace_roundoff_limit(component):
     unit displacement. This is independent of rank-fit acceptance tolerance.
     """
     amplitude=float(np.max(np.abs(component),initial=0.))
-    return 64.*np.finfo(float).eps*max(amplitude,np.finfo(float).tiny)
+    return max(64.*np.finfo(float).eps*amplitude,np.nextafter(0.,1.))
+
+
+def _relative_component_error(actual,target):
+    """Relative L2 error without squaring dimensional extremes.
+
+    Scale both arrays first so norms cannot underflow on tiny fields or
+    overflow on large fields. A nonzero field can never match a zero
+    target solely because of an artificial denominator floor.
+    """
+    actual=np.asarray(actual,float)
+    target=np.asarray(target,float)
+    amplitude=max(float(np.max(np.abs(actual),initial=0.)),
+                  float(np.max(np.abs(target),initial=0.)))
+    if amplitude==0.:
+        return 0.
+    reference=target/amplitude
+    candidate=actual/amplitude
+    denominator=float(np.linalg.norm(reference))
+    if denominator==0.:
+        return float("inf")
+    return float(np.linalg.norm(candidate-reference)/denominator)
 
 
 def _target_qr_angular_partner(target_free, rank):
@@ -100,15 +121,10 @@ def fit_mvi_endpoint_field(surface: NativeCoupledMVISurface,
     # Measure fidelity against the REQUESTED endpoint, never against a
     # much larger seed. Otherwise a large but admissible Gauss-stage seed
     # can hide a completely inaccurate small endpoint response.
-    # The subnormal floor exists only for exactly zero target components:
-    # those must reconstruct to zero within numerical roundoff.
-    scales=np.linalg.norm(target.reshape(surface.n_fields,-1),axis=1)
-    scales=np.maximum(scales,np.finfo(float).tiny)
-
     def component_errors(factors):
-        difference=surface.reconstruct(factors)-target
-        return (np.linalg.norm(difference.reshape(surface.n_fields,-1),
-                               axis=1)/scales)
+        actual=surface.reconstruct(factors)
+        return np.array([_relative_component_error(actual[c],target[c])
+                         for c in range(surface.n_fields)])
 
     first_error=float(np.max(component_errors(seed)))
     if first_error<=relative_tolerance:
@@ -125,7 +141,7 @@ def fit_mvi_endpoint_field(surface: NativeCoupledMVISurface,
             # through a singular Gram factorization.
             component=np.einsum("ri,rj->ij",x[c],y[c],
                                 optimize=True)
-            difference=float(np.linalg.norm(component-target[c])/scales[c])
+            difference=_relative_component_error(component,target[c])
             if difference<=relative_tolerance:
                 continue
             B=y[c]
@@ -153,8 +169,7 @@ def fit_mvi_endpoint_field(surface: NativeCoupledMVISurface,
                 x[c][:,ids]=Anew
                 # An exact rank-1 field is also valid at declared rank
                 # 2..8. Do not invert its necessarily singular X Gram.
-                if (float(np.linalg.norm(x[c].T@y[c]-target[c]))/
-                        scales[c]<=relative_tolerance):
+                if _relative_component_error(x[c].T@y[c],target[c])<=relative_tolerance:
                     continue
                 gram=Anew@Anew.T
                 if (not np.isfinite(gram).all() or

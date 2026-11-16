@@ -77,7 +77,9 @@ def test_bathe_two_stages_follow_three_point_formula(monkeypatch):
     def fake_newton(equation,q,p,**kw):
         # Deliberate nonzero second-stage displacement increment.
         counter[0]+=1
-        trial=q.copy() if counter[0]==1 else q+.003
+        trial=q.copy()
+        if counter[0]==2:
+            trial[:,1:-1]+=.003
         equation(trial,p)
         return StrongNewtonResult(trial,p,0,True,"CONVERGED",0.)
     monkeypatch.setattr(bathe,"solve_strong_nonlinear_equations",fake_newton)
@@ -116,6 +118,17 @@ def test_bathe_failure_never_returns_final_state(stage,monkeypatch):
     assert out.status==("FIRST_STAGE_" if stage==1 else "SECOND_STAGE_")+"NOT_CONVERGED"
     assert out.first is None if stage==1 else out.first is not None
     assert initial.time_s==.3
+
+
+def test_bathe_rejects_accepted_stage_with_nonzero_support_velocity(monkeypatch):
+    model,driver,initial=setup()
+    def fake(equation,q,p,**kwargs):
+        trial=q.copy();trial[:,0]=1.e-10
+        return StrongNewtonResult(trial,p,0,True,"CONVERGED",0.)
+    monkeypatch.setattr(bathe,"solve_strong_nonlinear_equations",fake)
+    with pytest.raises(ValueError,match="INITIAL_MOVING_SUPPORT_NOT_SUPPORTED"):
+        driver.advance(initial,.001,mechanical_state_scale=1.,
+                       mechanical_equation_scale=1.)
 
 
 def test_bathe_electric_modes_remain_active_on_both_stages(monkeypatch):

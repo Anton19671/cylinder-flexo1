@@ -51,6 +51,43 @@ def test_endpoint_exact_rank_reconstructed_without_svd():
     assert result.factors.rank==2
 
 
+@pytest.mark.parametrize("magnitude",(1.e-200,1.e-320,1.e200))
+def test_nonzero_target_is_never_accepted_as_zero(magnitude):
+    surf,seed,ends=build()
+    zero=CoupledMVIFactors(np.zeros_like(seed.x),np.ones_like(seed.y))
+    target=np.zeros(surf.shape)
+    target[0,1:-1,:]=magnitude
+    result=fit_mvi_endpoint_field(surf,zero,target,ends)
+    if result.accepted:
+        assert result.iterations>0
+        fitted=surf.reconstruct(result.factors)
+        assert np.max(np.abs(fitted[0]/magnitude-target[0]/magnitude))<1.e-9
+    else:
+        assert result.factors is None
+
+
+def test_tiny_nonzero_seed_is_not_an_exact_zero_target():
+    surf,seed,ends=build()
+    x=np.zeros_like(seed.x)
+    x[0,:,1:-1]=1.e-320
+    nonzero=CoupledMVIFactors(x,np.ones_like(seed.y))
+    result=fit_mvi_endpoint_field(surf,nonzero,np.zeros(surf.shape),ends)
+    assert result.accepted
+    assert result.iterations>0
+    np.testing.assert_array_equal(surf.reconstruct(result.factors),0.)
+
+
+def test_subnormal_trace_not_hidden_by_normal_float_floor():
+    surf,seed,ends=build()
+    zero=CoupledMVIFactors(np.zeros_like(seed.x),np.ones_like(seed.y))
+    target=np.zeros(surf.shape)
+    target[0,1:-1]=1.e-320
+    target[0,0,0]=1.e-322
+    result=fit_mvi_endpoint_field(surf,zero,target,ends)
+    assert not result.accepted
+    assert result.status=="MVI_ENDPOINT_ESSENTIAL_TRACE_CONFLICT"
+
+
 def test_rank_one_endpoint_rejects_independent_rank_two_data():
     surf,seed,ends=build(rank=1)
     goal=surf.reconstruct(seed)

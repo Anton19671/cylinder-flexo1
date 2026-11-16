@@ -38,6 +38,10 @@ def forbidden(*args,**kwargs):
 @pytest.mark.parametrize("gradient",("G3D","GZ"))
 def test_all_theories_preserve_nonzero_static_and_dynamic_physics(theory,gradient,monkeypatch):
     model,ref=models(theory,gradient)
+    # Compare local constitutive laws on the SAME jets. Native MKR uses
+    # a compatible second periodic derivative rather than the reference
+    # functional's repeated forward derivative.
+    ref._field_derivatives=model.field_jets.prepare
     rng=np.random.default_rng(716)
     q=rng.normal(0,2.e-5,model.shape)
     p=rng.normal(0,1.e-3,(2,model.grid.nx,model.grid.ns))
@@ -66,6 +70,7 @@ def test_all_theories_preserve_nonzero_static_and_dynamic_physics(theory,gradien
 @pytest.mark.parametrize("geometry",("LINEAR","VON_KARMAN"))
 def test_reduced_geometry_uses_same_local_laws(theory,geometry):
     model,ref=models(theory,geometry=geometry)
+    ref._field_derivatives=model.field_jets.prepare
     rng=np.random.default_rng(918)
     q=rng.normal(0,2.e-5,model.shape)
     p=rng.normal(0,1.e-3,(1,7,4))
@@ -89,7 +94,10 @@ def test_field_jets_have_exact_polynomial_and_fourier_symbols():
         for name,ax,ss in MECHANICAL_JETS:
             polynomial=(x*x if ax==0 else 2*x if ax==1 else
                         np.full_like(x,2.) if ax==2 else np.zeros_like(x))
-            symbol=((np.exp(2j*np.pi*mode/g.ns)-1)/g.ds)**ss
+            forward=(np.exp(2j*np.pi*mode/g.ns)-1)/g.ds
+            lap=(2*np.cos(2*np.pi*mode/g.ns)-2)/g.ds**2
+            symbol=(1. if ss==0 else forward if ss==1 else
+                    lap if ss==2 else forward*lap)
             exact=np.real(polynomial*np.exp(1j*mode*theta)*symbol)
             np.testing.assert_allclose(own.derivative(field,ax,ss),exact,atol=3.e-11)
         actual=own.prepare(field,MECHANICAL_JETS)

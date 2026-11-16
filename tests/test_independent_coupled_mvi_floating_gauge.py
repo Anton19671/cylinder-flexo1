@@ -187,3 +187,37 @@ def test_floating_gauge_constant_null_check_never_uses_svd(monkeypatch):
         np.ones(surf.n_fields))
     assert null is not None
     assert np.linalg.norm(null)==pytest.approx(1.)
+
+
+def test_floating_gauge_chain_rule_removes_admitted_charge_imbalance(monkeypatch):
+    """Synthetic work: a pure gauge shift leaves energy and variation zero."""
+    from types import SimpleNamespace
+    from independent_mvi.coupled_discrete_green import coupled_mvi_discrete_green_identity
+    surf,seed=make_surface(1)
+    # Test only the source work; no constitutive shell calculation.
+    monkeypatch.setattr(surf,"_local",lambda _jets:SimpleNamespace(
+        energy_j_per_m2=0.,
+        mechanical=np.zeros((surf.n_mechanical,len(surf.mechanical_multi))),
+        electrical=np.zeros((surf.n_electric,3))))
+    charge=np.zeros((surf.n_electric,surf.grid.nx,surf.grid.ns))
+    charge[0,4,1]=1.e8
+    charge[0,4,2]=-1.e8+1.e-3
+    work=surf.weak_work(seed,free_charge=charge)
+    net=float(np.sum(charge[0]*surf.grid.weights))
+    assert abs(net)>1.e-5  # accepted relative imbalance is not exactly zero
+    assert abs(float(np.sum(work.gradient_x[surf.n_mechanical,0])))<1.e-7
+    # Volume mean includes every thickness mode: the same gauge-reaction
+    # chain rule must act on psi_1, not merely on the constant psi_0 mode.
+    moments=surf._floating_moments
+    expected=-net*moments/(moments[0]*np.sum(surf.grid.weights))
+    np.testing.assert_allclose(work.gauge_reaction_density,expected,rtol=1.e-5,atol=1.e-9)
+    np.testing.assert_allclose(
+        np.sum(work.gradient_x[surf.n_mechanical+1,0]),
+        -net*moments[1]/moments[0],rtol=1.e-5,atol=1.e-9)
+    shifted_x=seed.x.copy()
+    shifted_x[surf.n_mechanical,0]+=1.
+    shifted=CoupledMVIFactors(shifted_x,seed.y)
+    np.testing.assert_allclose(surf.reconstruct(seed),surf.reconstruct(shifted),atol=1.e-14)
+    assert surf.weak_work(shifted,free_charge=charge).energy_j==pytest.approx(work.energy_j,abs=1.e-8)
+    green=coupled_mvi_discrete_green_identity(surf,work)
+    assert green.identity_relative_error<1.e-10
