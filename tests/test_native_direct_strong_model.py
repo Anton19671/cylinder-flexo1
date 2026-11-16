@@ -82,6 +82,25 @@ def test_reduced_geometry_uses_same_local_laws(theory,geometry):
         np.testing.assert_allclose(a,b,rtol=3.e-8,atol=2.e-10)
 
 
+def test_native_third_axial_jet_exact_for_polynomials_at_physical_ends():
+    grid=DirectStrongGrid(11,8,1.5,2.)
+    jets=MKRFieldJets(grid)
+    x=(np.arange(grid.nx)*grid.dx)[None,:,None]
+    for power in range(7):
+        q=np.broadcast_to(x**power,(1,grid.nx,grid.ns)).copy()
+        got=jets.derivative(q,3,0)
+        expected=(np.zeros_like(q) if power<3 else
+                  np.broadcast_to(power*(power-1)*(power-2)*x**(power-3),
+                                  q.shape))
+        np.testing.assert_allclose(got,expected,rtol=2.e-9,atol=2.e-9)
+        np.testing.assert_allclose(jets.prepare(q,(("qxxx",3,0),))[0],
+                                   got,rtol=0.,atol=0.)
+    # Regression: D_x(D_xx x**4) previously had a nonzero O(dx)
+    # artificial value at the left physical end.
+    q=np.broadcast_to(x**4,(1,grid.nx,grid.ns)).copy()
+    np.testing.assert_allclose(jets.derivative(q,3,0)[0,0,:],0.,atol=2.e-9)
+
+
 def test_field_jets_have_exact_polynomial_and_fourier_symbols():
     g=DirectStrongGrid(9,8,2.,1.5)
     own=MKRFieldJets(g)
