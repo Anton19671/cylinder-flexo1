@@ -138,7 +138,13 @@ def _face_charge(surface,spec,potential_order):
     return result
 
 
-def load_case(filename):
+def load_case(filename, *, expected_schema=SCHEMA):
+    # Keep direct-strong and energy-FDM schemas explicitly distinct, even
+    # while sharing the strict physical CASE/NPZ preflight. Callers cannot
+    # silently switch numerical operators under the old method identifier.
+    if expected_schema not in (
+            SCHEMA,"INDEPENDENT_ENERGY_FDM_COUPLED_RESEARCH_V1"):
+        raise ValueError("MKR_COUPLED_UNKNOWN_EXPECTED_SCHEMA")
     path=Path(filename).expanduser().resolve()
     if not path.is_file() or path.suffix.lower()!=".json":
         raise ValueError("MKR_COUPLED_REQUIRES_EXISTING_JSON_CASE")
@@ -146,7 +152,7 @@ def load_case(filename):
     if (not isinstance(case,dict) or not CASE_KEYS<=set(case) or
             set(case)-CASE_KEYS-OPTIONAL_KEYS):
         raise ValueError("MKR_COUPLED_CASE_KEYS_INVALID")
-    if case["schema"]!=SCHEMA or case["research_opt_in"] is not True:
+    if case["schema"]!=expected_schema or case["research_opt_in"] is not True:
         raise ValueError("MKR_COUPLED_EXPLICIT_RESEARCH_SCHEMA_REQUIRED")
     p=_strict(case["physics"],PHYS_KEYS,"MKR_PHYSICS")
     g=_strict(case["grid"],GRID_KEYS,"MKR_GRID")
