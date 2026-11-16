@@ -18,6 +18,7 @@ activate()
 from independent_mvi import run_coupled_research as native
 from independent_mvi.coupled_initial import MVIAccelerationResult
 from independent_mvi.coupled_newmark import CoupledMVIDynamicState
+from independent_mvi.coupled_static import CoupledMVISweepResult
 from independent_mvi.coupled_checkpoint import input_manifest
 
 
@@ -294,3 +295,71 @@ def test_source_fingerprint_tracks_bytes_and_relative_names(tmp_path):
     assert two!=one
     source.rename(folder/"other.py")
     assert solver_implementation_fingerprint(tmp_path)!=two
+
+
+@pytest.mark.parametrize("accepted",[True,False])
+def test_dynamic_nodal_norms_and_failure_history_survive_runner(
+        tmp_path,monkeypatch,accepted):
+    path=build(tmp_path,steps=1)
+    mock_drivers(monkeypatch)
+    def advance(self,state,dt_s,**kw):
+        future=CoupledMVIDynamicState(
+            state.time_s+dt_s,state.factors,state.velocity,state.acceleration)
+        solve=CoupledMVISweepResult(
+            state.factors,accepted,
+            "MVI_FIXED_RANK_FULL_NODAL_STATIONARY" if accepted else
+            "MVI_FIXED_RANK_INSUFFICIENT_FULL_NODAL_WORK",
+            3,1.e-10,2.e-10,3.e-10,
+            (dict(sweep=3,full_nodal=4.e-10 if accepted else .003,
+                  condition=float("inf")),),
+            4.e-10 if accepted else .003)
+        return SimpleNamespace(
+            state=future if accepted else None,solver=solve,
+            attempted_time_s=future.time_s,status="MVI_NEWMARK_"+solve.status)
+    monkeypatch.setattr(native.NativeCoupledMVINewmark,"advance",advance)
+    if accepted:
+        report=native.run(path,validate_only=False)
+        assert report["full_nodal_equilibrium_satisfied"] is True
+        assert report["full_nodal_norm"]==pytest.approx(4.e-10)
+        assert report["solution_quality"]=="FULL_NODAL_EQUILIBRIUM"
+        assert report["projected_norm_x"]==pytest.approx(2.e-10)
+    else:
+        with pytest.raises(RuntimeError,match="INSUFFICIENT_FULL_NODAL_WORK"):
+            native.run(path,validate_only=False)
+        report=summary(tmp_path)
+        assert report["accepted_steps"]==0
+        assert report["failed_time_step"]["solves"][0]["full_nodal_norm"]==.003
+        assert not (tmp_path/"output"/"STEP_0001.npz").exists()
+    file=tmp_path/"output"/"MVI_STEP_0001_DIAGNOSTICS.json"
+    record=json.loads(file.read_text())
+    assert record["state_accepted"] is accepted
+    assert record["requested_rank"]==1
+    assert record["solves"][0]["history"][0]["condition"] is None
+
+
+def test_unmeasured_or_projected_dynamic_work_is_never_marked_full():
+    solve=dict(status="CONVERGED_PROJECTED",converged=True,
+               full_nodal_norm=.003,projected_norm_x=1.e-10,
+               projected_norm_y=1.e-10)
+    diagnostic=dict(status="ACCEPTED",solves=[solve],joint_nodal_norm=None)
+    report=native._dynamic_solution_quality(diagnostic,1.e-8)
+    assert report["solution_status"]=="CONVERGED_PROJECTED"
+    assert report["full_nodal_equilibrium_satisfied"] is False
+    assert report["solution_quality"]=="PROJECTED_EQUILIBRIUM"
+    solve.update(status="FULL",full_nodal_norm=None)
+    report=native._dynamic_solution_quality(diagnostic,1.e-8)
+    assert report["full_nodal_equilibrium_satisfied"] is None
+    assert report["solution_quality"]=="UNREPORTED_EQUILIBRIUM"
+
+
+def test_nonfinite_failed_sweep_evidence_is_json_safe():
+    result=SimpleNamespace(
+        status="MVI_HALFSTEP_TANGENT_NOT_SOLVED",converged=False,
+        sweeps=0,field_change=float("inf"),projected_norm_x=float("inf"),
+        projected_norm_y=float("inf"),full_nodal_norm=float("inf"),
+        history=({"reduced_halfstep_history":[{"condition":float("inf")} ]},))
+    evidence=native._sweep_diagnostics(result)
+    json.dumps(evidence,allow_nan=False)
+    assert evidence["full_nodal_norm"] is None
+    assert evidence["status"]==result.status
+    assert evidence["history"][0]["reduced_halfstep_history"][0]["condition"] is None

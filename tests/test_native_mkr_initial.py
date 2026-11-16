@@ -56,7 +56,7 @@ def test_initial_state_solves_for_acceleration_not_displacement(monkeypatch):
     result=native_initial.initialize_consistent_native_mkr(
         engine,q,v,mechanical_state_scale=1.,mechanical_equation_scale=1.)
     assert result.state is not None
-    assert len(seen)==1
+    assert len(seen)==2  # mass solve plus physical natural-trace compatibility
     np.testing.assert_array_equal(result.state.mechanical,q)
     np.testing.assert_array_equal(result.state.acceleration,q)
 
@@ -114,3 +114,43 @@ def test_initial_electric_unknown_is_solved_simultaneously(monkeypatch):
         engine,q,q,p,mechanical_state_scale=1.,mechanical_equation_scale=1.,
         electrical_state_scale=1.,electrical_equation_scale=1.)
     assert out.state is not None and out.state.electrical.shape==p.shape
+
+
+@pytest.mark.parametrize("natural_defect",[0.,.2])
+def test_higher_static_natural_rows_do_not_replace_initial_mass_balance(
+        monkeypatch,natural_defect):
+    """Manufactured diagonal mass: no physical cylinder calculation.
+
+    The old initializer had identically zero slope rows and a singular
+    Jacobian even though this prescribed mass problem is nonsingular.
+    An incompatible original natural action must still reject the state.
+    """
+    model,base=configured()
+    ends={side:[[{"kind":"ESSENTIAL","value":0.},
+                 {"kind":"NATURAL","value":0.}]
+                for _ in range(model.n_mechanical)] for side in ("left","right")}
+    engine=NativeStrongNewmark(
+        model,axial_orders=(2,)*model.n_mechanical,
+        mechanical_ends=ends,density_kg_m3=3.)
+    q=np.zeros(model.shape)
+    target=np.ones_like(q)*.125
+    target[:,[0,-1]]=0.
+    def balance(actual_q,p,**kwargs):
+        np.testing.assert_array_equal(actual_q,q)
+        return DirectStrongBalance(
+            kwargs["acceleration"]-target,None,
+            np.zeros((2,model.n_mechanical,model.grid.ns)),
+            np.full((2,model.n_mechanical,model.grid.ns),natural_defect),
+            None,None,tuple(range(2,model.grid.nx-2)),2)
+    monkeypatch.setattr(model,"balance",balance)
+    answer=native_initial.initialize_consistent_native_mkr(
+        engine,q,q,mechanical_state_scale=1.,mechanical_equation_scale=1.)
+    if natural_defect:
+        assert answer.state is None
+        assert not answer.nonlinear.converged
+        assert answer.nonlinear.status=="INITIAL_NATURAL_TRACE_INCOMPATIBLE"
+        assert answer.nonlinear.scaled_equation_norm==pytest.approx(natural_defect)
+    else:
+        assert answer.state is not None
+        np.testing.assert_allclose(answer.state.acceleration,target,atol=1.e-9)
+        np.testing.assert_array_equal(answer.state.mechanical,q)

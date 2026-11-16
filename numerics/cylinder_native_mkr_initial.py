@@ -13,7 +13,7 @@ Physical differential half-orders and natural ends are caller-certified.
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -94,6 +94,12 @@ def initialize_consistent_native_mkr(
     and trial a0. The potential uses its original, simultaneous electric
     bulk/end equations and optional ONE global gauge.
 
+    Higher natural displacement traces are compatibility conditions on
+    q0/v0/phi0, not acceleration boundary equations. Keep mass balance
+    at those adjacent nodes and check their original physical actions
+    after closing phi0 and a0. Otherwise a local mass law acquires zero
+    Jacobian rows from static slope/curvature actions.
+
     Mechanical load and electrical charge are generalized surface
     densities at t0. Return state=None unless the coupled solve converges.
     """
@@ -134,6 +140,16 @@ def initialize_consistent_native_mkr(
             axial_orders=engine.axial_orders,mechanical_ends=acceleration_ends,
             electrical=p,electrical_ends=engine.electrical_ends,
             gauge_closed_elsewhere=engine.electric_gauge is not None)
+        # Only prescribed kinematic traces have prescribed time
+        # derivatives. Natural higher actions constrain the given q0/v0
+        # and phi0; they cannot replace equations for unknown a0.
+        for side in ("left","right"):
+            for c,conditions in enumerate(engine.mechanical_ends[side]):
+                for order,item in enumerate(conditions):
+                    kind,_=_condition(item,engine.model.grid.ns,"initial natural trace")
+                    if kind=="NATURAL" and order>0:
+                        node=order if side=="left" else engine.model.grid.nx-1-order
+                        rows.mechanical[c,node]=balance.mechanical_bulk[c,node]
         return rows.mechanical,rows.electrical
 
     nonlinear=solve_strong_nonlinear_equations(
@@ -145,6 +161,34 @@ def initialize_consistent_native_mkr(
         electric_gauge=engine.electric_gauge,settings=settings)
     if not nonlinear.converged:
         return NativeInitialStateResult(None,nonlinear)
+    # Retaining mass equations must never silently discard the original
+    # end conditions. Reject incompatible initial displacement/velocity
+    # and electric fields without publishing an accepted initial state.
+    balance=engine.model.balance(
+        q,nonlinear.electrical,mechanical_load=load_m,electrical_charge=load_e,
+        velocity=v,acceleration=nonlinear.mechanical,density_kg_m3=engine.density_kg_m3,
+        eta_s=engine.eta_s,mass_damping_rate_per_s=engine.mass_damping_rate_per_s)
+    physical=assemble_physical_end_rows(
+        balance,q,engine.model.grid,axial_orders=engine.axial_orders,
+        mechanical_ends=engine.mechanical_ends,electrical=nonlinear.electrical,
+        electrical_ends=engine.electrical_ends,
+        gauge_closed_elsewhere=engine.electric_gauge is not None)
+    scale=np.broadcast_to(np.asarray(mechanical_equation_scale,float),q.shape)
+    defect=0.
+    for side in ("left","right"):
+        for c,conditions in enumerate(engine.mechanical_ends[side]):
+            for order,item in enumerate(conditions):
+                kind,_=_condition(item,engine.model.grid.ns,"initial natural trace")
+                if kind=="NATURAL":
+                    node=order if side=="left" else engine.model.grid.nx-1-order
+                    defect=max(defect,float(np.max(np.abs(
+                        physical.mechanical[c,node]/scale[c,node]))))
+    if defect>settings.scaled_absolute_tolerance:
+        return NativeInitialStateResult(None,replace(
+            nonlinear,converged=False,status="INITIAL_NATURAL_TRACE_INCOMPATIBLE",
+            scaled_equation_norm=max(defect,nonlinear.scaled_equation_norm)))
+    _verify_fixed_initial_supports(engine,q,v,absolute_tolerance=tol,
+                                   acceleration=nonlinear.mechanical)
     state=NativeNewmarkState(t,q,v,nonlinear.mechanical,nonlinear.electrical)
     return NativeInitialStateResult(state,nonlinear)
 

@@ -384,6 +384,12 @@ def run(filename,*,validate_only):
                 seed.get("electrical"),time_s=0.,
                 acceleration_guess=seed.get("acceleration"),
                 **kw)
+            summary["initial_nonlinear_diagnostics"]=dict(
+                status=closed.nonlinear.status,
+                iterations=closed.nonlinear.iterations,
+                converged=bool(closed.nonlinear.converged),
+                scaled_equation_norm=(closed.nonlinear.scaled_equation_norm
+                    if math.isfinite(closed.nonlinear.scaled_equation_norm) else None))
             if closed.state is None:
                 raise RuntimeError("MKR_INITIAL_"+closed.nonlinear.status)
             state=closed.state

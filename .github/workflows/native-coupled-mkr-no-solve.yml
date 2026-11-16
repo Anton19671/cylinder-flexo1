@@ -10,6 +10,7 @@ on:
       - "interface/cylinder_native_research_gui.py"
       - "interface/RUN_FINAL_CASE.py"
       - "tests/test_native_coupled_mkr_case_dispatch.py"
+      - "tests/test_native_mkr_initial.py"
       - ".github/workflows/native-coupled-mkr-no-solve.yml"
 permissions:
   contents: read
@@ -42,4 +43,4 @@ jobs:
             interface/RUN_FINAL_CASE.py \
             interface/cylinder_independent_dispatch.py
       - name: Own strong MKR 7x3 CASE routing and physical end preflight (no shell)
-        run: python -m pytest -q tests/test_native_coupled_mkr_case_dispatch.py
+        run: python -m pytest -q tests/test_native_coupled_mkr_case_dispatch.py tests/test_native_mkr_initial.py

@@ -411,6 +411,73 @@ def _write_npz(path,**arrays):
         temporary.unlink(missing_ok=True)
 
 
+def _finite_diagnostic(value):
+    """Unmeasured/nonfinite diagnostics are null, never false convergence.
+
+    Failed halfsteps legitimately carry inf norms. Preserve their status
+    and history without masking the original failure with a JSON error.
+    """
+    if isinstance(value,dict):
+        return {key:_finite_diagnostic(item) for key,item in value.items()}
+    if isinstance(value,(tuple,list)):
+        return [_finite_diagnostic(item) for item in value]
+    if isinstance(value,(float,np.floating)):
+        return float(value) if math.isfinite(value) else None
+    if isinstance(value,np.generic):
+        return value.item()
+    return value
+
+
+def _sweep_diagnostics(answer):
+    return _finite_diagnostic(dict(
+        status=answer.status,converged=bool(answer.converged),
+        sweeps=answer.sweeps,field_change=answer.field_change,
+        projected_norm_x=answer.projected_norm_x,
+        projected_norm_y=answer.projected_norm_y,
+        full_nodal_norm=answer.full_nodal_norm,history=list(answer.history)))
+
+
+def _dynamic_step_diagnostics(advance,step,rank):
+    solves=[]
+    for name in ("solver","first_solve","final_solve"):
+        answer=getattr(advance,name,None)
+        if answer is not None:
+            solves.append(dict(stage=name,**_sweep_diagnostics(answer)))
+    for index,answer in enumerate(getattr(advance,"stage_solvers",())):
+        solves.append(dict(stage=f"gauss_{index+1}",**_sweep_diagnostics(answer)))
+    return _finite_diagnostic(dict(
+        step=step,requested_rank=rank,status=advance.status,
+        attempted_time_s=getattr(advance,"attempted_time_s",None),
+        state_accepted=advance.state is not None,solves=solves,
+        joint_nodal_norm=getattr(advance,"joint_nodal_norm",None),
+        endpoint_rank_error=getattr(advance,"endpoint_rank_error",None),
+        scientific_accuracy_certified=False))
+
+
+def _dynamic_solution_quality(diagnostic,tolerance):
+    solves=diagnostic["solves"]
+    if not solves:
+        return {}  # Missing evidence must not manufacture equilibrium.
+    projected=any(item["status"]=="CONVERGED_PROJECTED" for item in solves)
+    norms=[item["full_nodal_norm"] for item in solves]
+    joint=diagnostic["joint_nodal_norm"]
+    if joint is not None:
+        norms.append(joint)
+    measured=all(value is not None for value in norms)
+    full=(not projected and all(item["converged"] for item in solves)
+          and measured and max(norms)<=tolerance)
+    return dict(
+        solution_status=("CONVERGED_PROJECTED" if projected else diagnostic["status"]),
+        solution_quality=("PROJECTED_EQUILIBRIUM" if projected else
+                          "FULL_NODAL_EQUILIBRIUM" if full else "UNREPORTED_EQUILIBRIUM"),
+        full_nodal_equilibrium_satisfied=(full if measured or projected else None),
+        full_nodal_norm=max(norms) if all(value is not None for value in norms) else None,
+        projected_norm_x=max(item["projected_norm_x"] for item in solves)
+            if all(item["projected_norm_x"] is not None for item in solves) else None,
+        projected_norm_y=max(item["projected_norm_y"] for item in solves)
+            if all(item["projected_norm_y"] is not None for item in solves) else None)
+
+
 def _green_audit(surface,factors,mechanical_load,free_charge):
     """Audit only the conservative G3D/Gz weak-work decomposition.
 
@@ -565,9 +632,8 @@ def _run_loaded_case(items,*,validate_only,resume=False):
                 # Preserve full reduced X/Y failure evidence before raising.
                 # Never write an accepted physical state on failed convergence.
                 _write_json(output/"MVI_FAILED_SWEEP_DIAGNOSTICS.json",dict(
-                    status=answer.status,sweeps=answer.sweeps,
+                    **_sweep_diagnostics(answer),
                     requested_rank=items["factors"].rank,
-                    history=list(answer.history),
                     scientific_accuracy_certified=False))
                 raise RuntimeError("COUPLED_MVI_STATIC_"+answer.status)
             result.update(
@@ -666,7 +732,11 @@ def _run_loaded_case(items,*,validate_only,resume=False):
                            if opts["integrator"]=="GAUSS_IRK4" else {}),
                         **({"acceleration_options":items["acceleration_options"]}
                            if opts["integrator"]=="GAUSS_IRK4" else {}))
+                diagnostic=_dynamic_step_diagnostics(
+                    advance,step,items["factors"].rank)
+                _write_json(output/f"MVI_STEP_{step:04d}_DIAGNOSTICS.json",diagnostic)
                 if advance.state is None:
+                    result["failed_time_step"]=diagnostic
                     raise RuntimeError("COUPLED_MVI_TIME_STEP_"+advance.status)
                 if advance.state.factors.rank!=items["factors"].rank:
                     raise RuntimeError("COUPLED_MVI_RANK_CHANGED")
@@ -681,6 +751,9 @@ def _run_loaded_case(items,*,validate_only,resume=False):
                 _store_state(output,step,state,surface)
                 record_physical_step(step,state)
                 result["last_state_sha256"]=accepted_state_sha256(output,step)
+                result["last_time_step_diagnostics"]=diagnostic
+                result.update(_dynamic_solution_quality(
+                    diagnostic,settings.halfstep.tolerance_scaled))
                 result.update(accepted_steps=step,
                               physical_steps_computed=step,
                               time_s=float(state.time_s))
