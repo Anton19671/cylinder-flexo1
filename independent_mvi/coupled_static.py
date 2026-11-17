@@ -66,8 +66,18 @@ class CoupledMVISweepResult:
 
 def _projected_norms(surface,factors,program,field_scales,energy_scale_j,
                      mechanical_load,free_charge,work_evaluator=None,
-                     active_fields=None):
+                     active_fields=None,diagnostics=None):
+    """Projected RMS work, or a conservative bound if its basis is ambiguous.
+
+    For any orthonormal k-column Q, ||R Q||_F <= ||R||_F. With k >= 1,
+    ||R||_F / sqrt(number of rows of R) therefore bounds the projected
+    RMS even when float64 cannot resolve k. The analogous bound applies
+    to Q.T @ R. This cannot accept a missed direction: it can only require
+    more sweeps than the exact projected test. No factor or rank is changed.
+    """
     scale,energy=_scales(surface,field_scales,energy_scale_j)
+    if diagnostics is not None:
+        diagnostics["conservative_projection_bounds"]=[]
     free=_check_end_factors(surface,factors,program)
     components=_active_field_ids(surface,active_fields)
     work=(surface.weak_work(factors,mechanical_load=mechanical_load,
@@ -114,13 +124,30 @@ def _projected_norms(surface,factors,program,field_scales,energy_scale_j,
         return q
     def rms(value):
         return float(np.linalg.norm(value)/np.sqrt(value.size)) if value.size else 0.
+    def projected_rms(residual,rows,axis,component):
+        try:
+            q=basis(rows)
+        except ProjectedBasisAmbiguous:
+            # Do not abort an unfinished nonlinear iteration merely because
+            # its profile span cannot yet be classified. Bound ALL possible
+            # projected directions, rather than truncating small QR pivots.
+            if diagnostics is not None:
+                diagnostics["conservative_projection_bounds"].append(
+                    dict(component=component,axis=axis))
+            amplitude=float(np.max(np.abs(residual),initial=0.))
+            if amplitude==0.:
+                return 0.
+            count=residual.shape[0] if axis=="X" else residual.shape[1]
+            return float(amplitude*(np.linalg.norm(residual/amplitude)/
+                                    np.sqrt(count)))
+        return rms(residual@q if axis=="X" else q.T@residual)
     x_values=[]
     y_values=[]
     for c in components:
         ids=free[c]
         residual=nodal[c,ids,:]*scale[c]/energy
-        x_values.append(rms(residual@basis(factors.y[c])))
-        y_values.append(rms(basis(factors.x[c][:,ids]).T@residual))
+        x_values.append(projected_rms(residual,factors.y[c],"X",c))
+        y_values.append(projected_rms(residual,factors.x[c][:,ids],"Y",c))
     norm_x=max(x_values)
     norm_y=max(y_values)
     # Restrict tests to the independently declared essential axial traces.
@@ -203,11 +230,12 @@ def solve_coupled_mvi_static(
                 return finish(False,"MVI_"+axis+"_"+response.status,
                               sweep-1,float("inf"),float("inf"))
             candidate=response.factors
+        norm_diagnostics={}
         try:
             norm_x,norm_y,full_norm=_projected_norms(
                 surface,candidate,program,field_scales,energy_scale_j,
                 mechanical_load,free_charge,work_evaluator=work_evaluator,
-                active_fields=active_fields)
+                active_fields=active_fields,diagnostics=norm_diagnostics)
         except ProjectedBasisAmbiguous:
             history.append(dict(sweep=sweep,rank=candidate.rank,rejected=True,
                                 status="MVI_PROJECTED_BASIS_AMBIGUOUS"))
@@ -226,7 +254,7 @@ def solve_coupled_mvi_static(
         previous=next_field
         row=dict(sweep=sweep,field_change=change,
                  projected_x=norm_x,projected_y=norm_y,
-                 full_nodal=full_norm,rank=accepted.rank)
+                 full_nodal=full_norm,rank=accepted.rank,**norm_diagnostics)
         history.append(row)
         if on_iteration is not None:
             on_iteration(dict(row))

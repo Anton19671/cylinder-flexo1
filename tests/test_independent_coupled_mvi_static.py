@@ -291,7 +291,7 @@ def test_dependent_basis_change_must_not_change_projected_norm():
 
 
 @pytest.mark.parametrize("axis",("X","Y"))
-def test_nearly_dependent_profiles_fail_closed_without_rank_reduction(monkeypatch,axis):
+def test_nearly_dependent_profiles_cannot_accept_nonzero_work(monkeypatch,axis):
     from types import SimpleNamespace
     surface,_,program=build()
     x=np.zeros((surface.n_fields,2,surface.grid.nx))
@@ -315,9 +315,12 @@ def test_nearly_dependent_profiles_fail_closed_without_rank_reduction(monkeypatc
     result=engine.solve_coupled_mvi_static(
         surface,factors,program=program,field_scales=np.ones(surface.n_fields),
         energy_scale_j=1.,work_evaluator=work,
-        settings=engine.CoupledMVISweepSettings(allow_projected_convergence=True))
+        settings=engine.CoupledMVISweepSettings(
+            max_sweeps=2,allow_projected_convergence=True))
     assert not result.converged
-    assert result.status=="MVI_PROJECTED_BASIS_AMBIGUOUS"
+    assert result.status=="MVI_FIXED_RANK_SWEEPS_EXHAUSTED"
+    assert result.full_nodal_norm==1.
+    assert max(result.projected_norm_x,result.projected_norm_y)>=1.
     assert result.factors.rank==2
     np.testing.assert_array_equal(result.factors.x,x)
     np.testing.assert_array_equal(result.factors.y,y)
@@ -388,3 +391,56 @@ def test_explicit_projected_static_result_preserves_full_residual(monkeypatch):
 def test_projected_acceptance_requires_explicit_boolean(value):
     with pytest.raises(ValueError,match="FLAG_MUST_BE_BOOLEAN"):
         engine.CoupledMVISweepSettings(allow_projected_convergence=value)
+
+
+@pytest.mark.parametrize("axis",("X","Y"))
+@pytest.mark.parametrize("amplitude",(1.,1.e-11))
+def test_ambiguous_span_bounds_hidden_direction_and_allows_small_work(
+        monkeypatch,axis,amplitude):
+    """A tiny profile difference must not hide a finite work direction."""
+    from types import SimpleNamespace
+    surface,_,program=build()
+    x=np.zeros((surface.n_fields,2,surface.grid.nx))
+    x[:,:,1:-1]=1.
+    y=np.ones((surface.n_fields,2,surface.grid.ns))
+    x[:,1,3]+=1.e-14
+    y[:,1,2]+=1.e-14
+    factors=CoupledMVIFactors(x,y)
+    nodal=np.zeros(surface.shape)
+    # The [1,-1] residual cancels against the dominant constant profile;
+    # its work in the small difference direction is still O(amplitude).
+    if axis=="X":
+        nodal[:,1:-1,2]=amplitude
+        nodal[:,1:-1,3]=-amplitude
+    else:
+        nodal[:,3,:]=amplitude
+        nodal[:,4,:]=-amplitude
+    work=lambda current: SimpleNamespace(nodal_gradient=nodal)
+    measured=engine._projected_norms(
+        surface,factors,program,np.ones(surface.n_fields),1.,None,None,
+        work_evaluator=work)
+    residual=nodal[0,1:-1,:]
+    expected=(np.linalg.norm(residual)/np.sqrt(residual.shape[0]),
+              np.linalg.norm(residual)/np.sqrt(residual.shape[1]),amplitude)
+    np.testing.assert_allclose(measured,expected,rtol=1.e-14,atol=0.)
+    row_scaling=np.array([1.e6,1.e-4])[None,:,None]
+    rescaled=CoupledMVIFactors(x*row_scaling,y/row_scaling)
+    other=engine._projected_norms(
+        surface,rescaled,program,np.ones(surface.n_fields),1.,None,None,
+        work_evaluator=work)
+    np.testing.assert_allclose(measured,other,rtol=1.e-14,atol=0.)
+    monkeypatch.setattr(engine,"solve_coupled_mvi_halfstep",
+        lambda surf,factors,*,axis,**kw:
+            CoupledMVIHalfstepResult(factors,True,"STATIONARY",axis,0,0.,()))
+    result=engine.solve_coupled_mvi_static(
+        surface,factors,program=program,field_scales=np.ones(surface.n_fields),
+        energy_scale_j=1.,work_evaluator=work,
+        settings=engine.CoupledMVISweepSettings(
+            max_sweeps=2,allow_projected_convergence=True))
+    assert result.converged==(amplitude<1.e-8)
+    assert result.status==("MVI_FIXED_RANK_FULL_NODAL_STATIONARY"
+        if result.converged else "MVI_FIXED_RANK_SWEEPS_EXHAUSTED")
+    assert len(result.history[-1]["conservative_projection_bounds"])==2*surface.n_fields
+    assert result.factors.rank==2
+    np.testing.assert_array_equal(result.factors.x,x)
+    np.testing.assert_array_equal(result.factors.y,y)
