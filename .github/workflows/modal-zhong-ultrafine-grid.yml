@@ -1,0 +1,50 @@
+name: "Zhong: Rawat FDM fine meshes beyond 41"
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/modal-zhong-ultrafine-grid.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  rawat-fine:
+    name: ${{ matrix.theory }} ${{ matrix.grid }}x${{ matrix.grid }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - {theory: CUF_TE1, grid: 49}
+          - {theory: CUF_TE1, grid: 65}
+          - {theory: CUF_TE1, grid: 81}
+          - {theory: CUF_TE4, grid: 49}
+          - {theory: CUF_TE4, grid: 57}
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements.txt
+      - name: Verify Fourier modal solver on reference cases
+        run: python -m pytest -q tests/test_modal_fourier_fdm.py tests/test_modal_fourier_thin_shell_accuracy.py
+      - name: Compute high-resolution physical FDM eigenmodes
+        run: python ci/modal_rawat_grid_theory_study.py "${{ matrix.theory }}" "${{ matrix.grid }}"
+      - name: Save frequency and mode fields even after partial failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zhong-rawat-ultrafine-${{ matrix.theory }}-${{ matrix.grid }}
+          path: |
+            modal_rawat_${{ matrix.theory }}_${{ matrix.grid }}x${{ matrix.grid }}_report.json
+            modal_rawat_${{ matrix.theory }}_${{ matrix.grid }}x${{ matrix.grid }}_fields.npz
+          if-no-files-found: warn
