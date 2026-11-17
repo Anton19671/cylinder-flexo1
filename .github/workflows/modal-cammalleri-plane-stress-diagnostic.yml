@@ -1,4 +1,4 @@
-name: Cammalleri KL plane stress versus 3D diagnostic
+name: "Zhong: Cammalleri KL plane stress versus 3D material-law audit"
 on:
   push:
     branches: [main]
