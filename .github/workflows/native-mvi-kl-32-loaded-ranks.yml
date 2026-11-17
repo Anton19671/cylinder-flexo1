@@ -57,3 +57,28 @@ jobs:
             rank_logs/
           retention-days: 60
           if-no-files-found: warn
+
+  rank-report:
+    name: Consolidate 32 rank outcomes and preserve failures
+    needs: physical-ranks
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download every rank artifact, including failed cases
+        uses: actions/download-artifact@v4
+        with:
+          pattern: KL_MVI_*
+          path: collected/
+          merge-multiple: true
+      - name: Build cross-rank physical evidence table
+        run: python ci/native_mvi_kl_rank_summary.py --source collected --output rank_report
+      - name: Preserve complete rank table
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: KL_MVI_32_RANK_TABLE
+          path: rank_report/
+          retention-days: 60
+          if-no-files-found: warn
