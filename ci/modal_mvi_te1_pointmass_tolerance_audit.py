@@ -9,6 +9,7 @@ augmented by the same rank-one term. No eigenvector passes between solvers.
 """
 from __future__ import annotations
 
+import argparse
 import copy
 import json
 import time
@@ -34,7 +35,7 @@ NX = NS = 9
 N_MODES = 2
 POINT_MASS_KG = 500.0
 TOLS = (1e-5, 1e-7, 1e-9)
-RANKS = (1, 2, 4, 6)
+RANKS = tuple(range(1, 9))
 MASS_SERIES_KG = (0.0, 25.0, 100.0, 250.0, POINT_MASS_KG)
 
 
@@ -302,16 +303,18 @@ def solve_mvi(case, point, mass_kg, tolerance, full_freq, full_modes):
     }
 
 
-def main():
+def main(zhong_only=False):
     start = time.monotonic()
     report = {
         "problem": "CUF TE1 C-C 9x9 SBP42, added local point mass on w0",
         "point_mass_kg": POINT_MASS_KG,
-        "mass_series_kg": list(MASS_SERIES_KG),
+        "mass_series_kg": list((POINT_MASS_KG,) if zhong_only else MASS_SERIES_KG),
+        "protocol": ("ZHONG_500KG_ALL_EIGHT_RANKS_TOL_1E-7"
+                     if zhong_only else "FULL_MASS_AND_TOLERANCE_AUDIT"),
         "shell_mass_kg": float(2.0 * np.pi * 1.0 * 2.0 * 0.05 * 7850.0),
         "mass_ratio_to_shell": {
             f"{m:g}": float(m / (2.0 * np.pi * 1.0 * 2.0 * 0.05 * 7850.0))
-            for m in MASS_SERIES_KG
+            for m in ((POINT_MASS_KG,) if zhong_only else MASS_SERIES_KG)
         },
         "mvi_ranks": list(RANKS),
         "mvi_main_mass_tolerances": list(TOLS),
@@ -345,7 +348,7 @@ def main():
                 eff_mvi["mvi_grid"]["operator_scheme"] + "_CSR"):
             raise ValueError("Different physical discretization for pointmass test")
         point = point_index((6, NX, NS))
-        for mass_kg in MASS_SERIES_KG:
+        for mass_kg in ((POINT_MASS_KG,) if zhong_only else MASS_SERIES_KG):
             mass_key = f"{mass_kg:g}"
             print(f"[POINTMASS] START FDM mass_kg={mass_kg:g}", flush=True)
             fdm, frequencies, fields = full_space_fdm(
@@ -355,9 +358,11 @@ def main():
                   json.dumps(fdm), flush=True)
             # Rank-1 mass series identifies whether the plateau is truly
             # caused by nonseparability and vanishes as mass -> 0.
-            # At the main mass independently compare ranks 1,2,4,6 and
-            # tolerances 1e-5,1e-7,1e-9 without any full-space MVI fallback.
+            # Zhong audit: all ranks 1..8 at exactly 500 kg and 1e-7.
+            # The full historical mass/tolerance audit remains available
+            # through the command line without --zhong-500kg.
             conditions = (
+                [(rank, 1e-7) for rank in RANKS] if zhong_only else
                 [(rank, 1e-7) for rank in RANKS] if mass_kg == 0.0 else
                 [(1, 1e-7)] if mass_kg != POINT_MASS_KG else
                 [(rank, tol) for rank in RANKS for tol in
@@ -394,6 +399,36 @@ def main():
                                   k != "traceback"}), flush=True)
                 report["elapsed_s"] = round(time.monotonic() - start, 3)
                 OUT.write_text(json.dumps(report, indent=2), encoding="utf-8")
+        if zhong_only:
+            fdm_frequencies = report["fdm_by_mass_kg"].get("500", {}).get(
+                "perturbed_hz", [])
+            ranks = {}
+            for rank in RANKS:
+                key = f"m500_MVI_{rank}_tol_1e-07"
+                entry = report["runs"].get(key, {})
+                ranks[str(rank)] = {
+                    "status": entry.get("status", "NOT_COMPUTED"),
+                    "frequencies_hz": entry.get("frequencies_hz"),
+                    "difference_vs_fdm_hz": entry.get("signed_frequency_differences_hz"),
+                    "mass_mac_against_fdm": entry.get("direct_mass_mac"),
+                    "sweeps": entry.get("mvi_sweeps"),
+                    "wall_seconds": entry.get("wall_seconds"),
+                }
+            first_modes = [
+                ranks[str(rank)]["frequencies_hz"][0]
+                for rank in RANKS
+                if ranks[str(rank)]["status"] == "SOLVED"
+                and ranks[str(rank)]["frequencies_hz"]
+            ]
+            report["zhong_rank_summary"] = {
+                "reference_fdm_frequencies_hz": fdm_frequencies,
+                "by_rank": ranks,
+                "first_frequency_monotone_nonincreasing": (
+                    all(a >= b - 1e-8 for a, b in zip(first_modes, first_modes[1:]))
+                    if len(first_modes) == len(RANKS) else None),
+                "trend_requires_all_eight_ranks": True,
+                "external_fem_validation": False,
+            }
         report["completed"] = all(
             r.get("status") == "SOLVED" for r in report["runs"].values())
         return 0 if report["completed"] else 1
@@ -413,4 +448,9 @@ def main():
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--zhong-500kg", action="store_true",
+        help="Compare all eight independent MVI ranks at 500 kg, tolerance 1e-7")
+    args = parser.parse_args()
+    raise SystemExit(main(zhong_only=args.zhong_500kg))

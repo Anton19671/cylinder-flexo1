@@ -19,11 +19,11 @@ BASE = ROOT / "config/verification/rawat2016/modal_linear"
 
 def run(theory, grid):
     filename=f"RAWAT2016_{theory}_{grid}x{grid}_MODAL_FDM.json"
-    if grid==21 and theory!="CUF_TE4":
-        raise ValueError("Only CUF TE4 is scheduled on 21x21")
     source=(BASE/"mvi_21x21/RAWAT2016_CUF_TE4_21x21_MODAL_FDM_SBP42.json"
-            if grid==21 else
-            (BASE/"fdm_13x13"/filename if grid==13 else BASE/filename))
+            if grid==21 and theory=="CUF_TE4" else
+            (BASE/f"RAWAT2016_{theory}_17x17_MODAL_FDM.json"
+             if grid==21 else
+             (BASE/"fdm_13x13"/filename if grid==13 else BASE/filename)))
     case=json.loads(source.read_text(encoding="utf-8"))
     if case["method"] != "FDM": raise ValueError("Not FDM")
     original_scheme=case["fdm_grid"]["operator_scheme"]
@@ -65,6 +65,51 @@ def run(theory, grid):
                          "source":"full_sector_scan" if sector else ("saved_modes" if saved else "missing"),
                          "radial_axial_signature":signature,
                          "axial_m1_verified":False})
+        # Respond to Zhong's questions about n=1 and high n without
+        # inventing literature reference frequencies. Physical sector
+        # solutions come from the independent full-space FDM Fourier blocks.
+        # The first sector candidate is not certified as published axial m=1.
+        families = result.get("harmonic_family_scan")
+        extension = {}
+        for n in (1, 6, 7, 8):
+            if n > (grid - 1) // 2:
+                extension[str(n)] = {
+                    "status": "UNRESOLVED_GRID_ANGULAR_LIMIT",
+                    "frequency_hz": None,
+                    "axial_m1_verified": False,
+                    "published_reference_hz": None,
+                }
+                continue
+            candidates = ([item for item in families
+                           if int(item["n"]) == n
+                           and int(item["axial_mode_index"]) == 1]
+                          if isinstance(families, list) else [])
+            if not candidates:
+                extension[str(n)] = {
+                    "status": "SECTOR_NOT_COMPUTED",
+                    "frequency_hz": None,
+                    "axial_m1_verified": False,
+                    "published_reference_hz": None,
+                }
+                continue
+            item = candidates[0]
+            extension[str(n)] = {
+                "status": "COMPUTED_FOURIER_SECTOR_FIRST_AXIAL_CANDIDATE",
+                "frequency_hz": float(item["frequency_hz"]),
+                "axial_candidate_index": int(item["axial_mode_index"]),
+                "axial_m1_verified": bool(
+                    item.get("axial_mode_index_verified", False)),
+                "rotational_degeneracy": int(item["degeneracy"]),
+                "published_reference_hz": None,
+            }
+        report["extended_harmonics"] = extension
+        report["extended_harmonics_complete_on_resolved_grid"] = all(
+            entry["status"] == "COMPUTED_FOURIER_SECTOR_FIRST_AXIAL_CANDIDATE"
+            for entry in extension.values()
+            if entry["status"] != "UNRESOLVED_GRID_ANGULAR_LIMIT")
+        report["extended_harmonics_scope"] = (
+            "FDM Fourier-sector numerical frequencies, not Rawat publication "
+            "errors or independent axial m=1 identification")
         np.savez_compressed(ROOT/(prefix+"_fields.npz"),mechanical_modes=modes,
                             frequencies_hz=freq,circumferential_wavenumbers=np.asarray(harmonics,int))
         report.update(status="COMPUTED_PENDING_AXIAL_AND_MESH_VALIDATION",

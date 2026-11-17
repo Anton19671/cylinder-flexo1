@@ -1,4 +1,4 @@
-name: Rawat 2016 FDM shell theory and grid study
+name: Zhong: Rawat CUF TE1-TE4 extended n=1 and n=6-8
 on:
   push:
     branches: [main]
@@ -10,7 +10,7 @@ permissions:
   contents: read
 jobs:
   compare:
-    name: Rawat ${{ matrix.theory }} 13-17-21 grid sensitivity
+    name: Rawat ${{ matrix.theory }} 13-17-21 and extra harmonics
     runs-on: ubuntu-latest
     timeout-minutes: 90
     strategy:
@@ -33,11 +33,7 @@ jobs:
       - name: Compute independent FDM modes and compare Rawat Table 2
         shell: bash
         run: |
-          if [ "${{ matrix.theory }}" = "CUF_TE4" ]; then
-            grids="13 17 21"
-          else
-            grids="13 17"
-          fi
+          grids="13 17 21"
           failures=0
           for grid in $grids; do
             echo "::group::${{ matrix.theory }} ${grid}x${grid}"
