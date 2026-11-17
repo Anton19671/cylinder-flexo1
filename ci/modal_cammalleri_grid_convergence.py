@@ -93,6 +93,40 @@ def main():
                     "radial_axial_diagnostic":shape,
                     "axial_m1_verified":False,
                 })
+            # Additional circumferential sectors requested by Prof. Zhong.
+            # Use only physically solved Fourier blocks; not retained-mode
+            # FFT peaks and not extrapolated published reference values.
+            families=solved.get("harmonic_family_scan")
+            extended={}
+            for n in (1,8,9,10):
+                if n>(ns-1)//2:
+                    extended[str(n)]={
+                        "status":"UNRESOLVED_GRID_ANGULAR_LIMIT",
+                        "frequency_hz":None,"published_ansys_hz":None,
+                        "axial_m1_verified":False}
+                    continue
+                matched=([row for row in families
+                          if int(row["n"])==n
+                          and int(row["axial_mode_index"])==1]
+                         if isinstance(families,list) else [])
+                if not matched:
+                    extended[str(n)]={
+                        "status":"SECTOR_NOT_COMPUTED",
+                        "frequency_hz":None,"published_ansys_hz":None,
+                        "axial_m1_verified":False}
+                    continue
+                candidate=matched[0]
+                extended[str(n)]={
+                    "status":"COMPUTED_FOURIER_SECTOR_FIRST_AXIAL_CANDIDATE",
+                    "frequency_hz":float(candidate["frequency_hz"]),
+                    "axial_candidate_index":int(candidate["axial_mode_index"]),
+                    "axial_m1_verified":bool(candidate.get(
+                        "axial_mode_index_verified",False)),
+                    "published_ansys_hz":None}
+            data["extended_harmonics"]=extended
+            data["extended_scope"]=(
+                "Numerical KL FDM Fourier sectors only. Missing independent "
+                "ANSYS modes and published frequencies are not inferred.")
             name=f"modal_cammalleri2023_KL_{nx}x{ns}_fields.npz"
             np.savez_compressed(ROOT/name,frequencies_hz=freqs,
                                 circumferential_wavenumbers=harmonics,
