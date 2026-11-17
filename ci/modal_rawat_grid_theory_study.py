@@ -142,6 +142,6 @@ def run(theory, grid):
 if __name__=="__main__":
     ap=argparse.ArgumentParser()
     ap.add_argument("theory",choices=["CUF_TE1","CUF_TE4"])
-    ap.add_argument("grid",type=int,choices=[13,17,21,25,33,41])
+    ap.add_argument("grid",type=int,choices=[13,17,21,25,33,41,49,57,65,81])
     args=ap.parse_args()
     run(args.theory,args.grid)
