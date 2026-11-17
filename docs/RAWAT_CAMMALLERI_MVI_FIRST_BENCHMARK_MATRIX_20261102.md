@@ -3,15 +3,15 @@
 ## Rule fixed by project owner (2026-11-02)
 
 **The main numerical method is the classical Kryško–Kirichenko variational iteration method (MVI-1 through MVI-8).**
-The full variational FDM grid solver (called MKR in the GUI) is a **control**, not the main method. Do not publish MKR-only comparisons as an MVI benchmark.
+The full variational FDM grid solver is a **control**, not the main method. Do not publish FDM-only comparisons as an MVI benchmark.
 
 Each physical case requires nine independently computed results:
-**MVI-1, MVI-2, MVI-3, MVI-4, MVI-5, MVI-6, MVI-7, MVI-8, MKR/FDM**.
+**MVI-1, MVI-2, MVI-3, MVI-4, MVI-5, MVI-6, MVI-7, MVI-8, FDM**.
 Do not replace a failed MVI rank with FDM, Ritz, a harmonic-restricted surrogate, another rank or an interpolated/extrapolated number. Do not fabricate missing frequencies.
 
 ## Planned primary comparison matrix
 
-| ID | Publication / geometry | Shell theory | Mesh | MVI ranks | MKR/FDM |
+| ID | Publication / geometry | Shell theory | Mesh | MVI ranks | FDM |
 |---|---|---|---|---|---|
 | R1 | Rawat 2016 | CUF TE1 | 13x13 | 1-8 | 1 |
 | R2 | Rawat 2016 | CUF TE1 | 17x17 | 1-8 | 1 |
@@ -24,8 +24,8 @@ Do not replace a failed MVI rank with FDM, Ritz, a harmonic-restricted surrogate
 | R6 | Rawat 2016 supplementary | KL | 13x13 | 1-8 | 1 |
 | C4 | Cammalleri 2023 supplementary | CUF TE1 | 13x21 | 1-8 | 1 |
 
-**TOTAL: 10 case definitions x (8 MVI + 1 MKR) = 90 requested individual solves**:
-80 MVI, 10 MKR. This is the *planned* matrix, **not a claim that 90 solves completed**.
+**TOTAL: 10 case definitions x (8 MVI + 1 FDM) = 90 requested individual solves**:
+80 MVI, 10 FDM. This is the *planned* matrix, **not a claim that 90 solves completed**.
 
 ### Known implementation limits (not successful runs)
 
@@ -49,7 +49,7 @@ and K/M eigenspace comparisons must be developed and tested first.
   `.github/workflows/modal-primary-mvi-benchmarks.yml`.
   It covers R2, R4, R5, C1, C2, C3 (six cases), and outputs one independent
   result JSON and modal NPZ per method, including failed and unsupported status.
-  Consolidated CSV contains MVI-1..8 *before* MKR/FDM; missing entries remain blank.
+  Consolidated CSV contains MVI-1..8 *before* FDM; missing entries remain blank.
 - [All-rank 13x13 modal audit](https://github.com/Anton19671/cylinder-flexo1/actions/runs/41476553532):
   covers R1, R3, R6 (and other seven-theory combinations) against FDM,
   including the physical-mass modal subspace comparison.
@@ -89,9 +89,9 @@ For **every** theory / mesh row, the report needs the source value and
 nine method columns, in this order:
 
 `n | paper_Hz | MVI1_Hz | MVI2_Hz | MVI3_Hz | MVI4_Hz | MVI5_Hz |
-MVI6_Hz | MVI7_Hz | MVI8_Hz | MKR_FDM_Hz`.
+MVI6_Hz | MVI7_Hz | MVI8_Hz | FDM_Hz`.
 
-No numeric MVI value may be copied from the MKR column just because a
+No numeric MVI value may be copied from the FDM column just because a
 homogeneous cylinder is separable; independently compute the rank.
 If any case remains queued, failed or excluded by an actual limit, print
 that state explicitly and leave its numerical entry **empty**.
@@ -99,4 +99,4 @@ that state explicitly and leave its numerical entry **empty**.
 Final Word manuscript sent to colleagues must omit GitHub and CI
 implementation details. It must state the two problem definitions and cite
 the article page/table locations, compare physical modes, frequencies,
-rank and grid convergence, and show MVI (not MKR) as the principal method.
+rank and grid convergence, and show MVI (not FDM) as the principal method.
