@@ -1,0 +1,47 @@
+name: "Zhong: Rawat high-resolution FDM grids 25 33 41"
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ci/modal_rawat_grid_theory_study.py"
+      - ".github/workflows/modal-zhong-large-grid.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  rawat-grid:
+    name: ${{ matrix.theory }} grid ${{ matrix.grid }}x${{ matrix.grid }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        theory: [CUF_TE1, CUF_TE4]
+        grid: [25, 33, 41]
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements.txt
+      - name: Validate Rawat FDM modal regression before physical run
+        run: python -m pytest -q tests/test_modal_fourier_fdm.py tests/test_modal_fourier_thin_shell_accuracy.py
+      - name: Compute grid-resolved Fourier frequencies and fields
+        run: python ci/modal_rawat_grid_theory_study.py "${{ matrix.theory }}" "${{ matrix.grid }}"
+      - name: Save full modal fields and frequency data even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zhong-rawat-${{ matrix.theory }}-${{ matrix.grid }}
+          path: |
+            modal_rawat_${{ matrix.theory }}_${{ matrix.grid }}x${{ matrix.grid }}_report.json
+            modal_rawat_${{ matrix.theory }}_${{ matrix.grid }}x${{ matrix.grid }}_fields.npz
+          if-no-files-found: warn
