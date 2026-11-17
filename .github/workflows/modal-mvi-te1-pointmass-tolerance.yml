@@ -25,6 +25,8 @@ jobs:
         with:
           python-version: "3.11"
       - run: python -m pip install -r requirements.txt
+      - name: Verify mass-MAC definition (squared overlap)
+        run: python -m pytest -q tests/test_modal_pointmass_mass_mac.py
       - name: "Zhong: compare MVI ranks 1-8 against FDM at the 500 kg point mass"
         run: python ci/modal_mvi_te1_pointmass_tolerance_audit.py --zhong-500kg
       - name: Upload complete result even on failed comparisons

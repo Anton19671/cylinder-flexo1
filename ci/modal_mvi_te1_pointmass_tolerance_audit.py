@@ -164,6 +164,32 @@ def angular_mixing(field):
     return 0.0 if not total else float(1 - np.max(power) / total)
 
 
+def mass_weighted_mac(mass_action, u, v):
+    """Physical mass-MAC = |u^T M v|^2 / ((u^T M u)(v^T M v)).
+
+    Do not confuse normalized absolute mass overlap (sqrt(MAC)) with MAC.
+    A zero, negative or nonfinite mass norm is a failed physical test.
+    """
+    u = np.asarray(u, dtype=float).ravel()
+    v = np.asarray(v, dtype=float).ravel()
+    if u.shape != v.shape or not np.isfinite(u).all() or not np.isfinite(v).all():
+        raise ValueError("POINTMASS_MAC_INVALID_FIELDS")
+    mu = np.asarray(mass_action(u), dtype=float).ravel()
+    mv = np.asarray(mass_action(v), dtype=float).ravel()
+    if mu.shape != u.shape or mv.shape != v.shape:
+        raise ValueError("POINTMASS_MAC_INVALID_MASS_ACTION")
+    cross = float(u @ mv)
+    norm_u = float(u @ mu)
+    norm_v = float(v @ mv)
+    if (not np.isfinite([cross, norm_u, norm_v]).all() or
+            norm_u <= 0. or norm_v <= 0.):
+        raise ValueError("POINTMASS_MAC_NONPOSITIVE_OR_NONFINITE_MASS_NORM")
+    mac = cross ** 2 / (norm_u * norm_v)
+    if not np.isfinite(mac) or mac < 0. or mac > 1. + 1.e-8:
+        raise ValueError("POINTMASS_MAC_OUTSIDE_PHYSICAL_RANGE")
+    return float(min(1., mac))
+
+
 def solve_mvi(case, point, mass_kg, tolerance, full_freq, full_modes):
     prepared, density, requested = _modal_spec(case)
     rank = case["rank"]
@@ -243,13 +269,6 @@ def solve_mvi(case, point, mass_kg, tolerance, full_freq, full_modes):
                     "fixed_rank_constrained_variational_YX_stationarity" or
             result.get("harmonic_sector_restriction") is not False):
         raise ValueError("MVI route was not unrestricted Y/X")
-    def mass_mac(u, v):
-        u, v = u.ravel(), v.ravel()
-        cross = float(u @ op.mass(v))
-        norm_u = float(u @ op.mass(u))
-        norm_v = float(v @ op.mass(v))
-        return abs(cross) / np.sqrt(norm_u * norm_v)
-
     selected_histories = []
     for j, record in enumerate(result["mvi_multistart_audit"]):
         original_mode = result["mode_discovery_indices"][j]
@@ -280,7 +299,7 @@ def solve_mvi(case, point, mass_kg, tolerance, full_freq, full_modes):
         "pair_gap_hz": float(f[1] - f[0]),
         "pair_gap_difference_hz": float((f[1] - f[0]) -
                                         (full_freq[1] - full_freq[0])),
-        "direct_mass_mac": [mass_mac(modes[j], full_modes[j])
+        "direct_mass_mac": [mass_weighted_mac(op.mass, modes[j], full_modes[j])
                             for j in range(N_MODES)],
         "nonseparable_angular_energy_fraction": [
             angular_mixing(field) for field in modes
