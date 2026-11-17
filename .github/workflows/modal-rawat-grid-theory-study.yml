@@ -1,4 +1,4 @@
-name: Zhong: Rawat CUF TE1-TE4 extended n=1 and n=6-8
+name: "Zhong: Rawat CUF TE1-TE4 extended n=1 and n=6-8"
 on:
   push:
     branches: [main]
