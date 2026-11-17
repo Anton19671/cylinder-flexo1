@@ -486,6 +486,64 @@ def _dynamic_solution_quality(diagnostic,tolerance):
             if all(item["projected_norm_y"] is not None for item in solves) else None)
 
 
+_DYNAMIC_QUALITY_CLASSES=("FULL_NODAL_EQUILIBRIUM","PROJECTED_EQUILIBRIUM",
+                          "UNREPORTED_EQUILIBRIUM")
+
+
+def _accumulate_dynamic_quality(summary,step_quality):
+    """Keep the weakest physical equilibrium certificate over ALL time steps.
+
+    A later full-nodal step must not erase an earlier rank-projected one.
+    Existing accepted checkpoint steps without quality evidence are marked
+    unreported, never retroactively certified. The physical equations and
+    fixed MVI rank are untouched.
+    """
+    counts=summary.get("dynamic_quality_step_counts")
+    if counts is None:
+        counts={key:0 for key in _DYNAMIC_QUALITY_CLASSES}
+        counts["UNREPORTED_EQUILIBRIUM"]=summary.get("accepted_steps",0)
+    else:
+        if (not isinstance(counts,dict) or
+                set(counts)!=set(_DYNAMIC_QUALITY_CLASSES) or
+                any(type(x) is not int or x<0 for x in counts.values()) or
+                sum(counts.values())!=summary.get("accepted_steps",0)):
+            raise ValueError("MVI_DYNAMIC_QUALITY_CHECKPOINT_INCONSISTENT")
+        counts=dict(counts)
+    quality=step_quality.get("solution_quality","UNREPORTED_EQUILIBRIUM")
+    if quality not in _DYNAMIC_QUALITY_CLASSES:
+        raise ValueError("MVI_DYNAMIC_UNKNOWN_QUALITY_CLASS")
+    counts[quality]+=1
+    summary["dynamic_quality_step_counts"]=counts
+    summary["last_step_solution_quality"]=quality
+    summary["last_step_solution_status"]=step_quality.get(
+        "solution_status","MVI_DYNAMIC_EQUILIBRIUM_UNREPORTED")
+    projected=counts["PROJECTED_EQUILIBRIUM"]>0
+    unknown=counts["UNREPORTED_EQUILIBRIUM"]>0
+    if projected:
+        summary["solution_status"]="CONVERGED_PROJECTED"
+        summary["solution_quality"]=(
+            "PROJECTED_WITH_UNREPORTED_STEPS" if unknown
+            else "PROJECTED_EQUILIBRIUM")
+        summary["full_nodal_equilibrium_satisfied"]=False
+    elif unknown:
+        summary["solution_status"]="MVI_DYNAMIC_EQUILIBRIUM_UNREPORTED"
+        summary["solution_quality"]="UNREPORTED_EQUILIBRIUM"
+        summary["full_nodal_equilibrium_satisfied"]=None
+    else:
+        summary["solution_status"]=step_quality["solution_status"]
+        summary["solution_quality"]="FULL_NODAL_EQUILIBRIUM"
+        summary["full_nodal_equilibrium_satisfied"]=True
+    for name in ("full_nodal_norm","projected_norm_x","projected_norm_y"):
+        current=step_quality.get(name)
+        old=summary.get(name)
+        if current is not None:
+            if (not isinstance(current,(float,int)) or
+                    not math.isfinite(current) or current<0):
+                raise ValueError("MVI_DYNAMIC_INVALID_QUALITY_NORM")
+            summary[name]=max(float(old),float(current)) if old is not None else float(current)
+    return summary
+
+
 def _green_audit(surface,factors,mechanical_load,free_charge):
     """Audit only the conservative G3D/Gz weak-work decomposition.
 
@@ -712,6 +770,7 @@ def _run_loaded_case(items,*,validate_only,resume=False):
                     raise RuntimeError("COUPLED_MVI_RANK_CHANGED")
                 result["initial_separated_term_norms"]=(
                     mvi_separated_term_norms(state.factors).tolist())
+                result["initial_electric_status"]=initial.electric_status
                 result["initial_discrete_green"]=_dynamic_green_audit(
                     surface,configuration,state,mechanical,charge)
                 result["initial_electric_faces"]=electric_face_diagnostic(
@@ -763,7 +822,7 @@ def _run_loaded_case(items,*,validate_only,resume=False):
                 record_physical_step(step,state)
                 result["last_state_sha256"]=accepted_state_sha256(output,step)
                 result["last_time_step_diagnostics"]=diagnostic
-                result.update(_dynamic_solution_quality(
+                _accumulate_dynamic_quality(result,_dynamic_solution_quality(
                     diagnostic,settings.halfstep.tolerance_scaled))
                 result.update(accepted_steps=step,
                               physical_steps_computed=step,

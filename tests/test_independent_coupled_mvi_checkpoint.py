@@ -376,3 +376,60 @@ def test_nonfinite_failed_sweep_evidence_is_json_safe():
     assert evidence["full_nodal_norm"] is None
     assert evidence["status"]==result.status
     assert evidence["history"][0]["reduced_halfstep_history"][0]["condition"] is None
+
+
+def test_dynamic_rank_quality_is_monotone_across_accepted_steps():
+    """One projected step cannot be erased by later full-rank stationarity."""
+    summary=dict(accepted_steps=0)
+    projected=dict(solution_status="CONVERGED_PROJECTED",
+                   solution_quality="PROJECTED_EQUILIBRIUM",
+                   full_nodal_norm=.003,projected_norm_x=1.e-12,
+                   projected_norm_y=2.e-12)
+    full=dict(solution_status="MVI_NEWMARK_CONVERGED",
+              solution_quality="FULL_NODAL_EQUILIBRIUM",
+              full_nodal_norm=1.e-13,projected_norm_x=1.e-14,
+              projected_norm_y=1.e-14)
+    native._accumulate_dynamic_quality(summary,projected)
+    summary["accepted_steps"]=1
+    native._accumulate_dynamic_quality(summary,full)
+    assert summary["dynamic_quality_step_counts"]==dict(
+        FULL_NODAL_EQUILIBRIUM=1,PROJECTED_EQUILIBRIUM=1,
+        UNREPORTED_EQUILIBRIUM=0)
+    assert summary["solution_status"]=="CONVERGED_PROJECTED"
+    assert summary["solution_quality"]=="PROJECTED_EQUILIBRIUM"
+    assert summary["last_step_solution_quality"]=="FULL_NODAL_EQUILIBRIUM"
+    assert summary["full_nodal_equilibrium_satisfied"] is False
+    assert summary["full_nodal_norm"]==pytest.approx(.003)
+
+
+def test_dynamic_quality_resume_requires_history_evidence():
+    # An older checkpoint may have accepted steps but no quality ledger.
+    summary=dict(accepted_steps=2)
+    native._accumulate_dynamic_quality(
+        summary,dict(solution_status="MVI_NEWMARK_CONVERGED",
+                     solution_quality="FULL_NODAL_EQUILIBRIUM",
+                     full_nodal_norm=1.e-13))
+    assert summary["dynamic_quality_step_counts"]==dict(
+        FULL_NODAL_EQUILIBRIUM=1,PROJECTED_EQUILIBRIUM=0,
+        UNREPORTED_EQUILIBRIUM=2)
+    assert summary["full_nodal_equilibrium_satisfied"] is None
+    summary["accepted_steps"]=3
+    native._accumulate_dynamic_quality(summary,{})
+    assert summary["solution_quality"]=="UNREPORTED_EQUILIBRIUM"
+    assert summary["full_nodal_equilibrium_satisfied"] is None
+    assert summary["dynamic_quality_step_counts"]["UNREPORTED_EQUILIBRIUM"]==3
+
+
+def test_dynamic_projected_and_unknown_states_never_claim_full_balance():
+    summary=dict(accepted_steps=0)
+    native._accumulate_dynamic_quality(summary,dict(
+        solution_status="CONVERGED_PROJECTED",
+        solution_quality="PROJECTED_EQUILIBRIUM",
+        full_nodal_norm=.1))
+    summary["accepted_steps"]=1
+    native._accumulate_dynamic_quality(summary,{})
+    assert summary["solution_status"]=="CONVERGED_PROJECTED"
+    assert summary["solution_quality"]=="PROJECTED_WITH_UNREPORTED_STEPS"
+    assert summary["full_nodal_equilibrium_satisfied"] is False
+    with pytest.raises(ValueError,match="CHECKPOINT_INCONSISTENT"):
+        native._accumulate_dynamic_quality(summary,{})
