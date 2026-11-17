@@ -1,0 +1,46 @@
+name: "Zhong Rawat KL TE1 Poisson constitutive diagnostic"
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ci/modal_rawat_poisson_diagnostic.py"
+      - ".github/workflows/modal-rawat-poisson-diagnostic.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  rawat-poisson:
+    name: ${{ matrix.theory }} ${{ matrix.grid }}x${{ matrix.grid }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        theory: [KL, CUF_TE1]
+        grid: [21, 33]
+    env:
+      PYTHONPATH: ".:ci:numerics:mechanics:physics:flexoelectric:interface:mvi:mkr:models"
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements.txt
+      - name: Verify Fourier FDM and constitutive diagnostics
+        run: python -m pytest -q tests/test_modal_fourier_fdm.py tests/test_modal_fourier_thin_shell_accuracy.py
+      - name: Compute paired 3D-constrained and plane-stress Rawat modal branches
+        run: python ci/modal_rawat_poisson_diagnostic.py "${{ matrix.theory }}" "${{ matrix.grid }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zhong-rawat-poisson-${{ matrix.theory }}-${{ matrix.grid }}
+          path: |
+            rawat_poisson_${{ matrix.theory }}_${{ matrix.grid }}x${{ matrix.grid }}.json
+            rawat_poisson_${{ matrix.theory }}_*_${{ matrix.grid }}x${{ matrix.grid }}_fields.npz
+          if-no-files-found: warn
