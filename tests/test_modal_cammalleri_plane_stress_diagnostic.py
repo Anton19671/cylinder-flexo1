@@ -13,8 +13,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ci"))
 import numpy as np
 import pytest
 
-import cylinder_modal_mvi
-from cylinder_modal_mvi import _kl_linear_local_tangent
+import cylinder_modal_linear_physics as modal_linear_physics
+from cylinder_modal_linear_physics import _kl_linear_local_tangent
 from flexo_gradient_g3d import G3DMaterial
 import modal_cammalleri_plane_stress_diagnostic as diagnostic
 
@@ -92,11 +92,11 @@ def test_diagnostic_refuses_models_without_plane_stress_derivation(updates):
 
 
 def test_diagnostic_restores_production_tangent_on_exception(monkeypatch):
-    initial=cylinder_modal_mvi._kl_linear_local_tangent
+    initial=modal_linear_physics._kl_linear_local_tangent
     def injected_failure(case):
-        assert cylinder_modal_mvi._kl_linear_local_tangent is diagnostic.plane_stress_local_tangent
+        assert modal_linear_physics._kl_linear_local_tangent is diagnostic.plane_stress_local_tangent
         raise RuntimeError("intentional-test-solver-failure")
     monkeypatch.setattr(diagnostic,"solve_modal_case",injected_failure)
     with pytest.raises(RuntimeError,match="intentional-test-solver-failure"):
         diagnostic.run_case({"modal":{}},13,21,"plane_stress_diagnostic")
-    assert cylinder_modal_mvi._kl_linear_local_tangent is initial
+    assert modal_linear_physics._kl_linear_local_tangent is initial

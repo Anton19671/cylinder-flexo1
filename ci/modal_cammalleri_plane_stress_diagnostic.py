@@ -19,7 +19,7 @@ import numpy as np
 from cylinder_paths import activate
 activate()
 
-import cylinder_modal_mvi
+import cylinder_modal_linear_physics as modal_linear_physics
 from cylinder_modal_reference import solve_modal_case
 from cylinder_kl_g3d_weak import (
     _kl_small_virtual_F_library, _variation, gauss_thickness)
@@ -99,16 +99,16 @@ def run_case(base,nx,ns,variant):
     case["fdm_grid"]={"nx":nx,"ns":ns,
                       "operator_scheme":"SBP42_FOURIER_ODD_CSR"}
     case["output_dir"]=f"OUTPUT_CAMMALLERI_{variant}_{nx}x{ns}"
-    old=cylinder_modal_mvi._kl_linear_local_tangent
+    old=modal_linear_physics._kl_linear_local_tangent
     started=time.monotonic()
     try:
         if variant=="plane_stress_diagnostic":
-            cylinder_modal_mvi._kl_linear_local_tangent=plane_stress_local_tangent
+            modal_linear_physics._kl_linear_local_tangent=plane_stress_local_tangent
         elif variant!="production_3d":
             raise ValueError("Unknown constitutive diagnostic")
         result=solve_modal_case(case)
     finally:
-        cylinder_modal_mvi._kl_linear_local_tangent=old
+        modal_linear_physics._kl_linear_local_tangent=old
     freq=np.asarray(result["frequencies_hz"],float)
     modes=np.asarray(result["mechanical_modes"],float)
     nums=result.get("circumferential_wavenumbers")
@@ -170,6 +170,21 @@ def main():
             print(f"[PLANE_STRESS_DIAG] START {variant} {nx}x{ns}",flush=True)
             try:
                 row=run_case(base,nx,ns,variant)
+                if variant=="plane_stress_diagnostic":
+                    previous=next(
+                        (item for item in result["runs"] if
+                         item["grid"]==[nx,ns] and
+                         item["model_variant"]=="production_3d" and
+                         item["status"]=="COMPUTED_NOT_INDEPENDENTLY_VALIDATED"),
+                        None)
+                    if previous is not None:
+                        differences=[
+                            abs(float(p["frequency_hz"])-float(q["frequency_hz"]))
+                            for p,q in zip(previous["rows"],row["rows"])]
+                        if max(differences,default=0.) < 1.e-7:
+                            raise ValueError(
+                                "CAMMALLERI_PLANE_STRESS_DIAGNOSTIC_NOT_ACTIVE: "
+                                "3D and plane stress yielded identical modes")
             except Exception as exc:
                 failed=True
                 row={"grid":[nx,ns],"model_variant":variant,
