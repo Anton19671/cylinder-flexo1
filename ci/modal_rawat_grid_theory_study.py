@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rawat 2016 C-C h/R=1/20, H/R=2: TE1/TE4 FDM grid convergence.
+"""Rawat 2016 C-C h/R=1/20, H/R=2: KL/FSDT/Reddy/CUF TE1-TE4 FDM grid convergence.
 
 For each n compare its first computed Fourier-sector branch with Table 2.
 A mode indexed '1' within a sector is NOT automatically validated as axial
@@ -57,7 +57,7 @@ def run(theory, grid):
             saved=[float(f) for f,k in zip(freq,harmonics) if int(k)==n]
             value=(float(sector[0]["frequency_hz"]) if sector else (min(saved) if saved else None))
             index=next((i for i,k in enumerate(harmonics) if int(k)==n),None)
-            radial_component=2*(int(theory[-1])+1)
+            radial_component=(2*(int(theory[-1])+1) if theory.startswith("CUF_TE") else 2)
             signature=(None if index is None else axial_harmonic_signature(
                 modes[index,radial_component],int(n)))
             rows.append({"circumferential_n":n,"published_m1_hz":reference[n],
@@ -141,7 +141,7 @@ def run(theory, grid):
 
 if __name__=="__main__":
     ap=argparse.ArgumentParser()
-    ap.add_argument("theory",choices=["CUF_TE1","CUF_TE4"])
+    ap.add_argument("theory",choices=["KL","FSDT","REDDY","CUF_TE1","CUF_TE2","CUF_TE3","CUF_TE4"])
     ap.add_argument("grid",type=int,choices=[13,17,21,25,33,41,49,57,65,81])
     args=ap.parse_args()
     run(args.theory,args.grid)
