@@ -58,6 +58,28 @@ def make_case(tmp_path,*,theory="CUF_TE1",electric=False,kind="DYNAMIC",
     return file,case
 
 
+
+@pytest.mark.parametrize("integrator",("NEWMARK","BATHE","GAUSS_IRK4"))
+def test_projected_dynamic_rank_acceptance_is_explicit(tmp_path,integrator):
+    path,document=make_case(tmp_path,integrator=integrator)
+    assert native.load_case(path)["settings"].allow_projected_convergence is False
+    document["solver"]["allow_projected_dynamic"]=True
+    path.write_text(json.dumps(document))
+    prepared=native.load_case(path)
+    assert prepared["settings"].allow_projected_convergence is True
+    assert native.run(path,validate_only=True)["projected_dynamic_opt_in"] is True
+    assert not (tmp_path/"output").exists()
+
+
+@pytest.mark.parametrize("kind,value",(("STATIC",True),("DYNAMIC","true")))
+def test_dynamic_projected_flag_rejects_wrong_kind_or_nonboolean(tmp_path,kind,value):
+    path,document=make_case(tmp_path,kind=kind)
+    document["solver"]["allow_projected_dynamic"]=value
+    path.write_text(json.dumps(document))
+    with pytest.raises(ValueError,match="PROJECTED_DYNAMIC_ONLY_BOOLEAN_REQUIRED"):
+        native.load_case(path)
+    assert not (tmp_path/"output").exists()
+
 @pytest.mark.parametrize("theory",native.THEORIES)
 @pytest.mark.parametrize("integrator",("NEWMARK","BATHE","GAUSS_IRK4"))
 def test_all_seven_coupled_theories_validate_only_without_output(

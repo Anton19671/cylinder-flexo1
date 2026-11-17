@@ -80,6 +80,7 @@ OPTIONAL_LINEAR_KEYS=frozenset((
     "linear_solver","dense_coordinate_limit","krylov_restart",
     "krylov_maxiter","krylov_relative_tolerance",
     "krylov_dense_fallback_limit","allow_projected_static",
+    "allow_projected_dynamic",
     "acceleration_linear_solver","acceleration_dense_limit",
     "acceleration_krylov_restart","acceleration_krylov_maxiter",
     "acceleration_krylov_relative_tolerance",
@@ -368,11 +369,14 @@ def load_case(path, *, allow_existing_output=False):
         if (acceleration_options["acceleration_linear_solver"]=="DENSE_LU"
                 and nacc>acceleration_options["acceleration_dense_limit"]):
             raise ValueError("COUPLED_MVI_DENSE_ACCELERATION_LIMIT_EXCEEDED")
-    allow_projected=opts.get("allow_projected_static",False)
-    if type(allow_projected) is not bool or (allow_projected and opts["kind"]!="STATIC"):
+    projected_static=opts.get("allow_projected_static",False)
+    projected_dynamic=opts.get("allow_projected_dynamic",False)
+    if type(projected_static) is not bool or (projected_static and opts["kind"]!="STATIC"):
         raise ValueError("COUPLED_MVI_PROJECTED_STATIC_ONLY_BOOLEAN_REQUIRED")
+    if type(projected_dynamic) is not bool or (projected_dynamic and opts["kind"]!="DYNAMIC"):
+        raise ValueError("COUPLED_MVI_PROJECTED_DYNAMIC_ONLY_BOOLEAN_REQUIRED")
     settings=CoupledMVISweepSettings(
-        allow_projected_convergence=allow_projected,
+        allow_projected_convergence=(projected_static or projected_dynamic),
         max_sweeps=opts["max_sweeps"],
         halfstep=CoupledMVIHalfstepSettings(
             max_coordinates=cap,
@@ -574,7 +578,8 @@ def _run_loaded_case(items,*,validate_only,resume=False):
         steps=opts["steps"],output_dir=str(items["output"]),
         physical_steps_computed=0,
         physical_boundary_closure_certified=False,
-        time_dependent_loads=bool(items["load_program"].law is not None))
+        time_dependent_loads=bool(items["load_program"].law is not None),
+        projected_dynamic_opt_in=bool(opts.get("allow_projected_dynamic",False)))
     if validate_only:
         return result
 

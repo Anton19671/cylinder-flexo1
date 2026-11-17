@@ -337,6 +337,7 @@ class NativeCoupledMVIGauss2:
             change=float(np.linalg.norm(current-previous)/
                 max(np.linalg.norm(current),np.linalg.norm(previous),1.e-30))
             nodals=[]
+            projected_nodals=[]
             for index in (0,1):
                 work=lambda f,index=index: effective(index,f,factors)
                 try:
@@ -347,14 +348,21 @@ class NativeCoupledMVIGauss2:
                 except ProjectedBasisAmbiguous:
                     return result("MVI_GAUSS_PROJECTED_BASIS_AMBIGUOUS")
                 nodals.append(max(m,e,full))
+                projected_nodals.append(max(m,e))
+            # An explicit fixed-rank research opt-in changes the joint
+            # acceptance gate, not the full physical nodal diagnostic.
             final_norm=max(nodals)
+            projected_norm=max(projected_nodals)
             if on_iteration is not None:
                 on_iteration(dict(gauss_sweep=sweep,
                                   gauss_joint_nodal=final_norm,
+                                  gauss_joint_projected=projected_norm,
                                   gauss_stage_change=change,
                                   gauss_coupling_relaxation=stage_coupling_relaxation))
+            gate=(projected_norm if settings.allow_projected_convergence
+                  else final_norm)
             if (change<=stage_field_tolerance and
-                    final_norm<=settings.halfstep.tolerance_scaled):
+                    gate<=settings.halfstep.tolerance_scaled):
                 converged=True
                 break
         if not converged:
@@ -393,6 +401,8 @@ class NativeCoupledMVIGauss2:
         return CoupledMVIGaussStep(
             endpoint.state,stage_states,last_solvers,
             t_end,("MVI_GAUSS_CONVERGED_PROJECTED" if
+                (settings.allow_projected_convergence and
+                 final_norm>settings.halfstep.tolerance_scaled) or
                 endpoint.electric_status=="CONVERGED_PROJECTED" or any(
                     item.status=="CONVERGED_PROJECTED" for item in last_solvers)
                 else "MVI_GAUSS_CONVERGED"),final_norm,

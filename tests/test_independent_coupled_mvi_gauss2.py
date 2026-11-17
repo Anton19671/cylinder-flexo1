@@ -97,6 +97,38 @@ def test_gauss_joint_stages_and_endpoint_are_both_required(monkeypatch):
                                .02*gauss.GAUSS_C[1],.02])
 
 
+
+def test_projected_gauss_joint_keeps_large_full_nodal_norm(monkeypatch):
+    surf,solver,state=configured()
+    monkeypatch.setattr(gauss,"solve_coupled_mvi_static",
+                        lambda surface,factors,**kw:sweep(factors))
+    monkeypatch.setattr(gauss,"_projected_norms",
+                        lambda *a,**kw:(1.e-14,2.e-14,1.))
+    monkeypatch.setattr(gauss,"fit_mvi_endpoint_field",
+        lambda surface,seed,field,program,**kw:
+            MVIRankEndpointFit(seed,True,"MVI_ENDPOINT_EXACT_RANK",0.,0))
+    def closure(config,factors,velocity,**kw):
+        accepted=CoupledMVIDynamicState(
+            kw["time_s"],factors,velocity,np.zeros_like(velocity))
+        return MVIAccelerationResult(accepted,"MVI_INITIAL_EQUILIBRIUM_CLOSED",
+                                     None,None)
+    monkeypatch.setattr(gauss,"close_mvi_instantaneous_state",closure)
+    strict=solver.advance(state,.02,field_scales=np.ones(surf.n_fields),
+                          energy_scale_j=1.,max_stage_sweeps=1)
+    assert strict.state is None
+    records=[]
+    from independent_mvi.coupled_static import CoupledMVISweepSettings
+    projected=solver.advance(
+        state,.02,field_scales=np.ones(surf.n_fields),energy_scale_j=1.,
+        max_stage_sweeps=1,on_iteration=records.append,
+        settings=CoupledMVISweepSettings(
+            allow_projected_convergence=True))
+    assert projected.state is not None
+    assert projected.status=="MVI_GAUSS_CONVERGED_PROJECTED"
+    assert projected.joint_nodal_norm==pytest.approx(1.)
+    assert any(row.get("gauss_joint_nodal")==1. and
+               row.get("gauss_joint_projected")<1.e-8 for row in records)
+
 def test_gauss_projected_electric_endpoint_is_reported(monkeypatch):
     surf,solver,state=configured()
     monkeypatch.setattr(gauss,"solve_coupled_mvi_static",
