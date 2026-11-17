@@ -1,0 +1,60 @@
+name: Native energy FDM four real KL loaded runs
+run-name: "Energy FDM KL G3D-Gz STATIC-DYNAMIC physical pilot - ${{ github.sha }}"
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "ci/native_energy_fdm_four_loaded.py"
+      - "independent_mkr/run_energy_fdm_research.py"
+      - "numerics/cylinder_native_energy_fdm.py"
+      - "numerics/cylinder_native_energy_dynamics.py"
+      - ".github/workflows/native-energy-fdm-four-loaded.yml"
+permissions:
+  contents: read
+jobs:
+  loaded-energy:
+    name: "REAL energy FDM KL ${{ matrix.gradient }} ${{ matrix.kind }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        gradient: [G3D, Gz]
+        kind: [STATIC, DYNAMIC]
+    env:
+      PYTHONPATH: ".:ci:independent_mkr:independent_mvi:mechanics:numerics:flexoelectric:physics:interface"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install physical solver requirements
+        run: python -m pip install numpy scipy
+      - name: Actual loaded KL energy FDM with flexoelectric response
+        shell: bash
+        env:
+          GRADIENT: ${{ matrix.gradient }}
+          KIND: ${{ matrix.kind }}
+        run: |
+          set -o pipefail
+          mkdir -p physical_logs
+          python -u ci/native_energy_fdm_four_loaded.py \
+            --gradient "$GRADIENT" --kind "$KIND" \
+            --output "physical/${GRADIENT}_${KIND}" \
+            2>&1 | tee "physical_logs/${GRADIENT}_${KIND}.log"
+      - name: Save real accepted states or full error evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: "ENERGY_KL_${{ matrix.gradient }}_${{ matrix.kind }}"
+          path: |
+            physical/
+            physical_logs/
+          retention-days: 60
+          if-no-files-found: warn
