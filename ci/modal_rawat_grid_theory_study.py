@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rawat 2016 C-C h/R=1/20, H/R=2: TE1/TE4 x 13/17 FDM convergence.
+"""Rawat 2016 C-C h/R=1/20, H/R=2: TE1/TE4 FDM grid convergence.
 
 For each n compare its first computed Fourier-sector branch with Table 2.
 A mode indexed '1' within a sector is NOT automatically validated as axial
@@ -19,11 +19,12 @@ BASE = ROOT / "config/verification/rawat2016/modal_linear"
 
 def run(theory, grid):
     filename=f"RAWAT2016_{theory}_{grid}x{grid}_MODAL_FDM.json"
+    # Larger grids reuse the exact same validated Rawat physical CASE;
+    # only nx/ns and the stable SBP42 operator are changed below.
     source=(BASE/"mvi_21x21/RAWAT2016_CUF_TE4_21x21_MODAL_FDM_SBP42.json"
             if grid==21 and theory=="CUF_TE4" else
-            (BASE/f"RAWAT2016_{theory}_17x17_MODAL_FDM.json"
-             if grid==21 else
-             (BASE/"fdm_13x13"/filename if grid==13 else BASE/filename)))
+            (BASE/"fdm_13x13"/filename if grid==13 else
+             BASE/f"RAWAT2016_{theory}_17x17_MODAL_FDM.json"))
     case=json.loads(source.read_text(encoding="utf-8"))
     if case["method"] != "FDM": raise ValueError("Not FDM")
     original_scheme=case["fdm_grid"]["operator_scheme"]
@@ -71,7 +72,7 @@ def run(theory, grid):
         # The first sector candidate is not certified as published axial m=1.
         families = result.get("harmonic_family_scan")
         extension = {}
-        for n in (1, 6, 7, 8):
+        for n in (1, 6, 7, 8, 9, 10, 12):
             if n > (grid - 1) // 2:
                 extension[str(n)] = {
                     "status": "UNRESOLVED_GRID_ANGULAR_LIMIT",
@@ -110,6 +111,21 @@ def run(theory, grid):
         report["extended_harmonics_scope"] = (
             "FDM Fourier-sector numerical frequencies, not Rawat publication "
             "errors or independent axial m=1 identification")
+        # Retain the complete first-candidate angular spectrum, including
+        # sectors outside the ten lowest global modes. Every row comes
+        # from the same physical Fourier K/M block, never an FFT estimate.
+        if isinstance(families, list):
+            first_by_n = {}
+            for sector in families:
+                if int(sector["axial_mode_index"]) == 1:
+                    first_by_n[str(int(sector["n"]))] = {
+                        "frequency_hz": float(sector["frequency_hz"]),
+                        "source": "SOLVED_FDM_FOURIER_SECTOR",
+                        "axial_index_verified": bool(
+                            sector.get("axial_mode_index_verified", False)),
+                    }
+            report["all_first_axial_candidates_by_n"] = first_by_n
+        report["independent_fem_modes_available"] = False
         np.savez_compressed(ROOT/(prefix+"_fields.npz"),mechanical_modes=modes,
                             frequencies_hz=freq,circumferential_wavenumbers=np.asarray(harmonics,int))
         report.update(status="COMPUTED_PENDING_AXIAL_AND_MESH_VALIDATION",
@@ -126,6 +142,6 @@ def run(theory, grid):
 if __name__=="__main__":
     ap=argparse.ArgumentParser()
     ap.add_argument("theory",choices=["CUF_TE1","CUF_TE4"])
-    ap.add_argument("grid",type=int,choices=[13,17,21])
+    ap.add_argument("grid",type=int,choices=[13,17,21,25,33,41])
     args=ap.parse_args()
     run(args.theory,args.grid)
