@@ -20,7 +20,7 @@ from pathlib import Path
 
 from cylinder_paths import activate
 activate()
-from cylinder_native_run_control import cooperate
+from cylinder_native_run_control import cooperate, NativeUserStop
 import numpy as np
 
 from flexo_gradient_g3d import G3DMaterial
@@ -681,10 +681,18 @@ def _run_loaded_case(items,*,validate_only,resume=False):
     scales=items["field_scales"]
     energy=items["energy_scale"]
     settings=items["settings"]
+    user_stop_requested=False
     def run_cancelled():
         # cooperate raises on Stop and waits on Pause; polling also runs
         # inside reduced Newton columns and Krylov actions.
-        cooperate(output)
+        nonlocal user_stop_requested
+        try:
+            cooperate(output)
+        except NativeUserStop:
+            # Reduced drivers may translate InterruptedError into a
+            # CANCELLED result. Preserve the cause at this runner boundary.
+            user_stop_requested=True
+            raise
         return False
     # A rejected restart must NEVER overwrite a previously committed
     # summary with failure metadata from this new invocation.
@@ -750,6 +758,13 @@ def _run_loaded_case(items,*,validate_only,resume=False):
                 first_step=prior["accepted_steps"]+1
                 checkpoint_validated=True
                 result=prior
+                # --resume explicitly starts a new execution from the checked
+                # checkpoint. Only now, under the output lock, retire controls
+                # belonging to the terminated process. A rejected resume must
+                # preserve them as well as the accepted result files.
+                for name in ("CONTROL_STOP","CONTROL_PAUSE"):
+                    (output/name).unlink(missing_ok=True)
+                result.pop("stopped_by_user",None)
                 result.pop("error_type",None)
                 result.pop("detail",None)
                 result.pop("failed_time_step",None)
@@ -837,8 +852,12 @@ def _run_loaded_case(items,*,validate_only,resume=False):
             # Preserve all previously accepted results unchanged if a
             # checkpoint, input hash, output history or rank fails audit.
             raise
-        result.update(status="FAILED",error_type=type(exc).__name__,
+        stopped=isinstance(exc,NativeUserStop) or user_stop_requested
+        result.update(status="STOPPED_BY_USER" if stopped else "FAILED",
+                      error_type=type(exc).__name__,
                       detail=str(exc),scientific_accuracy_certified=False)
+        if stopped:
+            result["stopped_by_user"]=True
         _write_json(output/"RUN_SUMMARY.json",result)
         raise
 

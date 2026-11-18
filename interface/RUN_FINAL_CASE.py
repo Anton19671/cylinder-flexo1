@@ -23,6 +23,16 @@ def _confirmed_success(summary):
     if type(flag) is bool:
         return flag
     status=summary.get("status")
+    if status=="EXPERIMENTAL_PROJECTED_STATIONARY_UNCERTIFIED":
+        # A deliberately accepted fixed-rank stationary result is a
+        # completed run. Preserve its projected-only quality in the report.
+        return (summary.get("solver_backend")=="INDEPENDENT_MVI"
+                and summary.get("scientific_accuracy_certified") is False
+                and summary.get("calculation_kind")=="STATIC"
+                and type(summary.get("accepted_steps")) is int
+                and summary["accepted_steps"]==1
+                and summary.get("solution_status")=="CONVERGED_PROJECTED"
+                and summary.get("full_nodal_equilibrium_satisfied") is False)
     if status in ("EXPERIMENTAL_COMPLETED_UNCERTIFIED",
                   "EXPERIMENTAL_STATIONARY_UNCERTIFIED"):
         # "Completed" is a numerical workflow status, NOT a claim that

@@ -62,6 +62,32 @@ def test_energy_schema_does_not_silently_replace_direct_strong(tmp_path):
     assert energy.load_case(path)["case"]["schema"]==energy.SCHEMA
 
 
+@pytest.mark.parametrize("runner",(energy,strong))
+@pytest.mark.parametrize("user_stop",(False,True))
+def test_fdm_runner_distinguishes_user_stop_from_interrupted_io(
+        tmp_path,monkeypatch,runner,user_stop):
+    from cylinder_native_run_control import NativeUserStop
+    path,case=make_case(tmp_path,theory="KL",kind="STATIC")
+    case["schema"]=runner.SCHEMA
+    path.write_text(json.dumps(case),encoding="utf-8")
+    data=runner.load_case(path)
+    monkeypatch.setattr(runner,"load_case",lambda _:data)
+    error=NativeUserStop if user_stop else InterruptedError
+    def interrupted(*args,**kwargs):
+        raise error("SYNTHETIC_INTERRUPTION")
+    if runner is energy:
+        monkeypatch.setattr(data["space"],"solve_static",interrupted)
+    else:
+        monkeypatch.setattr(data["model"],"solve",interrupted)
+    with pytest.raises(error):
+        runner.run(path,validate_only=False)
+    saved=json.loads((tmp_path/"result"/"RUN_SUMMARY.json").read_text())
+    assert saved["status"]==("STOPPED_BY_USER" if user_stop else "FAILED")
+    assert saved["accepted_steps"]==0
+    assert saved.get("stopped_by_user",False) is user_stop
+    assert not (tmp_path/"result"/"STATIC_ACCEPTED.npz").exists()
+
+
 def test_native_energy_preflight_respects_nonuniform_physical_scales(tmp_path):
     path,case=make_case(tmp_path,theory="KL",kind="STATIC")
     case["schema"]=energy.SCHEMA

@@ -265,7 +265,7 @@ def prepare_resume(output,case,manifest,*,surface,configuration,steps,dt_s,
             summary.get("rank")!=input_rank or
             summary.get("steps")!=steps):
         raise ValueError("COUPLED_MVI_CHECKPOINT_STEP_OR_RANK_INVALID")
-    if summary.get("status") not in ("IN_PROGRESS","FAILED"):
+    if summary.get("status") not in ("IN_PROGRESS","FAILED","STOPPED_BY_USER"):
         raise ValueError("COUPLED_MVI_CHECKPOINT_NOT_RESUMABLE")
     if not _time_close(float(summary.get("time_s",-1.)),
                        accepted*dt_s,dt_s):

@@ -25,7 +25,7 @@ activate()
 
 import numpy as np
 
-from cylinder_native_run_control import cooperate
+from cylinder_native_run_control import cooperate, NativeUserStop
 from cylinder_native_energy_fdm import NativeEnergyFDM,NativeEnergyEndSpace
 from cylinder_native_energy_dynamics import NativeEnergyDynamics
 from cylinder_direct_strong_newton import StrongNewtonSettings
@@ -311,8 +311,12 @@ def run(filename,*,validate_only):
         _atomic_json(out/"RUN_SUMMARY.json",summary)
         return summary
     except Exception as exc:
-        summary.update(status="FAILED",error_type=type(exc).__name__,
+        stopped=isinstance(exc,NativeUserStop)
+        summary.update(status="STOPPED_BY_USER" if stopped else "FAILED",
+                       error_type=type(exc).__name__,
                        detail=str(exc),scientific_accuracy_certified=False)
+        if stopped:
+            summary["stopped_by_user"]=True
         _atomic_json(out/"RUN_SUMMARY.json",summary)
         raise
 

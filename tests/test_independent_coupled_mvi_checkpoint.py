@@ -126,6 +126,73 @@ def test_resume_continues_from_last_accepted_step_without_reinitialization(
     assert (tmp_path/"output"/"STEP_0003.npz").exists()
 
 
+@pytest.mark.parametrize("stop_kind",("cooperative","gui"))
+def test_explicit_resume_after_stop_retires_old_controls(tmp_path,monkeypatch,stop_kind):
+    from cylinder_native_run_control import NativeUserStop
+    path=build(tmp_path)
+    mock_drivers(monkeypatch)
+    ordinary=native.NativeCoupledMVINewmark.advance
+    def stopping(self,state,dt_s,**kwargs):
+        if state.time_s>=.001:
+            output=tmp_path/"output"
+            (output/"CONTROL_STOP").write_text("requested")
+            (output/"CONTROL_PAUSE").write_text("requested")
+            kwargs["cancelled"]()
+        return ordinary(self,state,dt_s,**kwargs)
+    monkeypatch.setattr(native.NativeCoupledMVINewmark,"advance",stopping)
+    with pytest.raises(NativeUserStop):
+        native.run(path,validate_only=False)
+    before=summary(tmp_path)
+    assert before["status"]=="STOPPED_BY_USER"
+    assert before["accepted_steps"]==1
+    if stop_kind=="gui":
+        # GUI process termination records the same persistent status.
+        before.pop("error_type",None)
+        before.pop("detail",None)
+        (tmp_path/"output"/"RUN_SUMMARY.json").write_text(json.dumps(before))
+    events=mock_drivers(monkeypatch)
+    done=native.run(path,validate_only=False,resume=True)
+    assert done["accepted_steps"]==3
+    assert events==[("advance",2),("advance",3)]
+    assert "stopped_by_user" not in done
+    assert not (tmp_path/"output"/"CONTROL_STOP").exists()
+    assert not (tmp_path/"output"/"CONTROL_PAUSE").exists()
+
+
+def test_rejected_resume_preserves_stop_controls(tmp_path,monkeypatch):
+    path=build(tmp_path)
+    mock_drivers(monkeypatch,fail_at=2)
+    with pytest.raises(RuntimeError):
+        native.run(path,validate_only=False)
+    output=tmp_path/"output"
+    for name in ("CONTROL_STOP","CONTROL_PAUSE"):
+        (output/name).write_text("preserve")
+    before=(output/"RUN_SUMMARY.json").read_bytes()
+    monkeypatch.setattr(native,"solver_implementation_fingerprint",lambda:"0"*64)
+    with pytest.raises(ValueError,match="IMPLEMENTATION_CHANGED"):
+        native.run(path,validate_only=False,resume=True)
+    assert (output/"RUN_SUMMARY.json").read_bytes()==before
+    for name in ("CONTROL_STOP","CONTROL_PAUSE"):
+        assert (output/name).read_text()=="preserve"
+
+
+def test_stop_status_survives_reduced_driver_cancellation_result(tmp_path,monkeypatch):
+    path=build(tmp_path)
+    mock_drivers(monkeypatch)
+    def cancelled_driver(self,state,dt_s,**kwargs):
+        (tmp_path/"output"/"CONTROL_STOP").write_text("requested")
+        try:
+            kwargs["cancelled"]()
+        except InterruptedError:
+            return SimpleNamespace(state=None,status="MVI_HALFSTEP_CANCELLED")
+        raise AssertionError("Stop callback must interrupt")
+    monkeypatch.setattr(native.NativeCoupledMVINewmark,"advance",cancelled_driver)
+    with pytest.raises(RuntimeError,match="CANCELLED"):
+        native.run(path,validate_only=False)
+    assert summary(tmp_path)["status"]=="STOPPED_BY_USER"
+    assert summary(tmp_path)["accepted_steps"]==0
+
+
 def test_changed_input_never_corrupts_prior_summary(tmp_path,monkeypatch):
     path=build(tmp_path)
     mock_drivers(monkeypatch,fail_at=2)

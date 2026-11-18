@@ -10,16 +10,20 @@ import time
 from pathlib import Path
 
 
+class NativeUserStop(InterruptedError):
+    """Explicit user cancellation, distinct from numerical or I/O failure."""
+
+
 def cooperate(output_dir):
     directory=Path(output_dir)
     stop=directory/"CONTROL_STOP"
     pause=directory/"CONTROL_PAUSE"
     while True:
         if stop.exists():
-            raise InterruptedError("NATIVE_USER_STOP_REQUESTED")
+            raise NativeUserStop("NATIVE_USER_STOP_REQUESTED")
         if not pause.exists():
             return
         time.sleep(.2)
 
 
-__all__=("cooperate",)
+__all__=("cooperate","NativeUserStop")
