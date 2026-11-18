@@ -1964,6 +1964,9 @@ class EnhancedSolverGUI(SolverGUI):
         self.load_full_check=ttk.Checkbutton(self.patch_frame,text="Вся окружность (PATCH/HARMONIC)",variable=self.load_full_var,command=lambda:self._schedule_problem_scheme_redraw(20)); self.load_full_check.grid(row=7,column=0,columnspan=2,sticky="w",pady=4)
         ttk.Label(self.patch_frame,text="PATCH/HARMONIC: x1–x2 и θ1–θ2 (или s1–s2) задают область. LINE: x1–x2, центр θ0/s0 и физическая ширина b. Фронты ограниченной области сглаживаются автоматически по КР-шаблону.",wraplength=500).grid(row=8,column=0,columnspan=2,sticky="w",pady=(4,0))
 
+        self.edge_x_widgets=self._labeled_entry(self.patch_frame,9,"Ширина сглаживания по x (пусто = авто)","load_edge_width_x")
+        self.edge_c_widgets=self._labeled_entry(self.patch_frame,10,"Ширина по θ [рад] или s (пусто = авто)","load_edge_width_c")
+
         steps=ttk.LabelFrame(left,text="Шаги нагружения",padding=8); steps.pack(fill="x",pady=(0,8))
         self.load_steps_frame=steps
         ttk.Label(steps,text="Задание").grid(row=0,column=0,sticky="w",pady=3)
@@ -2367,7 +2370,8 @@ class EnhancedSolverGUI(SolverGUI):
     def _convert_gui_units(self,old_system,new_system):
         """Convert GUI-owned dimensional inputs transactionally, old -> new."""
         affected=(
-            "L","R","h","load_x1","load_x2","load_band_width",
+            "L","R","h","layer_bounds","load_point_x0","load_x1","load_x2","load_band_width",
+            "load_edge_width_x","load_edge_width_c",
             "E0","G_ref","sigma_ref","yield_stress","j2_sigma_y0","j2_H",
             "load_q","load_p_line","load_c1","load_c2","load_c0",
         )
@@ -2379,18 +2383,25 @@ class EnhancedSolverGUI(SolverGUI):
             kinds={
                 "L":"length","R":"length","h":"length",
                 "load_x1":"length","load_x2":"length","load_band_width":"length",
+                "load_point_x0":"length","load_edge_width_x":"length",
                 "E0":"stress","G_ref":"stress","sigma_ref":"stress","yield_stress":"stress",
                 "j2_sigma_y0":"stress","j2_H":"stress",
                 "load_q":"pressure","load_p_line":"line_load",
             }
             if self.vars.get("load_coord") and self.vars["load_coord"].get()=="S":
-                kinds.update({"load_c1":"length","load_c2":"length","load_c0":"length"})
+                kinds.update({"load_c1":"length","load_c2":"length","load_c0":"length","load_edge_width_c":"length"})
             for key,kind in kinds.items():
                 if key not in self.vars: continue
                 txt=self.vars[key].get().strip()
                 if not txt: continue
                 val=funits.convert_value(float(txt),kind,old_system,new_system)
                 self.vars[key].set(self._unit_fmt(val))
+
+            bounds=snapshots.get("layer_bounds","").strip()
+            if bounds:
+                lengths=[funits.convert_value(float(value),"length",old_system,new_system)
+                         for value in bounds.replace(";",",").split(",") if value.strip()]
+                self.vars["layer_bounds"].set(", ".join(self._unit_fmt(value) for value in lengths))
 
             # TABLE: epsilon is dimensionless; Phi/sigma column has stress units.
             if hasattr(self,"curve_points") and self.vars.get("curve_mode") and self.vars["curve_mode"].get()=="TABLE":
@@ -2617,7 +2628,8 @@ class EnhancedSolverGUI(SolverGUI):
                 area_type=typ in ("PATCH_RADIAL_FACE","HARMONIC_RADIAL_FACE")
                 for widget in (getattr(self,"load_c1_label",None),getattr(self,"load_c1_entry",None),
                                getattr(self,"load_c2_label",None),getattr(self,"load_c2_entry",None),
-                               getattr(self,"load_full_check",None)):
+                               getattr(self,"load_full_check",None),
+                               *getattr(self,"edge_x_widgets",()), *getattr(self,"edge_c_widgets",())):
                     if widget is not None:
                         widget.grid() if area_type else widget.grid_remove()
                 for widget in (getattr(self,"load_c0_label",None),getattr(self,"load_c0_entry",None),
@@ -2997,6 +3009,10 @@ class EnhancedSolverGUI(SolverGUI):
         if typ in ("PATCH_RADIAL_FACE","HARMONIC_RADIAL_FACE","LINE_RADIAL_GENERATOR"):
             spec["circumferential_coordinate"]=self.vars["load_coord"].get()
         if typ in ("PATCH_RADIAL_FACE","HARMONIC_RADIAL_FACE"):
+            for key in ("edge_width_x","edge_width_c"):
+                value=self._v("load_"+key).get().strip()
+                if value:
+                    spec[key]=_float(value,key,positive=True)
             spec["full_circumference"]=bool(self.load_full_var.get())
             if not spec["full_circumference"]:
                 spec["c1"]=_float(self.vars["load_c1"].get(),"c1"); spec["c2"]=_float(self.vars["load_c2"].get(),"c2")
@@ -3509,6 +3525,8 @@ class EnhancedSolverGUI(SolverGUI):
             ld=cfg.get("load_definition")
             if isinstance(ld,dict):
                 typ=str(ld.get("type","EXTERNAL_NPZ"))
+                self._v("load_edge_width_x").set(str(ld.get("edge_width_x") or ""))
+                self._v("load_edge_width_c").set(str(ld.get("edge_width_c",ld.get("edge_width")) or ""))
                 self.vars["load_type"].set(typ)
                 self.vars["loads_npz"].set(str(ld.get("npz") or cfg.get("loads_npz") or ""))
                 self.vars["load_factors"].set(",".join(str(x) for x in ld.get("load_factors",[1])))
@@ -3517,7 +3535,7 @@ class EnhancedSolverGUI(SolverGUI):
                 self.vars["load_lambda_start"].set(str(sd.get("lambda_start",0.1)))
                 self.vars["load_lambda_step"].set(str(sd.get("lambda_step",0.1)))
                 self.vars["load_lambda_end"].set(str(sd.get("lambda_end",1.0)))
-                default_surface="OUTER" if theory=="CUF" else "MIDDLE"
+                default_surface="OUTER" if cfg.get("theory","CUF")=="CUF" else "MIDDLE"
                 self.vars["load_face"].set(str(ld.get("surface",ld.get("face",default_surface))))
                 qstored=ld.get("q")
                 pstored=ld.get("p_line")
@@ -3538,7 +3556,7 @@ class EnhancedSolverGUI(SolverGUI):
                 self.vars["load_c2"].set(str(ld.get("c2","") if ld.get("c2") is not None else ""))
                 self.vars["load_c0"].set(str(ld.get("c0","") if ld.get("c0") is not None else ""))
                 self.vars["load_band_width"].set(str(ld.get("band_width","") if ld.get("band_width") is not None else ""))
-                self.load_full_var.set(bool(ld.get("full_circumference",False)))
+                self.load_full_var.set(loadbuilder.full_circumference(ld))
                 if str(sd.get("mode","")).upper()=="COUNT":
                     sc=sd.get("step_count")
                     if sc is None:sc=len(ld.get("load_factors") or [])
@@ -7038,18 +7056,32 @@ class FinalSolverGUI(EnhancedSolverGUI):
             item=mechanical.get(side) or {}
             put("bc_"+side,item.get("support") if isinstance(item,dict) else "")
         load=cfg.get("reference_loads") or cfg.get("load_definition") or {}
-        put("load_type",load.get("type"));put("load_face",load.get("face"))
+        load_type=str(load.get("type","")).upper()
+        put("load_type",load_type);put("load_face",load.get("face",load.get("surface")))
+        put("load_coord",load.get("circumferential_coordinate","THETA"))
+        put("load_edge_width_x",load.get("edge_width_x"))
+        put("load_edge_width_c",load.get("edge_width_c"))
+        self.load_full_var.set(load.get("full_circumference",load_type in
+            ("UNIFORM_RADIAL_FACE","HARMONIC_RADIAL_FACE")))
         q=load.get("q")
         put("load_q",abs(float(q)) if q is not None else "")
-        put("load_pressure_direction","EXTERNAL" if q is not None and float(q)<0 else "INTERNAL")
+        point_force=load.get("P",load.get("force"))
+        line_force=load.get("p_line")
+        amplitude=(point_force if load_type=="POINT_RADIAL_FORCE" else
+                   line_force if load_type=="LINE_RADIAL_GENERATOR" else q)
+        sign=-1 if str(load.get("direction","RADIAL_OUTWARD")).upper()=="RADIAL_INWARD" else 1
+        inward=amplitude is not None and (sign*float(amplitude)<0 or (float(amplitude)==0 and sign<0))
+        put("load_pressure_direction","EXTERNAL" if inward else "INTERNAL")
         for key,source in (("load_x1","x1"),("load_x2","x2"),
             ("load_c0","c0"),("load_c1","c1"),("load_c2","c2"),
             ("load_harmonic_m","m"),("load_harmonic_n","n"),
             ("load_band_width","band_width"),("load_point_x0","x0"),
             ("load_point_theta0","theta0")):
             put(key,load.get(source))
-        for key,source in (("load_p_line","p_line"),("load_point_P","P")):
-            val=load.get(source);put(key,abs(float(val)) if val is not None else "")
+        for key,val in (("load_p_line",line_force),("load_point_P",point_force)):
+            put(key,abs(float(val)) if val is not None else "")
+        if load_type=="POINT_RADIAL_FORCE" and "s0" in load:
+            put("load_point_theta0",float(load["s0"])/float(geo["R"]))
         dynamics=cfg.get("dynamics") or {}
         for key,source in (("dyn_dt","time_step_s"),("dyn_steps","n_steps"),
             ("dyn_density","density_kg_m3"),("dyn_beta","newmark_beta"),
@@ -7756,10 +7788,14 @@ class FinalSolverGUI(EnhancedSolverGUI):
             for key in ("load_q","load_p_line","load_point_P","load_point_x0","load_point_theta0",
                         "load_x1","load_x2","load_c0","load_c1","load_c2","load_band_width"):
                 put(key,"")
+            put("load_edge_width_x",ld.get("edge_width_x",""))
+            put("load_edge_width_c",ld.get("edge_width_c",ld.get("edge_width","")))
             if ld:
-                put("load_type",str(ld.get("type","UNIFORM_RADIAL_FACE")).upper())
+                load_type=str(ld.get("type","UNIFORM_RADIAL_FACE")).upper()
+                put("load_type",load_type)
                 put("loads_npz",ld.get("npz",get(cfg,"loads_npz")))
-                put("load_face",ld.get("surface",ld.get("face","OUTER")))
+                default_surface="OUTER" if theory=="CUF" else "MIDDLE"
+                put("load_face",ld.get("surface",ld.get("face",default_surface)))
                 put("load_coord",ld.get("circumferential_coordinate","THETA"))
                 put("load_x1",ld.get("x1",""));put("load_x2",ld.get("x2",""))
                 def magnitude(prefix):
@@ -7767,18 +7803,18 @@ class FinalSolverGUI(EnhancedSolverGUI):
                     raw=ld.get(prefix+"_magnitude",abs(float(signed)) if signed is not None else "")
                     direction=str(ld.get("pressure_direction") or ("EXTERNAL" if signed is not None and float(signed)<0.0 else "INTERNAL")).upper()
                     return raw,direction
-                if ld.get("type") in ("UNIFORM_RADIAL_FACE","HARMONIC_RADIAL_FACE","PATCH_RADIAL_FACE"):
+                if load_type in ("UNIFORM_RADIAL_FACE","HARMONIC_RADIAL_FACE","PATCH_RADIAL_FACE"):
                     raw,direction=magnitude("q");put("load_q",raw);put("load_pressure_direction",direction)
-                if ld.get("type")=="POINT_RADIAL_FORCE":
+                if load_type=="POINT_RADIAL_FORCE":
                     raw,direction=magnitude("P");put("load_point_P",raw);put("load_pressure_direction",direction)
                     put("load_point_x0",ld.get("x0",""));put("load_point_theta0",ld.get("theta0",""))
-                if ld.get("type")=="LINE_RADIAL_GENERATOR":
+                if load_type=="LINE_RADIAL_GENERATOR":
                     raw,direction=magnitude("p_line");put("load_p_line",raw);put("load_pressure_direction",direction)
                     put("load_c0",ld.get("c0",""));put("load_band_width",ld.get("band_width",""))
                 put("load_harmonic_m",ld.get("m",self._v("load_harmonic_m").get()))
                 put("load_harmonic_n",ld.get("n",self._v("load_harmonic_n").get()))
                 put("load_c1",ld.get("c1",""));put("load_c2",ld.get("c2",""))
-                if hasattr(self,"load_full_var"):self.load_full_var.set(bool(ld.get("full_circumference",False)))
+                if hasattr(self,"load_full_var"):self.load_full_var.set(loadbuilder.full_circumference(ld))
                 factors=ld.get("load_factors",[])
                 put("load_factors",", ".join(f"{float(v):.15g}" for v in factors) if isinstance(factors,list) else "")
                 steps=ld.get("step_definition") if isinstance(ld.get("step_definition"),dict) else {}

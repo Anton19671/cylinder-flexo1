@@ -45,10 +45,8 @@ class TestElasticRepositoryIntegrity(unittest.TestCase):
                           .read_text(encoding="utf-8"))
         modal=json.loads((ROOT/"config/CASE_REFERENCE_MODAL_SEVEN_THEORIES.json")
                          .read_text(encoding="utf-8"))
-        # Preflight must reach the material contract, not first fail due to
-        # the legacy 5x5 SBP21 grid invalid in current modal SBP42.
-        modal["fdm_grid"].update(nx=9,ns=9,
-                                 operator_scheme="SBP42_FOURIER_ODD_CSR")
+        from cylinder_modal_reference import prepare_modal_case
+        self.assertEqual(prepare_modal_case(modal)["n_modes"], modal["modal"]["n_modes"])
         for material in ("BIRGER", "J2_INCREMENTAL"):
             for theory in ("KL", "FSDT", "REDDY", "CUF"):
                 cap=physics_capability(theory, "LINEAR", material, "FDM",

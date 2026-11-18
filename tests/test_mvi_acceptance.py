@@ -38,6 +38,20 @@ class MVICertificateTest(unittest.TestCase):
         c=certify_mvi_solution(**d)
         self.assertFalse(c["accepted"])
         self.assertFalse(c["profile_reconstruction_satisfied"])
+    def test_overflow_cannot_certify_equilibrium(self):
+        for quantity in ("x_profiles", "scales", "reduced_residual"):
+            with self.subTest(quantity=quantity):
+                d = fixture()
+                if quantity == "scales":
+                    d["scales"][:] = np.finfo(float).tiny / 4
+                elif quantity == "x_profiles":
+                    d["x_profiles"][:] = np.finfo(float).max
+                else:
+                    d["full_basis"][:2,:2] = np.array([[1,1],[1,-1]]) / np.sqrt(2)
+                    d["reduced_residual"][:2] = np.finfo(float).max
+                with self.assertRaisesRegex(ValueError, "nonfinite"):
+                    certify_mvi_solution(**d)
+
     def test_fails_if_boundary_defect(self):
         d=fixture();d["constraint_defect_scaled"]=1.e-4
         self.assertFalse(certify_mvi_solution(**d)["accepted"])

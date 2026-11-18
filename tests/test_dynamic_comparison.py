@@ -81,9 +81,13 @@ class TestDynamicComparison(TestCase):
         from unittest.mock import patch
         from cylinder_dynamic_comparison import run_dynamic_pair
         original=self.mvi/"REFERENCE_CASE.json"
+        self._edit(self.mvi, "REFERENCE_CASE.json",
+                   lambda d: d["mvi_grid"].update(operator_scheme="SBP42_FOURIER_ODD", nx=9, ns=9))
         output=self.root/"paired_fdm_first"
         order=[]
         def prepare(case,base_dir=None):
+            selected_grid = case["mvi_grid" if case["method"]=="MVI" else "fdm_grid"]
+            self.assertEqual(selected_grid, {"nx":9, "ns":9, "operator_scheme":"SBP42_FOURIER_ODD"})
             order.append(("validate",case["method"]))
             return object()
         def run(case,case_path):
@@ -135,6 +139,29 @@ class TestDynamicComparison(TestCase):
             np.savez_compressed(target,**arrays)
         with self.assertRaisesRegex(ValueError,"time grid"):
             compare_dynamic_runs(self.mvi,self.fdm)
+
+    def test_matching_runs_cannot_override_case_integrator(self):
+        for key, value in (("n_steps", 3), ("newmark_beta", .3), ("newmark_gamma", .6)):
+            with self.subTest(key=key):
+                for folder in (self.mvi, self.fdm):
+                    self._edit(folder, "REFERENCE_CASE.json",
+                               lambda d: d["dynamics"].update({key: value}))
+                with self.assertRaisesRegex(ValueError, "physical CASE"):
+                    compare_dynamic_runs(self.mvi, self.fdm)
+                for folder in (self.mvi, self.fdm):
+                    self._edit(folder, "REFERENCE_CASE.json",
+                               lambda d: d["dynamics"].pop(key))
+                    self._edit(folder, "REFERENCE_CASE.json",
+                               lambda d: d["dynamics"].update(n_steps=2))
+
+    def test_initial_electric_field_must_be_finite(self):
+        path = self.fdm / "REFERENCE_DYNAMIC_INITIAL.npz"
+        with np.load(path) as data:
+            arrays = dict(data)
+        arrays["electrical"][0, 0, 0] = np.nan
+        np.savez_compressed(path, **arrays)
+        with self.assertRaisesRegex(ValueError, "initial electric"):
+            compare_dynamic_runs(self.mvi, self.fdm)
 
     def test_rejects_changed_physics(self):
         self._edit(self.mvi,"REFERENCE_CASE.json",lambda d:d["geometry"].__setitem__("h",.25))

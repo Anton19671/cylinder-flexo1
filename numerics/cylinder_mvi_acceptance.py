@@ -24,8 +24,8 @@ def certify_mvi_solution(*, x_profiles, y_profiles, scales,
     shape=(x.shape[0],x.shape[2],y.shape[2])
     if (s.shape!=shape or q.ndim!=3
             or q.shape[1:]!=shape[1:]
-            or q.shape[0]+(0 if p is None else p.shape[0])!=shape[0]
             or (p is not None and (p.ndim!=3 or p.shape[1:]!=shape[1:]))
+            or q.shape[0]+(0 if p is None else p.shape[0])!=shape[0]
             or not all(np.isfinite(a).all() for a in (x,y,s,q))
             or (p is not None and not np.isfinite(p).all())
             or np.any(s<=0)):
@@ -45,9 +45,13 @@ def certify_mvi_solution(*, x_profiles, y_profiles, scales,
     if b.ndim!=2 or b.shape[0]!=int(np.prod(shape)) or b.shape[1]!=g.size:
         raise ValueError("full admissible basis/physical field size mismatch")
     metrics=admissible_nodal_metrics(b,g,q.size)
-    represented=np.einsum("crx,crs->cxs",x,y)
+    with np.errstate(over="ignore", invalid="ignore"):
+        represented=np.einsum("crx,crs->cxs",x,y)
     actual=q if p is None else np.concatenate((q,p))
-    scaled_actual=actual/s
+    with np.errstate(over="ignore"):
+        scaled_actual=actual/s
+    if not np.isfinite(represented).all() or not np.isfinite(scaled_actual).all():
+        raise ValueError("nonfinite MVI profile reconstruction or scaled field")
     error=float(np.max(np.abs(represented-scaled_actual),initial=0))
     bound=256*np.finfo(float).eps*max(1.,
         float(np.max(np.abs(represented),initial=0)),

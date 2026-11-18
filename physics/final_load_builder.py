@@ -38,6 +38,15 @@ LOAD_KINEMATICS=("DEAD_REFERENCE",)
 class LoadDefinitionError(ValueError): pass
 
 
+def full_circumference(spec):
+    """Harmonic pressure covers the whole ring by default, patch pressure a sector."""
+    default = str(spec.get("type", "")).upper() == "HARMONIC_RADIAL_FACE"
+    value = spec.get("full_circumference", default)
+    if not isinstance(value, (bool, np.bool_)):
+        raise LoadDefinitionError("full_circumference must be a boolean")
+    return bool(value)
+
+
 def normalize_load_kinematics(spec):
     """V8: current verified load arrays are nominal/dead in the reference configuration."""
     if not isinstance(spec,dict):
@@ -168,7 +177,7 @@ def _auto_front_nodes(stencil):
 def _patch_field(spec,grid,coord,period,cm,mx_bounds,stencil):
     qval=_finite(spec.get("q"),"q")
     x1,x2=mx_bounds
-    full=bool(spec.get("full_circumference",False))
+    full=full_circumference(spec)
     nfront=_auto_front_nodes(stencil)
 
     xspan=x2-x1
@@ -341,7 +350,7 @@ def _surface_radial_field(spec,grid,*,stencil=7):
             raise LoadDefinitionError("edge_width_x must not exceed HARMONIC axial width x2-x1")
         rx=_smooth_nonperiodic_interval(grid.x,x1,x2,0.0,grid.length_x,wx)
 
-        full=bool(spec.get("full_circumference",True))
+        full=full_circumference(spec)
         cm=str(spec.get("circumferential_coordinate","THETA")).upper()
         if cm not in COORD_MODES:
             raise LoadDefinitionError(f"circumferential_coordinate must be one of {COORD_MODES}")

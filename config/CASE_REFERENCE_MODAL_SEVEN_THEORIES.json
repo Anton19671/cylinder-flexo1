@@ -23,7 +23,7 @@
   "fdm_grid": {
     "nx": 5,
     "ns": 5,
-    "operator_scheme": "SBP21_PERIODIC_ODD"
+    "operator_scheme": "SBP21_FOURIER_ODD"
   },
   "quadrature": {
     "type": "GAUSS",

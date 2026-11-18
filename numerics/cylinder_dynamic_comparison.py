@@ -45,9 +45,9 @@ def _grid(case, method):
     grid = case.get(name) or case.get("grid")
     if not isinstance(grid, dict):
         raise ValueError(f"missing {name}/grid in {method} physical CASE")
-    # Only the spatial grid is physical. Differing legacy FD stencils are
-    # rejected by the reference solver before a run is produced.
-    return {"nx": int(grid["nx"]), "ns": int(grid["ns"])}
+    result = deepcopy(grid)
+    result["operator_scheme"] = str(grid.get("operator_scheme", "LEGACY_REFERENCE")).upper()
+    return result
 
 
 def _physics(case, method):
@@ -90,11 +90,20 @@ def _read_completed_run(folder, method):
     case_dyn = case.get("dynamics")
     if not isinstance(case_dyn, dict):
         raise ValueError(f"{method}: missing physical CASE dynamics")
+    if n != _finite_number(case_dyn.get("n_steps"), "CASE step count"):
+        raise ValueError(f"{method}: incomplete Newmark history for physical CASE")
+    for name, actual, default in (("newmark_beta", beta, .25), ("newmark_gamma", gamma, .5)):
+        declared = _finite_number(case_dyn.get(name, default), "CASE " + name)
+        if not math.isclose(actual, declared, rel_tol=1.e-12, abs_tol=0.):
+            raise ValueError(f"{method}: {name} disagrees with physical CASE")
     if not math.isclose(dt, _finite_number(case_dyn.get("time_step_s"), "CASE time step"),
                         rel_tol=1.e-12, abs_tol=0.) or not math.isclose(
         t0, _finite_number(case_dyn.get("start_time_s", 0.), "CASE start time"),
         rel_tol=1.e-12, abs_tol=1.e-13):
         raise ValueError(f"{method}: Newmark time grid disagrees with physical CASE")
+    grid = _grid(case, method)
+    grid_shape = (grid["nx"], grid["ns"])
+    electric_shape = None
     with np.load(folder / "REFERENCE_DYNAMIC_INITIAL.npz", allow_pickle=False) as saved:
         initial_keys = {"time_s", "mechanical", "velocity", "acceleration"}
         if not initial_keys.issubset(saved.files):
@@ -103,9 +112,16 @@ def _read_completed_run(folder, method):
                     for key in initial_keys}
         if bool(summary.get("electrical_enabled")) != ("electrical" in saved.files):
             raise ValueError(f"{method}: initial electric state missing/inconsistent")
+        if "electrical" in saved.files:
+            electric = np.asarray(saved["electrical"], dtype=float)
+            if (electric.ndim != 3 or electric.shape[1:] != grid_shape or
+                    electric.size == 0 or not np.isfinite(electric).all()):
+                raise ValueError(f"{method}: invalid initial electric state")
+            electric_shape = electric.shape
     if any(not np.isfinite(value).all() for value in previous.values()):
         raise ValueError(f"{method}: nonfinite initial Newmark state")
     if (previous["mechanical"].ndim != 3 or previous["mechanical"].size == 0 or
+        previous["mechanical"].shape[1:] != grid_shape or
         any(previous[key].shape != previous["mechanical"].shape
             for key in ("velocity", "acceleration")) or
         previous["time_s"].shape != () or
@@ -152,8 +168,7 @@ def _read_completed_run(folder, method):
                 raise ValueError(f"{method} step {idx}: {key} field shape mismatch")
         if bool(summary.get("electrical_enabled")) != ("electrical" in frame):
             raise ValueError(f"{method} step {idx}: electric state missing/inconsistent")
-        if "electrical" in frame and (frame["electrical"].ndim != 3 or
-                                    frame["electrical"].shape[1:] != frame["mechanical"].shape[1:]):
+        if "electrical" in frame and frame["electrical"].shape != electric_shape:
             raise ValueError(f"{method} step {idx}: electric spatial shape mismatch")
         state_size = frame["mechanical"].size + (frame["electrical"].size if "electrical" in frame else 0)
         for key in ("full_residual", "constraint_reaction"):
