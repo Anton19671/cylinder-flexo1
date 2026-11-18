@@ -23,7 +23,8 @@ def _rel(a, b):
                  max(float(np.linalg.norm(b)), 1.e-25))
 
 
-@pytest.mark.parametrize("theory", ["FSDT", "REDDY"])
+@pytest.mark.parametrize("theory", [
+    "KL", "FSDT", "REDDY", "CUF_TE1", "CUF_TE2", "CUF_TE3", "CUF_TE4"])
 def test_real_operator_exact_KM_ranks_one_through_eight(theory):
     path = (RAWAT / "mvi_13x13" /
             f"RAWAT2016_{theory}_13x13_MODAL_MVI1.json")
@@ -43,7 +44,7 @@ def test_real_operator_exact_KM_ranks_one_through_eight(theory):
         count = rank + 2
         basis = np.zeros((op.nm, count))
         for j in range(count):
-            c = (j * 3 + rank) % 5
+            c = (j * 3 + rank) % op.f.n_mechanical
             trial = np.zeros(op.shape)
             trial[c] = np.outer(
                 rng.normal(size=op.nx), rng.normal(size=op.ns))
@@ -86,7 +87,8 @@ def test_local_director_mass_hessian_equals_original_virtual_work(theory):
     assert _rel(val, physical) < 2.e-12
 
 
-@pytest.mark.parametrize("theory", ["FSDT", "REDDY"])
+@pytest.mark.parametrize("theory", [
+    "KL", "FSDT", "REDDY", "CUF_TE1", "CUF_TE2", "CUF_TE3", "CUF_TE4"])
 def test_real_frozen_partner_bases_stay_in_fast_path_for_all_ranks(theory):
     """Use actual constrained MVI directions, not synthetic rank-one columns."""
     from cylinder_modal_separated_space import normalize_modal_partner
@@ -125,7 +127,8 @@ def test_real_frozen_partner_bases_stay_in_fast_path_for_all_ranks(theory):
 
 
 
-@pytest.mark.parametrize("theory", ["FSDT", "REDDY"])
+@pytest.mark.parametrize("theory", [
+    "KL", "FSDT", "REDDY", "CUF_TE1", "CUF_TE2", "CUF_TE3", "CUF_TE4"])
 def test_nonseparable_trace_mixed_basis_uses_exact_batch_weak_actions(theory):
     """Trace-combined directions must not fall back to per-column actions."""
     path = (RAWAT / "mvi_13x13" /
@@ -137,7 +140,7 @@ def test_nonseparable_trace_mixed_basis_uses_exact_batch_weak_actions(theory):
     basis = np.zeros((op.nm, 4))
     for j in range(4):
         tensor = np.zeros(op.shape)
-        for c in (j % 5, (j + 1) % 5):
+        for c in (j % op.f.n_mechanical, (j + 1) % op.f.n_mechanical):
             tensor[c] = rng.normal(size=(op.nx, op.ns))
         basis[:, j] = tensor.ravel()
     assert _rel(
