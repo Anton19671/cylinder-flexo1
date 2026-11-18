@@ -1,4 +1,4 @@
-"""Fast EXACT projected K/M for separated CUF modal Y/X directions.
+"""Fast EXACT projected K/M for separated CUF/director modal Y/X directions.
 
 This contracts the unchanged physical local weak Hessian with the true
 one-dimensional X/Y shape factors. It does NOT solve a full-space eigenproblem,
@@ -88,6 +88,47 @@ def _spring_free_modal_edges(problem):
     return True
 
 
+def _director_inertial_jet_matrix(functional, density, local_tangent):
+    """Exact thickness-integrated inertia of FSDT/Reddy surface jets.
+
+    The director velocity depends on q, q_x and q_s. Preserve all
+    derivative inertia and curved thickness moments (1 + z/R).
+    The local coefficients are independent of the MVI rank and factors.
+    """
+    key = (functional.theory, float(functional.R), float(functional.h),
+           float(density), int(functional.n_gauss),
+           int(functional.n_derivatives))
+    cached = getattr(local_tangent, "_separated_director_inertia", None)
+    if cached is not None and cached[0] == key:
+        return cached[1]
+    if (functional.theory not in ("FSDT", "REDDY") or
+            functional.n_mechanical != 5 or functional.n_derivatives < 3):
+        return None
+    from cylinder_director_g3d import _director_virtual_velocity
+    from cuf_g3d_weak import gauss_thickness
+
+    nd = int(functional.n_derivatives)
+    mass15 = np.zeros((15, 15), dtype=float)
+    for z, weight in zip(*gauss_thickness(functional.h,
+                                         functional.n_gauss)):
+        virtual = _director_virtual_velocity(
+            functional.theory, float(z),
+            float(functional.R), float(functional.h))
+        # Original library indexing: (derivative, component, Cartesian).
+        # Weak modal Hessian indexing: (component, derivative).
+        library = np.transpose(virtual, (1, 0, 2)).reshape(15, 3)
+        mass15 += (float(density) * float(weight) *
+                   (1. + float(z) / functional.R) *
+                   (library @ library.T))
+    local_mass = np.zeros((5 * nd, 5 * nd), dtype=float)
+    indices = [c * nd + d for c in range(5) for d in range(3)]
+    local_mass[np.ix_(indices, indices)] = mass15
+    if not np.isfinite(local_mass).all():
+        raise ValueError("MODAL_MVI_DIRECTOR_INERTIA_NONFINITE")
+    local_tangent._separated_director_inertia = (key, local_mass)
+    return local_mass
+
+
 def exact_separated_cuf_projection(problem, density, local_tangent, basis):
     """Return exact (K, M) on current MVI trial basis or None if unsupported.
 
@@ -96,7 +137,8 @@ def exact_separated_cuf_projection(problem, density, local_tangent, basis):
     is no full nodal stiffness/mass matrix and no global eigenvalue solve.
     """
     f = problem.functional
-    if (not f.theory.startswith("CUF_TE") or f.electrical_on
+    if (not (f.theory.startswith("CUF_TE") or
+             f.theory in ("FSDT", "REDDY")) or f.electrical_on
             or local_tangent is None or not _spring_free_modal_edges(problem)):
         return None
     ncomp, nx, ns = f.n_mechanical, *f.ops.shape
@@ -135,17 +177,34 @@ def exact_separated_cuf_projection(problem, density, local_tangent, basis):
             local_coefficient = local[np.ix_(left, right)]
             k += (local_coefficient * ax_grams[dx1, dx2] *
                   an_grams[ds1, ds2])
-    degree = int(f.theory[-1])
-    width = degree + 1
-    thickness_mass = mass_matrix_te(
-        radius_m=f.R, thickness_m=f.h,
-        rho_kg_m3=float(density), te_order=degree)
-    mass_coefficient = np.zeros((ncomp, ncomp), dtype=float)
-    for component in range(3):
-        sl = slice(component * width, (component + 1) * width)
-        mass_coefficient[sl, sl] = thickness_mass
-    m = (mass_coefficient[np.ix_(components, components)] *
-         ax_grams[0, 0] * an_grams[0, 0])
+    if f.theory.startswith("CUF_TE"):
+        degree = int(f.theory[-1])
+        width = degree + 1
+        thickness_mass = mass_matrix_te(
+            radius_m=f.R, thickness_m=f.h,
+            rho_kg_m3=float(density), te_order=degree)
+        mass_coefficient = np.zeros((ncomp, ncomp), dtype=float)
+        for component in range(3):
+            sl = slice(component * width, (component + 1) * width)
+            mass_coefficient[sl, sl] = thickness_mass
+        m = (mass_coefficient[np.ix_(components, components)] *
+             ax_grams[0, 0] * an_grams[0, 0])
+    else:
+        # Reddy's gradient-dependent inertia is retained exactly: no
+        # replacement with an approximate five-component mass matrix.
+        inertia = _director_inertial_jet_matrix(
+            f, density, local_tangent)
+        if inertia is None:
+            return None
+        m = np.zeros((count, count), dtype=float)
+        for d in range(3):
+            _, dx1, ds1 = spec[d]
+            left = components * nd + d
+            for e in range(3):
+                _, dx2, ds2 = spec[e]
+                right = components * nd + e
+                m += (inertia[np.ix_(left, right)] *
+                      ax_grams[dx1, dx2] * an_grams[ds1, ds2])
     if not np.isfinite(k).all() or not np.isfinite(m).all():
         raise ValueError("MODAL_MVI_SEPARATED_PROJECTION_NONFINITE")
     return k, m

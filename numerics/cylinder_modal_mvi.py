@@ -368,6 +368,18 @@ class _SeparatedModalProblem:
         self._previous_mass_cache = {}
         self._local_tangent = (None if self.ne else
                                _LocalMechanicalTangent(prepared.problem, self.f, self.step))
+        # Exact linear director inertia is constant across all Y/X sweeps.
+        # Cache its q, q_x and q_s jets once, retaining every Reddy term.
+        self._director_mass_jet_block = None
+        if not self.ne and self.f.theory in ("FSDT", "REDDY"):
+            from cylinder_modal_separated_projector import (
+                _director_inertial_jet_matrix)
+            local_mass = _director_inertial_jet_matrix(
+                self.f, self.density, self._local_tangent)
+            nd = self.f.n_derivatives
+            active = [c * nd + d for c in range(5) for d in range(3)]
+            self._director_mass_jet_block = local_mass[
+                np.ix_(active, active)]
 
     def previous_mass(self, direction):
         key = id(direction)
@@ -386,6 +398,18 @@ class _SeparatedModalProblem:
                 "ij,cjkl->cikl", self._cuf_mass,
                 q.reshape(3, n, self.nx, self.ns))
             return (transformed.reshape(self.shape) * self.f.W[None, ...]).ravel()
+        if getattr(self, "_director_mass_jet_block", None) is not None:
+            from cylinder_functional_assembly import (
+                MECHANICAL_DERIVATIVES, _assemble_adjoint)
+            spec = MECHANICAL_DERIVATIVES[:3]
+            jets = np.stack(self.f._field_derivatives(q, spec), axis=1)
+            local = (self._director_mass_jet_block @ jets.reshape(15, -1)
+                     ).reshape(5, 3, self.nx, self.ns)
+            result = np.zeros_like(q)
+            for d, (_, dx, ds) in enumerate(spec):
+                result += _assemble_adjoint(
+                    local[:, d], self.f.W, self.f.dxp[dx], self.f.dsp[ds])
+            return result.ravel()
         return self.f.mass_action(q, density_kg_m3=self.density,
                                   mechanical=self.q0, velocity=self.velocity0).ravel()
 
