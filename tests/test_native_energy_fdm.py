@@ -371,3 +371,18 @@ def test_insulated_source_compatibility_includes_prescribed_axial_end_flux():
         space.solve_static(np.zeros(model.shape),np.zeros_like(charge),
             electrical_charge=2.*charge,reduced_state_scale=1.,
             reduced_equation_scale=1.)
+
+
+@pytest.mark.parametrize("grounded", [("left",), ("right",), ("left","right")])
+def test_mean_gauge_cannot_remove_physical_equation_at_grounded_end(grounded):
+    engine=_setup()
+    model=engine.model
+    ends={side:[[{"kind":"NATURAL","value":0.}] for _ in range(model.n_mechanical)]
+          for side in ("left","right")}
+    electrical={side:[{"kind":"ESSENTIAL" if side in grounded else "NATURAL",
+                       "value":0.}] for side in ends}
+    weights=np.full((1,model.grid.nx,model.grid.ns),1/(model.grid.nx*model.grid.ns))
+    with pytest.raises(ValueError,match="GAUGE_WITH_PRESCRIBED_POTENTIAL"):
+        NativeEnergyEndSpace(engine,axial_orders=(1,)*model.n_mechanical,
+                             mechanical_ends=ends,electrical_ends=electrical,
+                             electric_gauge=StrongElectricGauge(weights))

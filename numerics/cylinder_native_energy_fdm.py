@@ -261,6 +261,8 @@ class NativeEnergyEndSpace:
             all_nat=all(electrical_ends[s][0]["kind"]=="NATURAL"
                         for s in ("left","right"))
             self.insulated_constant_mode=all_nat
+            if not all_nat and electric_gauge is not None:
+                raise ValueError("NATIVE_ENERGY_GAUGE_WITH_PRESCRIBED_POTENTIAL")
             if all_nat and electric_gauge is None:
                 raise ValueError("UNGAUGED_INSULATED_ELECTRICAL_MODE")
         elif electrical_ends is not None or electric_gauge is not None:
