@@ -97,8 +97,10 @@ def recover_native_mkr_face_induction(model:DirectStrongShell,mechanical,
         difference=outward+charge
         area=weights*(1.+z/model.grid.radius_m)
         physical_area=float(np.sum(area))
-        mean=math.sqrt(float(np.sum(area*difference*difference)/
-                             physical_area))
+        if not math.isfinite(physical_area) or physical_area <= 0.:
+            raise ValueError("invalid physical face area")
+        weighted = np.sqrt(area / physical_area) * difference
+        mean = float(np.hypot.reduce(weighted.ravel()))
         if (not np.isfinite(D).all() or not np.isfinite(difference).all()
                 or not math.isfinite(mean)):
             raise ValueError("MKR_FACE_RECOVERY_NONFINITE")
@@ -108,7 +110,7 @@ def recover_native_mkr_face_induction(model:DirectStrongShell,mechanical,
             natural_flux_difference_abs_max_c_per_m2=float(
                 np.max(np.abs(difference),initial=0.)),
             induction_normal_mean_c_per_m2=float(
-                np.sum(outward*area)/physical_area),
+                np.sum(outward*(area/physical_area))),
             diagnostic_only=True,pointwise_condition_enforced=False)
     return dict(physical_face_flux_certified=False,
                 model=model.theory,gradient_model=model.material.gradient_model,

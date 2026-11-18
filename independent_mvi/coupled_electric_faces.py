@@ -152,8 +152,10 @@ def recover_mvi_electric_faces(surface:NativeCoupledMVISurface,
         area_weights=surface.grid.weights*(
             1.+z/surface.grid.radius_m)
         physical_area=float(np.sum(area_weights))
-        rms=math.sqrt(float(np.sum(
-            area_weights*mismatch*mismatch)/physical_area))
+        if not math.isfinite(physical_area) or physical_area <= 0.:
+            raise ValueError("invalid physical face area")
+        weighted = np.sqrt(area_weights / physical_area) * mismatch
+        rms = float(np.hypot.reduce(weighted.ravel()))
         if not (np.isfinite(D).all() and np.isfinite(mismatch).all()
                 and math.isfinite(rms)):
             raise ValueError("MVI_FACE_RECOVERY_NONFINITE_INDUCTION")

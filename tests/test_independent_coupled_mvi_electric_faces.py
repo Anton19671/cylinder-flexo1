@@ -123,3 +123,22 @@ def test_face_charge_mode_requires_finite_scalar_or_field():
         with pytest.raises(ValueError,match="FACE_CHARGE_"):
             face_generalized_free_charge(
                 surf,outer={"mode":"CHARGE","charge_c_per_m2":value})
+
+
+@pytest.mark.parametrize("amplitude", [1.e-200, 1.e200])
+def test_face_rms_tracks_nonuniform_charge_at_extreme_scales(amplitude):
+    from cylinder_native_mkr_face_recovery import recover_native_mkr_face_induction
+    from tests.test_native_energy_fdm import _setup
+    surf,factors=case("KL")
+    zero=CoupledMVIFactors(np.zeros_like(factors.x),factors.y)
+    model=_setup("KL",True,nx=surf.grid.nx,ns=surf.grid.ns).model
+    profile=np.arange(surf.grid.nx*surf.grid.ns).reshape(model.shape[1:])/50.
+    spec={"mode":"CHARGE","charge_c_per_m2":profile*amplitude}
+    mvi=summarize_mvi_electric_faces(recover_mvi_electric_faces(
+        surf,zero,inner=spec,outer=spec))
+    fdm=recover_native_mkr_face_induction(model,np.zeros(model.shape),
+        np.zeros((1,*model.shape[1:])),face_specification=dict(inner=spec,outer=spec))
+    for result,weights in ((mvi,surf.grid.weights),(fdm,model.area_weights)):
+        expected=np.sqrt(np.sum(weights*profile**2)/np.sum(weights))
+        for face in result["faces"].values():
+            assert face["natural_flux_difference_rms_c_per_m2"]/amplitude==pytest.approx(expected)
