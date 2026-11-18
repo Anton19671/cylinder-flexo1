@@ -20,6 +20,24 @@ from independent_mvi.coupled_initial import MVIAccelerationResult
 from independent_mvi.coupled_newmark import CoupledMVIDynamicState
 from independent_mvi.coupled_static import CoupledMVISweepResult
 from independent_mvi.coupled_checkpoint import input_manifest
+from independent_mvi.coupled_checkpoint import _check_stored_field
+
+
+@pytest.mark.parametrize("amplitude",(1.e-200,1.e200))
+def test_checkpoint_comparison_retains_extreme_finite_field_scales(amplitude):
+    expected=np.full((3,4),amplitude)
+    _check_stored_field(expected.copy(),expected,"MECHANICAL")
+    changed=expected.copy()
+    changed[0,0]*=2.
+    with pytest.raises(ValueError,match="CHECKPOINT_MECHANICAL_MISMATCH"):
+        _check_stored_field(changed,expected,"MECHANICAL")
+
+
+def test_checkpoint_empty_and_nonfinite_fields():
+    empty=np.zeros((0,9,5))
+    _check_stored_field(empty,empty,"ELECTRIC")
+    with pytest.raises(ValueError,match="SHAPE_OR_FINITE"):
+        _check_stored_field(np.zeros(1),np.array([np.nan]),"MECHANICAL")
 
 
 def build(tmp_path,*,steps=3):

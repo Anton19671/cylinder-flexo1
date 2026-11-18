@@ -111,12 +111,21 @@ def exclusive_run_lock(folder):
 
 
 def _check_stored_field(actual,expected,label):
-    if actual.shape!=expected.shape or not np.isfinite(actual).all():
+    if (actual.shape!=expected.shape or not np.isfinite(actual).all()
+            or not np.isfinite(expected).all()):
         raise ValueError("COUPLED_MVI_CHECKPOINT_"+label+"_SHAPE_OR_FINITE")
-    discrepancy=float(np.linalg.norm((actual-expected).ravel()))
-    magnitude=float(np.linalg.norm(expected.ravel()))
-    if not math.isfinite(discrepancy) or (
-            discrepancy>1.e-11*max(magnitude,_F64.tiny)):
+    # Scale before subtraction and norm: squaring dimensional micro/nano
+    # fields can underflow, while large finite fields can overflow. Do not
+    # let either case turn a different stored field into a valid checkpoint.
+    scale=max(float(np.max(np.abs(actual),initial=0.)),
+              float(np.max(np.abs(expected),initial=0.)))
+    if scale==0.:
+        return
+    lhs=actual/scale
+    rhs=expected/scale
+    discrepancy=float(np.linalg.norm((lhs-rhs).ravel()))
+    magnitude=float(np.linalg.norm(rhs.ravel()))
+    if not math.isfinite(discrepancy) or discrepancy>1.e-11*magnitude:
         raise ValueError("COUPLED_MVI_CHECKPOINT_"+label+"_MISMATCH")
 
 
