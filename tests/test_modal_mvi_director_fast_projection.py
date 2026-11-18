@@ -89,7 +89,6 @@ def test_local_director_mass_hessian_equals_original_virtual_work(theory):
 @pytest.mark.parametrize("theory", ["FSDT", "REDDY"])
 def test_real_frozen_partner_bases_stay_in_fast_path_for_all_ranks(theory):
     """Use actual constrained MVI directions, not synthetic rank-one columns."""
-    from cylinder_modal_mvi import _initial_factors
     from cylinder_modal_separated_space import normalize_modal_partner
     from time import perf_counter
 
@@ -100,7 +99,11 @@ def test_real_frozen_partner_bases_stay_in_fast_path_for_all_ranks(theory):
     op = _SeparatedModalProblem(prepared, density, rank=1)
     for rank in range(1, 9):
         op.rank = rank
-        x, y = _initial_factors(op.n_components, rank, op.nx, op.ns, 3)
+        # A physically admissible start is essential: unconstrained random
+        # X factors give an empty Y space at clamped ends for rank one.
+        x, y, q, p = op.admissible_start(
+            700 + rank, [], harmonic_seed=2)
+        assert p is None
         for axis in ("Y", "X"):
             xn, yn = normalize_modal_partner(
                 x.copy(), y.copy(), axis, getattr(op, "fixed_mask", None))
@@ -119,3 +122,38 @@ def test_real_frozen_partner_bases_stay_in_fast_path_for_all_ranks(theory):
                 f"[REAL-MVI-FAST] {theory} rank={rank} axis={axis} "
                 f"directions={bm.shape[1]} elapsed_s={elapsed:.4f}",
                 flush=True)
+
+
+
+@pytest.mark.parametrize("theory", ["FSDT", "REDDY"])
+def test_nonseparable_trace_mixed_basis_uses_exact_batch_weak_actions(theory):
+    """Trace-combined directions must not fall back to per-column actions."""
+    path = (RAWAT / "mvi_13x13" /
+            f"RAWAT2016_{theory}_13x13_MODAL_MVI1.json")
+    prepared, density, _ = _modal_spec(
+        json.loads(path.read_text(encoding="utf-8")))
+    op = _SeparatedModalProblem(prepared, density, rank=1)
+    rng = np.random.default_rng(58001 + (theory == "REDDY"))
+    basis = np.zeros((op.nm, 4))
+    for j in range(4):
+        tensor = np.zeros(op.shape)
+        for c in (j % 5, (j + 1) % 5):
+            tensor[c] = rng.normal(size=(op.nx, op.ns))
+        basis[:, j] = tensor.ravel()
+    assert _rel(
+        basis[:, 0].reshape(op.shape)[0],
+        np.outer(
+            basis[:, 0].reshape(op.shape)[0, :, 0],
+            np.ones(op.ns))) > 1.e-5
+    projected = op.cached_cuf_projection(basis)
+    assert projected is not None
+    fast_k, fast_m = projected
+    assert fast_k.shape == fast_m.shape == (4, 4)
+    for j in range(4):
+        old_k = basis.T @ op.stiffness(basis[:, j])
+        old_m = basis.T @ op.f.mass_action(
+            basis[:, j].reshape(op.shape),
+            density_kg_m3=density,
+            mechanical=op.q0, velocity=op.velocity0).ravel()
+        assert _rel(fast_k[:, j], old_k) < 4.e-8
+        assert _rel(fast_m[:, j], old_m) < 2.e-10

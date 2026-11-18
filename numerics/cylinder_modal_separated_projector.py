@@ -129,6 +129,70 @@ def _director_inertial_jet_matrix(functional, density, local_tangent):
     return local_mass
 
 
+
+def _exact_batched_director_projection(problem, density, local_tangent, basis):
+    """Exact B.T K B and B.T M B even for trace-mixed fixed-rank columns.
+
+    Boundary-intersection QR may form a linear combination of several
+    rank-one X/Y directions. Such a column need not itself be rank-one.
+    Apply the original physical LOCAL jet Hessians in small batches, not
+    one Python weak-action invocation per nodal column. No rank truncation,
+    Fourier restriction, or change of the constrained trial space.
+    """
+    from cylinder_functional_assembly import _assemble_adjoint
+
+    f = problem.functional
+    ncomp, nx, ns = f.n_mechanical, *f.ops.shape
+    nd = int(f.n_derivatives)
+    spec = MECHANICAL_DERIVATIVES[:nd]
+    basis = np.asarray(basis, dtype=float)
+    if (basis.ndim != 2 or basis.shape[0] != ncomp * nx * ns or
+            not np.isfinite(basis).all() or not basis.shape[1]):
+        return None
+    stiffness_local = np.asarray(local_tangent.local, dtype=float)
+    inertia_local = _director_inertial_jet_matrix(
+        f, density, local_tangent)
+    if (inertia_local is None or
+            stiffness_local.shape != (ncomp * nd, ncomp * nd)):
+        return None
+    ncols = basis.shape[1]
+    k = np.empty((ncols, ncols), dtype=float)
+    m = np.empty((ncols, ncols), dtype=float)
+    # Keep peak temporary jet memory bounded across all ranks/grid sizes.
+    batch = max(1, min(32, 1048576 // (ncomp * nd * nx * ns)))
+    for start in range(0, ncols, batch):
+        stop = min(start + batch, ncols)
+        n = stop - start
+        raw = basis[:, start:stop].T.reshape(n * ncomp, nx, ns)
+        jets = np.stack([
+            derivative.reshape(n, ncomp, nx, ns)
+            for derivative in f._field_derivatives(raw, spec)
+        ], axis=2)
+        flattened = jets.reshape(n, ncomp * nd, nx * ns)
+        k_local = (stiffness_local @ flattened).reshape(
+            n, ncomp, nd, nx, ns)
+        m_local = (inertia_local @ flattened).reshape(
+            n, ncomp, nd, nx, ns)
+        k_action = np.zeros((n, ncomp, nx, ns))
+        m_action = np.zeros_like(k_action)
+        for d, (_, dx, ds) in enumerate(spec):
+            k_action += _assemble_adjoint(
+                k_local[:, :, d].reshape(n * ncomp, nx, ns),
+                f.W, f.dxp[dx], f.dsp[ds]).reshape(
+                    n, ncomp, nx, ns)
+            if d < 3:
+                m_action += _assemble_adjoint(
+                    m_local[:, :, d].reshape(n * ncomp, nx, ns),
+                    f.W, f.dxp[dx], f.dsp[ds]).reshape(
+                        n, ncomp, nx, ns)
+        # In this spring-free branch, the mechanical boundary Hessian
+        # vanishes, exactly as in the reference columnwise weak action.
+        k[:, start:stop] = basis.T @ k_action.reshape(n, -1).T
+        m[:, start:stop] = basis.T @ m_action.reshape(n, -1).T
+    if not np.isfinite(k).all() or not np.isfinite(m).all():
+        raise ValueError("MODAL_MVI_BATCHED_DIRECTOR_PROJECTION_NONFINITE")
+    return k, m
+
 def exact_separated_cuf_projection(problem, density, local_tangent, basis):
     """Return exact (K, M) on current MVI trial basis or None if unsupported.
 
@@ -144,7 +208,12 @@ def exact_separated_cuf_projection(problem, density, local_tangent, basis):
     ncomp, nx, ns = f.n_mechanical, *f.ops.shape
     basis = np.asarray(basis, dtype=float)
     factors = _one_component_factors(basis, ncomp, nx, ns)
-    if factors is None or not np.isfinite(basis).all():
+    if not np.isfinite(basis).all():
+        return None
+    if factors is None:
+        if f.theory in ("FSDT", "REDDY"):
+            return _exact_batched_director_projection(
+                problem, density, local_tangent, basis)
         return None
     wx, ws = np.asarray(f.ops.wx, float), np.asarray(f.ops.ws, float)
     if (wx.shape != (nx,) or ws.shape != (ns,)
