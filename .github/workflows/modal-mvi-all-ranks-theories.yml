@@ -1,15 +1,9 @@
 name: Modal MVI 56 theory-rank combinations
+# The 56 exhaustive shell solves are manually dispatched. Running the
+# matrix on every tiny MVI optimization commit created duplicate long jobs,
+# delayed targeted regressions and exhausted GitHub Actions minutes. The
+# fast per-rank projection and modal regression workflows remain automatic.
 on:
-  push:
-    branches: [main]
-    paths:
-      - "ci/modal_mvi_all_ranks_theories_audit.py"
-      - "numerics/cylinder_modal_mvi.py"
-      - "numerics/cylinder_modal_separated_projector.py"
-      - "ci/modal_mvi_case_comparison.py"
-      - "ci/modal_mvi_matrix_report.py"
-      - "tests/test_modal_mvi_matrix_report.py"
-      - ".github/workflows/modal-mvi-all-ranks-theories.yml"
   workflow_dispatch:
 permissions:
   contents: read
