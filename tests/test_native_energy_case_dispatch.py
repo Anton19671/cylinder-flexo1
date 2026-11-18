@@ -285,3 +285,23 @@ def test_small_geometry_toy_loaded_static_run_requires_a_nonzero_solution(tmp_pa
     assert summary["static_nonlinear_diagnostics"]["iterations"]>0
     with np.load(tmp_path/"result"/"STATIC_ACCEPTED.npz") as f:
         np.testing.assert_allclose(f["mechanical"][:,1:-1,:],1.e-4,rtol=1.e-7)
+
+
+@pytest.mark.parametrize("kind", ["STATIC", "DYNAMIC"])
+def test_energy_run_reports_both_physical_faces(tmp_path,monkeypatch,kind):
+    path,case=make_case(tmp_path,theory="KL",kind=kind,electric=True)
+    case["schema"]=energy.SCHEMA
+    path.write_text(json.dumps(case))
+    def toy_work(self,q,p,**kwargs):
+        return NativeEnergyWork(np.zeros_like(q),np.zeros_like(p))
+    monkeypatch.setattr(NativeEnergyFDM,"balance",toy_work)
+    run_independent_case(path)
+    saved=json.loads((tmp_path/"result"/"RUN_SUMMARY.json").read_text())
+    keys=(["electric_faces"] if kind=="STATIC" else
+          ["initial_electric_faces","last_electric_faces"])
+    for key in keys:
+        faces=saved[key]["faces"]
+        for side,normal in (("inner",-1),("outer",1)):
+            assert faces[side]["normal"]==normal
+            assert faces[side]["natural_flux_difference_rms_c_per_m2"]==0.
+            assert faces[side]["pointwise_condition_enforced"] is False

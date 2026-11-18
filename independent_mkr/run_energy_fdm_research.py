@@ -25,6 +25,7 @@ activate()
 
 import numpy as np
 
+from cylinder_native_mkr_face_recovery import recover_native_mkr_face_induction
 from cylinder_native_run_control import cooperate, NativeUserStop
 from cylinder_native_energy_fdm import NativeEnergyFDM,NativeEnergyEndSpace
 from cylinder_native_energy_dynamics import NativeEnergyDynamics
@@ -259,6 +260,11 @@ def run(filename,*,validate_only):
     seed=data["seed"]
     sources=data["sources"]
     loads=(sources["mechanical_load"],sources.get("electrical_charge"))
+    def face_diagnostic(q,p):
+        if not model.electrical_on:
+            return {"electrical_enabled":False}
+        return recover_native_mkr_face_induction(
+            model,q,p,face_specification=data["case"].get("electric_faces"))
     def at_time(_time):
         return loads
     try:
@@ -270,6 +276,7 @@ def run(filename,*,validate_only):
             summary["static_nonlinear_diagnostics"]=_diagnostics(result.nonlinear)
             if result.mechanical is None:
                 raise RuntimeError("ENERGY_FDM_STATIC_"+result.nonlinear.status)
+            summary["electric_faces"]=face_diagnostic(result.mechanical,result.electrical)
             _atomic_npz(out/"STATIC_ACCEPTED.npz",
                         mechanical=result.mechanical,
                         **({"electrical":result.electrical}
@@ -288,7 +295,9 @@ def run(filename,*,validate_only):
             if initial.state is None:
                 raise RuntimeError("ENERGY_FDM_INITIAL_"+initial.status)
             state=initial.state
+            summary["initial_electric_faces"]=face_diagnostic(state.mechanical,state.electrical)
             _save_state(out/"STEP_0000.npz",state)
+            _atomic_json(out/"RUN_SUMMARY.json",summary)
             method={"NEWMARK":driver.newmark,
                     "BATHE":driver.bathe,
                     "GAUSS_IRK4":driver.gauss}[opts["integrator"]]
@@ -302,7 +311,9 @@ def run(filename,*,validate_only):
                         **_diagnostics(step.nonlinear))
                     raise RuntimeError("ENERGY_FDM_STEP_"+step.status)
                 state=step.state
+                faces=face_diagnostic(state.mechanical,state.electrical)
                 _save_state(out/f"STEP_{k:04d}.npz",state)
+                summary["last_electric_faces"]=faces
                 summary.update(accepted_steps=k,physical_steps_computed=k,
                                time_s=float(state.time_s))
                 _atomic_json(out/"RUN_SUMMARY.json",summary)
