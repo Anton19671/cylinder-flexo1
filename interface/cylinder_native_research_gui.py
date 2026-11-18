@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import queue
+import re
 import subprocess
 import sys
 import threading
@@ -380,10 +381,26 @@ class NativeResearchWindow(tk.Toplevel):
     def _scan_history(self):
         if self.results_dir is None or not self.results_dir.exists():
             return
-        paths=list(self.results_dir.glob("STEP_????.npz"))
-        if (self.results_dir/"STATIC_ACCEPTED.npz").exists():
-            paths.append(self.results_dir/"STATIC_ACCEPTED.npz")
-        for path in sorted(paths):
+        # NPZ is written before RUN_SUMMARY commits the accepted counter.
+        # A crash/stop in that window leaves an uncommitted file: neither
+        # its curve point nor its progress may be shown as an accepted step.
+        try:
+            summary=json.loads((self.results_dir/"RUN_SUMMARY.json").read_text(
+                encoding="utf-8"))
+            accepted=summary["accepted_steps"]
+            if type(accepted) is not int or accepted<0:
+                return
+        except (OSError,ValueError,KeyError,TypeError):
+            return
+        paths=[]
+        for path in self.results_dir.glob("STEP_*.npz"):
+            match=re.fullmatch(r"STEP_([0-9]+)\.npz",path.name)
+            if match and int(match[1])<=accepted:
+                paths.append((int(match[1]),path))
+        static=self.results_dir/"STATIC_ACCEPTED.npz"
+        if accepted>=1 and static.exists():
+            paths.append((1,static))
+        for _step,path in sorted(paths):
             if str(path) in self.seen_steps:
                 continue
             try:
@@ -396,17 +413,15 @@ class NativeResearchWindow(tk.Toplevel):
                         continue
                     moment=(float(data["time_s"]) if "time_s" in data
                             else float(len(self.history)))
+                    if not np.isfinite(moment) or moment<0.:
+                        continue
                 self.history.append((moment,sample))
                 self.seen_steps.add(str(path))
             except (OSError,ValueError,KeyError,IndexError,TypeError):
                 continue
-        # STEP_0000 is an initial state, including in a one-step run.
-        completed=sum(
-            Path(name).name=="STATIC_ACCEPTED.npz" or
-            (Path(name).stem.startswith("STEP_") and
-             int(Path(name).stem[5:])>0)
-            for name in self.seen_steps)
-        self.progress["value"]=(100*min(completed,self.expected_steps)/
+        # The committed counter excludes STEP_0000 and remains authoritative
+        # when only a subset of archived NPZ files is available for plotting.
+        self.progress["value"]=(100*min(accepted,self.expected_steps)/
                                 max(1,self.expected_steps))
         self._draw_graph()
 

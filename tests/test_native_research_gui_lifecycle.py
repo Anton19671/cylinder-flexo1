@@ -58,12 +58,89 @@ def test_single_step_progress_excludes_initial_state(tmp_path):
     win.results_dir.mkdir()
     win.case_path.write_text(json.dumps({"physics":{"theory":"KL"}}))
     q=np.zeros((3,9,5))
+    summary=win.results_dir/"RUN_SUMMARY.json"
+    summary.write_text(json.dumps({"accepted_steps":0}))
     np.savez(win.results_dir/"STEP_0000.npz",mechanical=q,time_s=0.)
     gui.NativeResearchWindow._scan_history(win)
     assert win.progress["value"]==0.
     np.savez(win.results_dir/"STEP_0001.npz",mechanical=q,time_s=.1)
+    summary.write_text(json.dumps({"accepted_steps":1}))
     gui.NativeResearchWindow._scan_history(win)
     assert win.progress["value"]==100.
+
+
+def test_native_online_history_waits_for_summary_commit_after_step_file(tmp_path):
+    win=window(tmp_path)
+    win.results_dir.mkdir()
+    win.case_path.write_text(json.dumps({"physics":{"theory":"KL"}}))
+    summary=win.results_dir/"RUN_SUMMARY.json"
+    summary.write_text(json.dumps({"accepted_steps":0}))
+    q=np.zeros((3,9,5))
+    np.savez(win.results_dir/"STEP_0001.npz",mechanical=q,time_s=.1)
+    gui.NativeResearchWindow._scan_history(win)
+    assert win.history==[]
+    assert win.progress.get("value",0.)==0.
+    summary.write_text(json.dumps({"accepted_steps":1}))
+    gui.NativeResearchWindow._scan_history(win)
+    assert win.history==[(.1,0.)]
+    assert win.progress["value"]==100.
+
+
+@pytest.mark.parametrize("summary_text",(None,"{",'{"accepted_steps": true}',
+    '{"accepted_steps": -1}','{"accepted_steps": 1.0}'))
+def test_native_history_does_not_accept_steps_without_valid_commit_marker(
+        tmp_path,summary_text):
+    win=window(tmp_path)
+    win.results_dir.mkdir()
+    win.case_path.write_text(json.dumps({"physics":{"theory":"KL"}}))
+    if summary_text is not None:
+        (win.results_dir/"RUN_SUMMARY.json").write_text(summary_text)
+    np.savez(win.results_dir/"STEP_0001.npz",
+             mechanical=np.zeros((3,9,5)),time_s=.1)
+    gui.NativeResearchWindow._scan_history(win)
+    assert win.history==[]
+
+
+def test_native_history_reads_large_step_numbers_in_numeric_order(tmp_path):
+    win=window(tmp_path)
+    win.results_dir.mkdir()
+    win.expected_steps=10000
+    win.case_path.write_text(json.dumps({"physics":{"theory":"KL"}}))
+    (win.results_dir/"RUN_SUMMARY.json").write_text(
+        json.dumps({"accepted_steps":10000}))
+    for k in (10000,9999):
+        np.savez(win.results_dir/f"STEP_{k:04d}.npz",
+                 mechanical=np.zeros((3,9,5)),time_s=float(k))
+    gui.NativeResearchWindow._scan_history(win)
+    assert [t for t,w in win.history]==[9999.,10000.]
+    assert win.progress["value"]==100.
+
+
+@pytest.mark.parametrize("moment",(float("nan"),float("inf"),-1.))
+def test_native_history_skips_invalid_physical_time(tmp_path,moment):
+    win=window(tmp_path)
+    win.results_dir.mkdir()
+    win.case_path.write_text(json.dumps({"physics":{"theory":"KL"}}))
+    (win.results_dir/"RUN_SUMMARY.json").write_text(
+        json.dumps({"accepted_steps":1}))
+    np.savez(win.results_dir/"STEP_0001.npz",
+             mechanical=np.zeros((3,9,5)),time_s=moment)
+    gui.NativeResearchWindow._scan_history(win)
+    assert win.history==[]
+
+
+def test_native_static_plot_waits_until_accepted_counter_is_committed(tmp_path):
+    win=window(tmp_path)
+    win.results_dir.mkdir()
+    win.case_path.write_text(json.dumps({"physics":{"theory":"KL"}}))
+    summary=win.results_dir/"RUN_SUMMARY.json"
+    summary.write_text(json.dumps({"accepted_steps":0}))
+    np.savez(win.results_dir/"STATIC_ACCEPTED.npz",mechanical=np.zeros((3,9,5)))
+    gui.NativeResearchWindow._scan_history(win)
+    assert win.history==[]
+    summary.write_text(json.dumps({"accepted_steps":1}))
+    gui.NativeResearchWindow._scan_history(win)
+    assert len(win.history)==1
 
 
 def test_reader_waits_for_exit_before_publishing_completion(tmp_path):

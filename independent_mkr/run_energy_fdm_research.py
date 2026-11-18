@@ -107,6 +107,11 @@ def load_case(filename):
         space,density_kg_m3=data["engine"].density_kg_m3,
         eta_s=data["engine"].eta_s,
         mass_damping_rate_per_s=data["engine"].mass_damping_rate_per_s)
+    if opts["kind"]=="DYNAMIC":
+        seed=data["seed"]
+        data["dynamics"].validate_initial_fields(
+            seed["mechanical"],seed["velocity"],seed.get("electrical"),
+            acceleration_guess=seed.get("acceleration"))
     data["reduced_state_scale"]=_norm_projection(
         space,data["qscale"],data["escale"],"ENERGY_FDM_STATE")
     data["reduced_equation_scale"]=_norm_projection(

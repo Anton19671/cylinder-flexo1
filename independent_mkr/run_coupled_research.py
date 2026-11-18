@@ -293,7 +293,10 @@ def load_case(filename, *, expected_schema=SCHEMA):
         mass_damping_rate_per_s=damping,
         mechanical_load=sources["mechanical_load"],
         electrical_charge=sources.get("electrical_charge"))
-    if opts["kind"]=="DYNAMIC":
+    # Energy-FDM owns a separate affine constrained chart and validates its
+    # initial displacement, velocity AND acceleration in its own runner.
+    # Do not apply the strong route's dimensional absolute gate to it.
+    if opts["kind"]=="DYNAMIC" and expected_schema==SCHEMA:
         _verify_fixed_initial_supports(
             engine,seed["mechanical"],seed["velocity"],
             absolute_tolerance=1.e-9)

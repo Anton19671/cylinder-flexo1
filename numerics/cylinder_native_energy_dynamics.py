@@ -147,12 +147,22 @@ class NativeEnergyDynamics:
 
     @staticmethod
     def _check_close(actual,wanted,label):
-        # A support may be specified in physical units; a uniform absolute
-        # tolerance below is intentionally NOT relaxed by the bulk force.
-        error=float(np.max(np.abs(actual-wanted)))
-        if error>1.e-9:
+        # Each component/angular column has its own physical units and
+        # amplitude. A fixed SI tolerance can silently erase an entire
+        # micro/nano initial field. Normalize BEFORE subtraction, without
+        # a unit-valued floor or sharing scales between unrelated profiles.
+        if actual.shape!=wanted.shape or not np.isfinite(actual).all():
+            raise ValueError("NATIVE_ENERGY_NONFINITE_OR_INVALID_"+label.upper().replace(" ","_"))
+        magnitude=np.maximum(np.max(np.abs(actual),axis=1,keepdims=True),
+                             np.max(np.abs(wanted),axis=1,keepdims=True))
+        left=np.divide(actual,magnitude,out=np.zeros_like(actual),
+                       where=magnitude!=0.)
+        right=np.divide(wanted,magnitude,out=np.zeros_like(wanted),
+                        where=magnitude!=0.)
+        error=float(np.max(np.abs(left-right)))
+        if error>1.e-11:
             raise ValueError("NATIVE_ENERGY_INCOMPATIBLE_"+label.upper().replace(" ","_")+
-                             f": max_abs_defect={error:.6e}")
+                             f": max_relative_profile_defect={error:.6e}")
 
     def _mechanical_lift(self,freedom):
         z=np.asarray(freedom,float)
@@ -263,12 +273,14 @@ class NativeEnergyDynamics:
             time_s,q,self._mechanical_lift(v_mechanical),
             self._mechanical_lift(a_mechanical),p)
 
-    def initialize(self,mechanical,velocity,electrical_guess=None, *,
-                   time_s=0.,acceleration_guess=None,loads_at=None,
-                   reduced_state_scale,reduced_equation_scale,
-                   settings=StrongNewtonSettings()):
-        """Solve simultaneously for native reduced initial a0 and phi0."""
-        t=_finite_nonnegative(time_s,"initial time")
+    def validate_initial_fields(self,mechanical,velocity,electrical_guess=None,
+                                *,acceleration_guess=None):
+        """Return checked initial coordinates without work evaluation or solve.
+
+        Mechanical initial data must already satisfy the stationary support
+        space. Electrical guesses are projected onto their affine constraints
+        before the subsequent quasistatic initial-equilibrium solve.
+        """
         p0=self._electric_guess(electrical_guess)
         q0,e0=self._project_q(
             _finite_field(mechanical,self.model.shape,"initial displacement"),p0,
@@ -276,6 +288,17 @@ class NativeEnergyDynamics:
         v0=self._project_motion(velocity,"initial velocity")
         a0=(np.zeros(self.nm) if acceleration_guess is None else
             self._project_motion(acceleration_guess,"initial acceleration guess"))
+        return q0,v0,a0,e0
+
+    def initialize(self,mechanical,velocity,electrical_guess=None, *,
+                   time_s=0.,acceleration_guess=None,loads_at=None,
+                   reduced_state_scale,reduced_equation_scale,
+                   settings=StrongNewtonSettings()):
+        """Solve simultaneously for native reduced initial a0 and phi0."""
+        t=_finite_nonnegative(time_s,"initial time")
+        q0,v0,a0,e0=self.validate_initial_fields(
+            mechanical,velocity,electrical_guess,
+            acceleration_guess=acceleration_guess)
         loads=self._loads(loads_at,t)
         def equations(y):
             trial_a=y[:self.nm]

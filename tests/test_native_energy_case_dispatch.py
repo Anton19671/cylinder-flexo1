@@ -80,6 +80,27 @@ def test_native_energy_preflight_respects_nonuniform_physical_scales(tmp_path):
         data["reduced_state_scale"])
 
 
+@pytest.mark.parametrize("field,amplitude",(
+    ("mechanical",1.e-12),("velocity",1.e-12),("acceleration",1.),
+))
+def test_energy_preflight_rejects_incompatible_initial_supports_without_solving(
+        tmp_path,monkeypatch,field,amplitude):
+    path,case=make_case(tmp_path,theory="KL",kind="DYNAMIC")
+    case["schema"]=energy.SCHEMA
+    path.write_text(json.dumps(case),encoding="utf-8")
+    with np.load(tmp_path/"initial.npz") as archive:
+        data={key:archive[key].copy() for key in archive.files}
+    data.setdefault(field,np.zeros_like(data["mechanical"]))
+    data[field][0,0,0]=amplitude
+    np.savez_compressed(tmp_path/"initial.npz",**data)
+    def forbidden(*args,**kwargs):
+        pytest.fail("preflight must not evaluate the constitutive law or solve")
+    monkeypatch.setattr(NativeEnergyFDM,"balance",forbidden)
+    with pytest.raises(ValueError,match="NATIVE_ENERGY_INCOMPATIBLE"):
+        validate_independent_case(path)
+    assert not (tmp_path/"result").exists()
+
+
 @pytest.mark.parametrize("integrator",("NEWMARK","BATHE","GAUSS_IRK4"))
 def test_run_native_energy_drivers_on_zero_manufactured_work_only(
         tmp_path,integrator,monkeypatch):

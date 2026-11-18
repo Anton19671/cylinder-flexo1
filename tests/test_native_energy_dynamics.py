@@ -20,14 +20,15 @@ from cylinder_direct_strong_newton import (
 from flexo_gradient_g3d import G3DMaterial
 
 
-def _engine(monkeypatch,*,electric=False,gauge=False,clamped=False):
+def _engine(monkeypatch,*,electric=False,gauge=False,clamped=False,order=1):
     model=DirectStrongShell("KL",G3DMaterial(
         90.,.24,.06,.004 if electric else 0.,
         -.002 if electric else 0.,.8 if electric else 0.),
         grid=DirectStrongGrid(7,4,1.2,2.),thickness_m=.3,n_gauss=2)
     fdm=NativeEnergyFDM(model)
     mechanical_ends={
-        side:[[{"kind":"ESSENTIAL" if clamped else "NATURAL","value":0.}]
+        side:[[{"kind":"ESSENTIAL" if clamped else "NATURAL","value":0.}
+               for _ in range(order)]
               for _ in range(model.n_mechanical)]
         for side in ("left","right")}
     electrical_ends=(
@@ -41,7 +42,7 @@ def _engine(monkeypatch,*,electric=False,gauge=False,clamped=False):
         electrical_gauge=StrongElectricGauge(
             weights,target_v=.27,potential_scale_v=1.)
     space=NativeEnergyEndSpace(
-        fdm,axial_orders=(1,)*model.n_mechanical,
+        fdm,axial_orders=(order,)*model.n_mechanical,
         mechanical_ends=mechanical_ends,
         electrical_ends=electrical_ends,electric_gauge=electrical_gauge)
     def physical_work(q,p,*,velocity,acceleration,
@@ -144,6 +145,49 @@ def test_energy_state_rejects_incompatible_support_velocity(monkeypatch):
     with pytest.raises(ValueError,match="VELOCITY_ESSENTIAL"):
         solver.newmark(state,.05,reduced_state_scale=1.,
                        reduced_equation_scale=1.,settings=_settings())
+
+
+@pytest.mark.parametrize("amplitude",(1.e-12,1.e-150,1.e150))
+@pytest.mark.parametrize("field",("mechanical","velocity","acceleration"))
+def test_energy_constraints_cannot_erase_small_or_mixed_unit_initial_fields(
+        monkeypatch,amplitude,field):
+    solver,model=_engine(monkeypatch,clamped=True)
+    fields={key:np.zeros(model.shape)
+            for key in ("mechanical","velocity","acceleration")}
+    # A large admissible component and angular column must not conceal a
+    # support violation in a different component/column, even in SI nano units.
+    fields[field][1,1:-1,:]=1.e150
+    fields[field][0,1:-1,1]=1.e150
+    fields[field][0,0,0]=amplitude
+    state=NativeEnergyState(0.,**fields)
+    with pytest.raises(ValueError,match="NATIVE_ENERGY_INCOMPATIBLE"):
+        solver._coordinates(state)
+
+
+@pytest.mark.parametrize("order",(1,2,3))
+def test_energy_constraints_accept_roundoff_in_tiny_valid_fields(monkeypatch,order):
+    solver,model=_engine(monkeypatch,clamped=True,order=order)
+    rng=np.random.default_rng(918)
+    coords=[rng.normal(size=solver.nm) for _ in range(3)]
+    fields=[solver._mechanical_lift(c) for c in coords]
+    amplitudes=np.array((1.e-150,1.e-12,1.e150))[:,None,None]
+    state=NativeEnergyState(0.,*(a*amplitudes for a in fields))
+    q,v,a,e=solver._coordinates(state)
+    for restored,wanted in zip((q,v,a),
+            (state.mechanical,state.velocity,state.acceleration)):
+        np.testing.assert_allclose(
+            solver._mechanical_lift(restored)/amplitudes,
+            wanted/amplitudes,rtol=1.e-12,atol=1.e-12)
+
+
+def test_energy_accepted_state_cannot_hide_tiny_grounding_violation(monkeypatch):
+    solver,model=_engine(monkeypatch,electric=True)
+    q=np.zeros(model.shape)
+    p=np.zeros((1,*model.shape[1:]))
+    p[0,0,0]=1.e-12
+    state=NativeEnergyState(0.,q,q,q,p)
+    with pytest.raises(ValueError,match="ELECTRIC_ESSENTIAL/GAUGE_TRACES"):
+        solver._coordinates(state)
 
 
 @pytest.mark.parametrize("method",("newmark","bathe","gauss"))
