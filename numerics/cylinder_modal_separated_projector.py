@@ -129,8 +129,88 @@ def _director_inertial_jet_matrix(functional, density, local_tangent):
     return local_mass
 
 
+def _kl_inertial_jet_matrix(functional, density, local_tangent):
+    """Exact reference-state KL inertia in the surface-jet ordering."""
+    key = ("KL", float(functional.R), float(functional.h), float(density),
+           str(functional.geometry_model), int(functional.n_derivatives))
+    cached = getattr(local_tangent, "_separated_kl_inertia", None)
+    if cached is not None and cached[0] == key:
+        return cached[1]
+    if functional.theory != "KL" or functional.n_mechanical != 3:
+        return None
+    from cylinder_kl_exact_inertia import kl_inertial_coefficients_from_jets
 
-def _exact_batched_director_projection(problem, density, local_tangent, basis):
+    nd = int(functional.n_derivatives)
+    if nd < 3:
+        return None
+    zero = np.zeros((3, 1, 1), dtype=float)
+    local9 = np.empty((9, 9), dtype=float)
+    for column in range(9):
+        component, derivative = divmod(column, 3)
+        acceleration = [zero.copy(), zero.copy(), zero.copy()]
+        acceleration[derivative][component, 0, 0] = 1.
+        coefficients = kl_inertial_coefficients_from_jets(
+            (zero, zero, zero), (zero, zero, zero), tuple(acceleration),
+            radius_m=functional.R, thickness_m=functional.h,
+            density_kg_m3=density, geometry_model=functional.geometry_model)
+        # The physical library returns (derivative, component); modal weak
+        # jet storage is (component, derivative).
+        local9[:, column] = np.transpose(coefficients[:, :, 0, 0],
+                                         (1, 0)).reshape(9)
+    local_mass = np.zeros((3 * nd, 3 * nd), dtype=float)
+    indices = [component * nd + derivative
+               for component in range(3) for derivative in range(3)]
+    local_mass[np.ix_(indices, indices)] = local9
+    if not np.isfinite(local_mass).all():
+        raise ValueError("MODAL_MVI_KL_INERTIA_NONFINITE")
+    local_tangent._separated_kl_inertia = (key, local_mass)
+    return local_mass
+
+
+def exact_linear_inertial_jet_matrix(functional, density, local_tangent):
+    """Return the exact reference-state KL/FSDT/Reddy inertia matrix."""
+    if functional.theory == "KL":
+        return _kl_inertial_jet_matrix(functional, density, local_tangent)
+    return _director_inertial_jet_matrix(functional, density, local_tangent)
+
+
+def _cuf_inertial_jet_matrix(functional, density, local_tangent):
+    """Exact CUF inertia in the common (component, jet) storage format."""
+    degree = int(functional.theory[-1])
+    key = (functional.theory, float(functional.R), float(functional.h),
+           float(density), int(functional.n_derivatives))
+    cached = getattr(local_tangent, "_separated_cuf_inertia", None)
+    if cached is not None and cached[0] == key:
+        return cached[1]
+    ncomp, nd = functional.n_mechanical, int(functional.n_derivatives)
+    width = degree + 1
+    if ncomp != 3 * width or nd < 1:
+        return None
+    thickness_mass = mass_matrix_te(
+        radius_m=functional.R, thickness_m=functional.h,
+        rho_kg_m3=float(density), te_order=degree)
+    component_mass = np.zeros((ncomp, ncomp), dtype=float)
+    for component in range(3):
+        sl = slice(component * width, (component + 1) * width)
+        component_mass[sl, sl] = thickness_mass
+    local_mass = np.zeros((ncomp * nd, ncomp * nd), dtype=float)
+    values = np.arange(ncomp) * nd
+    local_mass[np.ix_(values, values)] = component_mass
+    if not np.isfinite(local_mass).all():
+        raise ValueError("MODAL_MVI_CUF_INERTIA_NONFINITE")
+    local_tangent._separated_cuf_inertia = (key, local_mass)
+    return local_mass
+
+
+def exact_inertial_jet_matrix(functional, density, local_tangent):
+    """Exact reference inertia in the common weak surface-jet ordering."""
+    if functional.theory.startswith("CUF_TE"):
+        return _cuf_inertial_jet_matrix(functional, density, local_tangent)
+    return exact_linear_inertial_jet_matrix(functional, density, local_tangent)
+
+
+
+def _exact_batched_projection(problem, density, local_tangent, basis):
     """Exact B.T K B and B.T M B even for trace-mixed fixed-rank columns.
 
     Boundary-intersection QR may form a linear combination of several
@@ -150,7 +230,7 @@ def _exact_batched_director_projection(problem, density, local_tangent, basis):
             not np.isfinite(basis).all() or not basis.shape[1]):
         return None
     stiffness_local = np.asarray(local_tangent.local, dtype=float)
-    inertia_local = _director_inertial_jet_matrix(
+    inertia_local = exact_inertial_jet_matrix(
         f, density, local_tangent)
     if (inertia_local is None or
             stiffness_local.shape != (ncomp * nd, ncomp * nd)):
@@ -202,7 +282,7 @@ def exact_separated_cuf_projection(problem, density, local_tangent, basis):
     """
     f = problem.functional
     if (not (f.theory.startswith("CUF_TE") or
-             f.theory in ("FSDT", "REDDY")) or f.electrical_on
+             f.theory in ("KL", "FSDT", "REDDY")) or f.electrical_on
             or local_tangent is None or not _spring_free_modal_edges(problem)):
         return None
     ncomp, nx, ns = f.n_mechanical, *f.ops.shape
@@ -211,8 +291,8 @@ def exact_separated_cuf_projection(problem, density, local_tangent, basis):
     if not np.isfinite(basis).all():
         return None
     if factors is None:
-        if f.theory in ("FSDT", "REDDY"):
-            return _exact_batched_director_projection(
+        if f.theory.startswith("CUF_TE") or f.theory in ("KL", "FSDT", "REDDY"):
+            return _exact_batched_projection(
                 problem, density, local_tangent, basis)
         return None
     wx, ws = np.asarray(f.ops.wx, float), np.asarray(f.ops.ws, float)
@@ -261,7 +341,7 @@ def exact_separated_cuf_projection(problem, density, local_tangent, basis):
     else:
         # Reddy's gradient-dependent inertia is retained exactly: no
         # replacement with an approximate five-component mass matrix.
-        inertia = _director_inertial_jet_matrix(
+        inertia = exact_linear_inertial_jet_matrix(
             f, density, local_tangent)
         if inertia is None:
             return None
