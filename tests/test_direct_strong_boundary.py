@@ -101,6 +101,19 @@ class StrongEndClosureTests(unittest.TestCase):
                 electrical_ends={"left":[bc("NATURAL")],
                                  "right":[bc("NATURAL")]})
 
+    def test_grounded_constant_mode_rejects_extra_gauge(self):
+        ends={side:[[bc("ESSENTIAL")]*m for m in (1,2,3)]
+              for side in ("left","right")}
+        for left,right in (("ESSENTIAL","NATURAL"),("NATURAL","ESSENTIAL"),
+                           ("ESSENTIAL","ESSENTIAL")):
+            with self.subTest(left=left,right=right), self.assertRaisesRegex(
+                    ValueError,"already has a prescribed potential"):
+                assemble_physical_end_rows(
+                    self.b,self.q,self.g,axial_orders=(1,2,3),mechanical_ends=ends,
+                    electrical=np.zeros((1,self.g.nx,self.g.ns)),
+                    electrical_ends={"left":[bc(left)],"right":[bc(right)]},
+                    gauge_closed_elsewhere=True)
+
     def test_reject_missing_field_specific_rows(self):
         ends={"left":[[bc("ESSENTIAL")]*m for m in (1,2,3)],
               "right":[[bc("ESSENTIAL")]*m for m in (1,2,3)]}

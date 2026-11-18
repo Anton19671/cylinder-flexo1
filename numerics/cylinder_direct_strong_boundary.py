@@ -174,6 +174,8 @@ def assemble_physical_end_rows(balance, mechanical, grid, *, axial_orders,
                 trace=(p[i,node] if kind=="ESSENTIAL" else
                        balance.electrical_end_potential[side_index,i])
                 electric[i,node,:]=trace-value
+        if gauge_closed_elsewhere and "ESSENTIAL" in constant_kinds:
+            raise ValueError("constant electric mode already has a prescribed potential")
         if constant_kinds==["NATURAL","NATURAL"] and not gauge_closed_elsewhere:
             raise ValueError("constant electric mode requires electrode or gauge closure")
     return StrongEndSystem(result,electric,tuple(axial_orders))
