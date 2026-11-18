@@ -364,6 +364,14 @@ def test_insulated_source_compatibility_includes_prescribed_axial_end_flux():
         mechanical_ends=ends,electrical_ends=electric,
         electric_gauge=StrongElectricGauge(weights))
     charge=np.ones((1,*model.shape[1:]))
+    from cylinder_native_mkr_newmark import NativeStrongNewmark
+    dynamics=NativeStrongNewmark(
+        model,axial_orders=(1,)*model.n_mechanical,mechanical_ends=ends,
+        electrical_ends=electric,electric_gauge=StrongElectricGauge(weights),
+        density_kg_m3=1.,electrical_charge=charge)
+    for incompatible in (None,2.*charge):
+        with pytest.raises(ValueError,match="incompatible fully insulated"):
+            dynamics._check_insulated_charge(incompatible)
     space.check_electric_source(charge)
     with pytest.raises(ValueError,match="INCOMPATIBLE_INSULATED_CHARGE"):
         space.check_electric_source(None)

@@ -207,7 +207,7 @@ class NativeStrongNewmark:
         return _frozen_field(a, a.shape, name)
 
     def _check_insulated_charge(self, charge):
-        if charge is None or self.electric_gauge is None:
+        if self.electric_gauge is None:
             return
         try:
             insulated = all(self.electrical_ends[side][0]["kind"] == "NATURAL"
@@ -216,10 +216,21 @@ class NativeStrongNewmark:
             return  # The boundary assembler will reject malformed end data.
         if not insulated:
             return
-        weighted = self.model.area_weights * charge[0]
-        net = float(np.sum(weighted))
-        total = float(np.sum(np.abs(weighted)))
-        if abs(net) > 1.e-10 * max(1.e-30, total):
+        grid = self.model.grid
+        terms = []
+        if charge is not None:
+            terms.append(self.model.area_weights * charge[0])
+        for side in ("left", "right"):
+            _, flux = _condition(self.electrical_ends[side][0], grid.ns,
+                                 side + " constant-mode electric flux")
+            terms.append(-grid.ds * flux)
+        scale = max(float(np.max(np.abs(term))) for term in terms)
+        if scale == 0.:
+            return
+        if not math.isfinite(scale):
+            raise ValueError("nonfinite integrated electric charge or end flux")
+        scaled = np.concatenate([term.ravel() / scale for term in terms])
+        if abs(math.fsum(scaled)) > 1.e-10 * math.fsum(np.abs(scaled)):
             raise ValueError("incompatible fully insulated constant-mode free charge")
 
     def advance(self, state: NativeNewmarkState, dt_s, *,
