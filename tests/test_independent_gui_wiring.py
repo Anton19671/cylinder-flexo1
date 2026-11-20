@@ -72,13 +72,13 @@ def test_final_gui_exposes_both_independent_windows_without_rerouting():
     last_build=[x for x in cls.body if isinstance(x,ast.FunctionDef)
                 and x.name=="_build_ui"][-1]
     gui_source=ast.unparse(last_build)
-    assert "open_independent_mkr" in gui_source
-    assert "open_independent_mvi" in gui_source
+    assert "open_independent_mkr" not in gui_source
+    assert "open_independent_mvi" not in gui_source
     assert "self.run_case" in gui_source
-    # Legacy calculation controls remain visible and untouched; independent
-    # solvers must only run through their explicit own GUI buttons.
-    assert "independent_mkr_btn" in gui_source
-    assert "independent_mvi_btn" in gui_source
+    # The main window uses its method selector and common Run action.
+    # Independent modules remain available without duplicate toolbar launchers.
+    assert "independent_mkr_btn" not in gui_source
+    assert "independent_mvi_btn" not in gui_source
 
 
 def test_invalid_nonlinear_or_electrical_case_is_never_accepted():
