@@ -1,4 +1,4 @@
-name: Matched SAT targeted integration
+name: Matched SAT targeted integration and pressure pilot
 on:
   push:
     branches: [verify-matched-sat-20261126]
@@ -6,9 +6,9 @@ on:
 permissions:
   contents: read
 jobs:
-  matched-sat:
+  targeted:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 10
     env:
       PYTHONPATH: ".:independent_mkr:independent_mvi:mechanics:numerics:flexoelectric:physics:interface:ci"
       OPENBLAS_NUM_THREADS: "1"
@@ -21,6 +21,39 @@ jobs:
         with:
           python-version: "3.11"
       - run: python -m pip install numpy scipy pytest
-      - name: Targeted spatial and temporal tests
+      - name: Regression and actual coupled assembly
         run: |
-          python -m pytest -q --tb=short tests/test_matched_axial.py tests/test_matched_axial_quartic.py tests/test_matched_strong_sat_unit.py tests/test_matched_strong_sat_integration.py tests/test_native_coupled_mkr_case_dispatch.py tests/test_native_gradient_fdm_mvi_campaign.py tests/test_native_mkr_initial.py tests/test_native_mkr_newmark.py tests/test_native_mkr_bathe.py tests/test_native_mkr_gauss2.py
+          python -m pytest -q --tb=short tests/test_stationary_strong_support_scaling.py tests/test_direct_strong_newton.py tests/test_native_direct_strong_model.py tests/test_matched_axial.py tests/test_matched_axial_quartic.py tests/test_matched_strong_sat_unit.py tests/test_matched_strong_sat_integration.py tests/test_native_coupled_mkr_case_dispatch.py tests/test_native_gradient_fdm_mvi_campaign.py tests/test_native_mkr_initial.py tests/test_native_mkr_newmark.py tests/test_native_mkr_bathe.py tests/test_native_mkr_gauss2.py
+  physical:
+    needs: targeted
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - theory: KL
+            gradient: G3D
+            kind: STATIC
+          - theory: REDDY
+            gradient: Gz
+            kind: NEWMARK
+    env:
+      PYTHONPATH: ".:independent_mkr:independent_mvi:mechanics:numerics:flexoelectric:physics:interface:ci"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install numpy scipy
+      - name: Bounded nonlinear native pressure run
+        run: python ci/matched_sat_physical_pilot.py --theory ${{ matrix.theory }} --gradient ${{ matrix.gradient }} --kind ${{ matrix.kind }} --output pilot
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: matched-sat-${{ matrix.theory }}-${{ matrix.gradient }}-${{ matrix.kind }}
+          path: pilot/

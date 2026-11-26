@@ -69,6 +69,46 @@ def _condition(value, ns, label):
         raise ValueError(label + ": nonfinite or incorrect shape")
     return value["kind"],v
 
+def stationary_essential_scales(grid, shape, ends, base_scale, *,
+                                scaled_absolute_tolerance, electric=False,
+                                absolute_trace_tolerance=1.e-9):
+    """Cap ONLY essential end-row scales, in their own physical units.
+
+    A force/charge scale applied to a prescribed displacement, normal
+    derivative or voltage row could otherwise falsely accept a support
+    violation. Natural rows and bulk equations retain the original scale.
+    This uses the same row positions as assemble_physical_end_rows.
+    """
+    from cylinder_direct_strong_newton import _positive_scale
+    scale=_positive_scale(base_scale,shape,"stationary strong equation").copy()
+    if (len(shape)!=3 or tuple(shape[1:])!=(grid.nx,grid.ns)
+            or not isinstance(ends,dict) or set(ends)!={"left","right"}):
+        raise ValueError("STATIONARY_STRONG_END_SCALE_INVALID")
+    tol=float(absolute_trace_tolerance)
+    relative=float(scaled_absolute_tolerance)
+    if not (np.isfinite(tol) and tol>0. and np.isfinite(relative) and relative>0.):
+        raise ValueError("STATIONARY_STRONG_TRACE_TOLERANCE_INVALID")
+    cap=tol/relative
+    if not np.isfinite(cap) or cap<=0.:
+        raise ValueError("STATIONARY_STRONG_TRACE_SCALE_UNREPRESENTABLE")
+    for side in ("left","right"):
+        data=ends[side]
+        if not isinstance(data,(tuple,list)) or len(data)!=shape[0]:
+            raise ValueError("STATIONARY_STRONG_END_FIELD_COUNT_INVALID")
+        for c,items in enumerate(data):
+            entries=(items,) if electric else items
+            if not isinstance(entries,(tuple,list)) or not 1<=len(entries)<=3:
+                raise ValueError("STATIONARY_STRONG_END_TRACE_COUNT_INVALID")
+            for order,item in enumerate(entries):
+                kind,_=_condition(item,grid.ns,"stationary strong "+side+" trace")
+                if kind=="ESSENTIAL":
+                    if grid.uses_sat_end_closure and not electric and order:
+                        raise ValueError("MATCHED_SAT_HIGHER_ESSENTIAL_TRACE_UNSUPPORTED")
+                    node=order if side=="left" else grid.nx-1-order
+                    scale[c,node,:]=np.minimum(scale[c,node,:],cap)
+    return scale
+
+
 def native_kinematic_normal_trace(field, grid, component, normal_order, side,
                                   *, prepared_jet=None):
     """Outward-normal essential trace from the SAME MKR kinematic stencil.
