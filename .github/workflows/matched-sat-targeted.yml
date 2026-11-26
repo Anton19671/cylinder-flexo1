@@ -1,4 +1,4 @@
-name: Matched SAT targeted integration and pressure pilot
+name: Matched SAT symmetry optimization and pressure pilot
 on:
   push:
     branches: [verify-matched-sat-20261126]
@@ -23,14 +23,14 @@ jobs:
       - run: python -m pip install numpy scipy pytest
       - name: Regression and actual coupled assembly
         run: |
-          python -m pytest -q --tb=short tests/test_stationary_strong_support_scaling.py tests/test_direct_strong_newton.py tests/test_native_direct_strong_model.py tests/test_matched_axial.py tests/test_matched_axial_quartic.py tests/test_matched_strong_sat_unit.py tests/test_matched_strong_sat_integration.py tests/test_native_coupled_mkr_case_dispatch.py tests/test_native_gradient_fdm_mvi_campaign.py tests/test_native_mkr_initial.py tests/test_native_mkr_newmark.py tests/test_native_mkr_bathe.py tests/test_native_mkr_gauss2.py
+          python -m pytest -q --tb=short tests/test_axisymmetric_strong_newton.py tests/test_stationary_strong_support_scaling.py tests/test_direct_strong_newton.py tests/test_native_direct_strong_model.py tests/test_matched_axial.py tests/test_matched_axial_quartic.py tests/test_matched_strong_sat_unit.py tests/test_matched_strong_sat_integration.py tests/test_native_coupled_mkr_case_dispatch.py tests/test_native_gradient_fdm_mvi_campaign.py tests/test_native_mkr_initial.py tests/test_native_mkr_newmark.py tests/test_native_mkr_bathe.py tests/test_native_mkr_gauss2.py
   physical:
     needs: targeted
     runs-on: ubuntu-latest
     timeout-minutes: 18
     strategy:
       fail-fast: false
-      max-parallel: 2
+      max-parallel: 4
       matrix:
         include:
           - theory: KL
@@ -39,6 +39,12 @@ jobs:
           - theory: REDDY
             gradient: Gz
             kind: NEWMARK
+          - theory: FSDT
+            gradient: G3D
+            kind: BATHE
+          - theory: CUF_TE1
+            gradient: Gz
+            kind: GAUSS_IRK4
     env:
       PYTHONPATH: ".:independent_mkr:independent_mvi:mechanics:numerics:flexoelectric:physics:interface:ci"
       OPENBLAS_NUM_THREADS: "1"

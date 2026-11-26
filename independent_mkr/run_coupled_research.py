@@ -184,9 +184,15 @@ def load_case(filename, *, expected_schema=SCHEMA):
     b=_strict(case["boundary"],("mechanical","electric","axial_orders"),
               "MKR_BOUNDARY")
     opts=case["solver"]
+    optional=SOLVER_OPTIONAL|({"axisymmetric"} if expected_schema==SCHEMA else set())
     if (not isinstance(opts,dict) or not SOLVER_KEYS.issubset(opts)
-            or set(opts)-SOLVER_KEYS-SOLVER_OPTIONAL):
+            or set(opts)-SOLVER_KEYS-optional):
         raise ValueError("MKR_SOLVER_KEYS_INVALID")
+    axisymmetric=opts.get("axisymmetric",False)
+    if type(axisymmetric) is not bool:
+        raise ValueError("DIRECT_STRONG_AXISYMMETRIC_BOOLEAN_REQUIRED")
+    if axisymmetric and (not grid.uses_sat_end_closure or b["electric"] not in ("OFF","GROUNDED_BOTH")):
+        raise ValueError("AXISYMMETRIC_REQUIRES_SAT_FIXED_ENDS_NO_GAUGE")
     if opts["kind"] not in ("STATIC","DYNAMIC"):
         raise ValueError("MKR_COUPLED_UNKNOWN_CALCULATION_KIND")
     if opts["kind"]=="STATIC":
@@ -204,7 +210,7 @@ def load_case(filename, *, expected_schema=SCHEMA):
             not 1<=opts["max_iterations"]<=150):
         raise ValueError("MKR_COUPLED_NEWTON_LIMIT_INVALID")
     max_unknowns=(model.n_mechanical+
-                  (potential_order+1 if model.electrical_on else 0))*grid.nx*grid.ns
+                  (potential_order+1 if model.electrical_on else 0))*grid.nx*(1 if axisymmetric else grid.ns)
     # Gauss has two independent implicit stage fields in ONE Newton system.
     if opts["integrator"]=="GAUSS_IRK4":
         max_unknowns*=2
@@ -281,6 +287,26 @@ def load_case(filename, *, expected_schema=SCHEMA):
         raise ValueError("MKR_ELECTRIC_CHARGE_WHEN_OFF")
     elif case.get("electric_faces") is not None:
         _face_charge(model,case["electric_faces"],potential_order)
+    if axisymmetric:
+        from cylinder_direct_strong_newton import require_angular_constant
+        for name,value in (*seed.items(),*sources.items(),
+                ("mechanical state scale",qscale),("mechanical equation scale",rscale),
+                ("electrical state scale",escale),("electrical equation scale",erescale)):
+            if value is not None:
+                require_angular_constant(value,name)
+        if model.kl_face_load is not None:
+            require_angular_constant(model.kl_face_load.traction_pa,"KL face traction")
+        from cylinder_direct_strong_boundary import _condition
+        for side,fields in program.mechanical_ends.items():
+            for conditions in fields:
+                for item in conditions:
+                    _,value=_condition(item,grid.ns,"axisymmetric mechanical end")
+                    require_angular_constant(value,side+" mechanical end")
+        if program.electrical_ends is not None:
+            for side,fields in program.electrical_ends.items():
+                for item in fields:
+                    _,value=_condition(item,grid.ns,"axisymmetric electric end")
+                    require_angular_constant(value,side+" electric end")
     output=case["output_dir"]
     if not isinstance(output,str) or not output.strip():
         raise ValueError("MKR_OUTPUT_PATH_INVALID")
@@ -313,7 +339,8 @@ def load_case(filename, *, expected_schema=SCHEMA):
                     max_dofs=opts["max_dofs"],
                     max_iterations=opts["max_iterations"],
                     linear_solver=opts.get("linear_solver","AUTO"),
-                    dense_lu_dof_limit=opts.get("dense_lu_dof_limit",384)),
+                    dense_lu_dof_limit=opts.get("dense_lu_dof_limit",384),
+                    axisymmetric=axisymmetric),
                 seed=seed,sources=sources,opts=opts,output=output,
                 qscale=qscale,rscale=rscale,escale=escale,
                 erescale=erescale)
@@ -377,6 +404,7 @@ def run(filename,*,validate_only):
         axial_end_closure=("SAT_ALL_HIGHER_NATURAL_WORK" if model.grid.uses_sat_end_closure
                            else "POINTWISE_ROW_REPLACEMENT"),
         pointwise_natural_end_actions_certified=False,
+        axisymmetric=bool(args["settings"].axisymmetric),
         kind=opts["kind"],calculation_kind=opts["kind"],
         integrator=opts["integrator"],steps=opts["steps"],
         requested_steps=opts["steps"],
