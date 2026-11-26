@@ -1,0 +1,65 @@
+name: Matched SAT independent mesh comparison KL Gz
+on:
+  push:
+    branches: [verify-matched-sat-mesh-mvi-20261126]
+permissions:
+  contents: read
+env:
+  PYTHONPATH: ".:independent_mkr:independent_mvi:mechanics:numerics:flexoelectric:physics:interface:ci"
+  OPENBLAS_NUM_THREADS: "1"
+  OMP_NUM_THREADS: "1"
+  MKL_NUM_THREADS: "1"
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install numpy scipy
+      - run: python ci/matched_sat_mesh_mvi_compare.py --preflight --output preflight
+  physical:
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        nx: [21, 31, 41]
+        method: [FDM, MVI1]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install numpy scipy
+      - run: python ci/matched_sat_mesh_mvi_compare.py --nx ${{ matrix.nx }} --method ${{ matrix.method }} --output result
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mesh-${{ matrix.method }}-${{ matrix.nx }}
+          path: result/
+  compare:
+    if: always() && needs.preflight.result == 'success'
+    needs: [preflight, physical]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install numpy scipy
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mesh-*
+          path: results
+      - run: python ci/matched_sat_mesh_mvi_compare.py --summarize results --output comparison.json
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mesh-comparison
+          path: comparison.json
