@@ -128,6 +128,8 @@ def compile_native_mkr_end_program(
                     if orders[c]>order:
                         bounds[side][c][order]={
                             "kind":"NATURAL","value":factor*data[c].copy()}
+    if model.grid.uses_sat_end_closure and electric not in ("OFF","GROUNDED_BOTH"):
+        raise ValueError("MATCHED_SAT_REQUIRES_BOTH_ELECTRIC_ENDS_PRESCRIBED")
     if not model.electrical_on:
         if electric!="OFF" or potential_order is not None:
             raise ValueError("MKR_END_ELECTRICITY_OFF_REQUIRES_OFF")

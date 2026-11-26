@@ -101,6 +101,49 @@ def native_kinematic_normal_trace(field, grid, component, normal_order, side,
     return outward_sign*jet[component,physical_end,:]
 
 
+def _matched_immobile_sat_mechanical(balance,q,grid,axial_orders,mechanical_ends):
+    """Keep all interior strong equations; lift higher natural end work.
+
+    Supported physical program: fixed q at both sections and natural
+    conditions for ALL higher normal traces. Explicit entries prescribe
+    their values; omitted higher trace actions have zero target. In
+    particular, coupled nonlinear KL is not artificially assigned a
+    pointwise fieldwise PDE order by this SAT construction.
+    """
+    from cylinder_matched_strong_sat import add_natural_trace_sat
+    highest=balance.highest_axial_jet
+    shape=(2,len(q),grid.ns)
+    targets=[np.zeros(shape) for k in range(1,highest)]
+    essential=np.empty(shape)
+    for side_index,side in enumerate(("left","right")):
+        conditions=mechanical_ends[side]
+        if not isinstance(conditions,(tuple,list)) or len(conditions)!=len(q):
+            raise ValueError("MATCHED_SAT_END_FIELD_COUNT_INVALID")
+        for c,m in enumerate(axial_orders):
+            if not isinstance(conditions[c],(tuple,list)) or len(conditions[c])!=m:
+                raise ValueError("MATCHED_SAT_END_TRACE_COUNT_INVALID")
+            for k,item in enumerate(conditions[c]):
+                kind,value=_condition(item,grid.ns,"matched SAT "+side+" trace "+str(k))
+                if k==0:
+                    if kind!="ESSENTIAL":
+                        raise ValueError("MATCHED_SAT_REQUIRES_FIXED_DISPLACEMENT_ENDS")
+                    essential[side_index,c]=value
+                else:
+                    if kind!="NATURAL":
+                        raise ValueError("MATCHED_SAT_HIGHER_ESSENTIAL_TRACE_UNSUPPORTED")
+                    targets[k-1][side_index,c]=value
+    traces=[(np.array([-1.,1.])[:,None]**k)*
+            grid.matched_axial.kinematic[k][[0,-1]]/grid.dx**k
+            for k in range(1,highest)]
+    actions=(balance.mechanical_end_slope,
+             balance.mechanical_end_curvature)[:highest-1]
+    result=add_natural_trace_sat(balance.mechanical_bulk,grid.axial_weights,
+                                 traces,actions,targets)
+    result[:,0,:]=q[:,0,:]-essential[0]
+    result[:,-1,:]=q[:,-1,:]-essential[1]
+    return result
+
+
 def assemble_physical_end_rows(balance, mechanical, grid, *, axial_orders,
                                mechanical_ends, electrical=None,
                                electrical_ends=None, gauge_closed_elsewhere=False):
@@ -122,12 +165,17 @@ def assemble_physical_end_rows(balance, mechanical, grid, *, axial_orders,
         raise ValueError("certified axial orders 1,2,3 per component required")
     if not isinstance(mechanical_ends,dict) or set(mechanical_ends)!={"left","right"}:
         raise ValueError("left and right mechanical end data required")
-    result=bulk.copy()
-    # Prepare each kinematic derivative once and reuse it at BOTH physical
-    # ends. The same jets enter native constitutive strain evaluation.
+    if grid.uses_sat_end_closure:
+        if gauge_closed_elsewhere:
+            raise ValueError("MATCHED_SAT_FLOATING_GAUGE_UNSUPPORTED")
+        result=_matched_immobile_sat_mechanical(
+            balance,q,grid,axial_orders,mechanical_ends)
+    else:
+        result=bulk.copy()
+    # The legacy pointwise closure alone replaces additional interior rows.
     kinematic=MKRFieldJets(grid)
     essential_jets={0:q}
-    for side_index, side in enumerate(("left","right")):
+    for side_index, side in enumerate(() if grid.uses_sat_end_closure else ("left","right")):
         conditions=mechanical_ends[side]
         if not isinstance(conditions,(tuple,list)) or len(conditions)!=len(q):
             raise ValueError(side+": condition list per component required")
@@ -170,6 +218,8 @@ def assemble_physical_end_rows(balance, mechanical, grid, *, axial_orders,
             node=0 if side_index==0 else -1
             for i,item in enumerate(items):
                 kind,value=_condition(item,grid.ns,side+" electric mode")
+                if grid.uses_sat_end_closure and kind!="ESSENTIAL":
+                    raise ValueError("MATCHED_SAT_REQUIRES_BOTH_ELECTRIC_ENDS_PRESCRIBED")
                 if i==0:constant_kinds.append(kind)
                 trace=(p[i,node] if kind=="ESSENTIAL" else
                        balance.electrical_end_potential[side_index,i])
@@ -178,6 +228,9 @@ def assemble_physical_end_rows(balance, mechanical, grid, *, axial_orders,
             raise ValueError("constant electric mode already has a prescribed potential")
         if constant_kinds==["NATURAL","NATURAL"] and not gauge_closed_elsewhere:
             raise ValueError("constant electric mode requires electrode or gauge closure")
+    if grid.uses_sat_end_closure:
+        return StrongEndSystem(result,electric,tuple(axial_orders),
+                               "MATCHED_SAT_NATURAL_WORK_RESEARCH_NOT_BOUNDARY_CERTIFIED")
     return StrongEndSystem(result,electric,tuple(axial_orders))
 
 __all__=("StrongEndSystem","CUFParallelEndConditions","assemble_physical_end_rows",

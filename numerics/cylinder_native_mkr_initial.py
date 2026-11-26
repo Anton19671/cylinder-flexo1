@@ -162,7 +162,9 @@ def initialize_consistent_native_mkr(
             engine._electric_field(electrical_charge,"initial electric charge"))
     engine._check_insulated_charge(load_e)
     acceleration_ends=_acceleration_ends(engine.mechanical_ends)
-    dynamic_natural=_acceleration_dependent_natural_tractions(engine,q)
+    sat=engine.model.grid.uses_sat_end_closure
+    dynamic_natural=(frozenset() if sat else
+                     _acceleration_dependent_natural_tractions(engine,q))
 
     def equations(a,p):
         balance=engine.model.balance(
@@ -177,6 +179,11 @@ def initialize_consistent_native_mkr(
             axial_orders=engine.axial_orders,mechanical_ends=acceleration_ends,
             electrical=p,electrical_ends=engine.electrical_ends,
             gauge_closed_elsewhere=engine.electric_gauge is not None)
+        if sat:
+            # SAT has already included every natural boundary contribution
+            # in the original bulk/mass equations. There are no natural
+            # row replacements to undo, including for initial acceleration.
+            return rows.mechanical,rows.electrical
         # Higher natural actions have no acceleration-gradient coefficient
         # beyond q_x in the implemented KL/Reddy inertia. They are checked
         # as compatibility of the prescribed initial q/v after the solve.
@@ -212,6 +219,16 @@ def initialize_consistent_native_mkr(
         electric_gauge=engine.electric_gauge,settings=settings)
     if not nonlinear.converged:
         return NativeInitialStateResult(None,nonlinear)
+    if sat:
+        # Natural end work has been enforced in the same discrete equations
+        # that were solved. A separate pointwise end-action=0 gate would
+        # incorrectly impose a second, different closure. Essential support
+        # kinematics remain mandatory.
+        _verify_fixed_initial_supports(engine,q,v,absolute_tolerance=tol,
+                                       acceleration=nonlinear.mechanical)
+        return NativeInitialStateResult(
+            NativeNewmarkState(t,q,v,nonlinear.mechanical,nonlinear.electrical),
+            nonlinear)
     # Retaining mass equations must never silently discard the original
     # end conditions. Reject incompatible initial displacement/velocity
     # and electric fields without publishing an accepted initial state.

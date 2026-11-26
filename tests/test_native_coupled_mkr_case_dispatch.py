@@ -230,16 +230,20 @@ def test_no_mvi_fallback_import_in_own_native_mkr_runner():
 
 
 
-def test_quartic_matched_strong_grid_is_explicit_research_option(tmp_path):
+@pytest.mark.parametrize("scheme",("MATCHED_QUARTIC_V1","MATCHED_QUARTIC_SAT_V1"))
+def test_quartic_matched_strong_grid_is_explicit_research_option(tmp_path,scheme):
     path,case=make_case(tmp_path,theory="FSDT",kind="STATIC")
-    case["grid"].update(nx=21,axial_scheme="MATCHED_QUARTIC_V1")
+    case["grid"].update(nx=21,axial_scheme=scheme)
     case["boundary"]["axial_orders"]=[2]*5
     q=np.zeros((5,21,5))
     np.savez_compressed(tmp_path/"initial.npz",mechanical=q)
     np.savez_compressed(tmp_path/"loads.npz",mechanical_load=q)
     path.write_text(json.dumps(case),encoding="utf-8")
     answer=native.run(path,validate_only=True)
-    assert answer["axial_scheme"]=="MATCHED_QUARTIC_V1"
+    assert answer["axial_scheme"]==scheme
+    assert answer["axial_end_closure"]==(
+        "SAT_ALL_HIGHER_NATURAL_WORK" if scheme.endswith("SAT_V1")
+        else "POINTWISE_ROW_REPLACEMENT")
     assert answer["physical_steps_computed"]==0
     assert not answer["physical_boundary_closure_certified"]
     assert not (tmp_path/"result").exists()

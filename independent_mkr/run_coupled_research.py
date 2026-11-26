@@ -374,6 +374,9 @@ def run(filename,*,validate_only):
         theory=model.theory,geometry_model=model.geometry_model,
         gradient_model=model.material.gradient_model,
         axial_scheme=model.grid.axial_scheme,
+        axial_end_closure=("SAT_ALL_HIGHER_NATURAL_WORK" if model.grid.uses_sat_end_closure
+                           else "POINTWISE_ROW_REPLACEMENT"),
+        pointwise_natural_end_actions_certified=False,
         kind=opts["kind"],calculation_kind=opts["kind"],
         integrator=opts["integrator"],steps=opts["steps"],
         requested_steps=opts["steps"],

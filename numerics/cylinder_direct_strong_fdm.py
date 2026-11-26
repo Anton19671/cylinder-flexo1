@@ -33,9 +33,10 @@ class DirectStrongGrid:
                 not isinstance(self.ns, (int, np.integer)) or
                 self.nx < 7 or self.ns < 4):
             raise ValueError("direct strong grid requires nx>=7, ns>=4")
-        if self.axial_scheme not in ("LEGACY_TRAPEZOID","MATCHED_QUARTIC_V1"):
+        if self.axial_scheme not in ("LEGACY_TRAPEZOID","MATCHED_QUARTIC_V1",
+                                      "MATCHED_QUARTIC_SAT_V1"):
             raise ValueError("DIRECT_STRONG_UNKNOWN_AXIAL_SCHEME")
-        if self.axial_scheme=="MATCHED_QUARTIC_V1" and not 20<=self.nx<=257:
+        if self.axial_scheme!="LEGACY_TRAPEZOID" and not 20<=self.nx<=257:
             raise ValueError("QUARTIC_MATCHED_AXIAL_REQUIRES_20_TO_257_NODES")
         for value, key in ((self.length_m, "length"), (self.radius_m, "radius")):
             if (isinstance(value, (bool, np.bool_)) or
@@ -45,6 +46,10 @@ class DirectStrongGrid:
     @property
     def dx(self):
         return float(self.length_m) / (self.nx - 1)
+
+    @property
+    def uses_sat_end_closure(self):
+        return self.axial_scheme=="MATCHED_QUARTIC_SAT_V1"
 
     @property
     def matched_axial(self):
