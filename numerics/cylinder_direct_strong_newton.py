@@ -12,7 +12,7 @@ numerical certification follows from a successful algebraic solve.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import math
 from typing import Callable
 import numpy as np
@@ -36,8 +36,11 @@ class StrongNewtonSettings:
     line_search_halvings: int = 15
     linear_solver: str = "AUTO"
     dense_lu_dof_limit: int = 384
+    axisymmetric: bool = False
 
     def __post_init__(self):
+        if type(self.axisymmetric) is not bool:
+            raise ValueError("DIRECT_STRONG_AXISYMMETRIC_BOOLEAN_REQUIRED")
         if self.linear_solver not in ("AUTO","MATRIX_FREE_GMRES","DENSE_LU"):
             raise ValueError("DIRECT_STRONG_UNKNOWN_LINEAR_SOLVER")
         if (type(self.dense_lu_dof_limit) is not int or
@@ -135,6 +138,80 @@ def _positive_scale(value, shape, name):
     return scale
 
 
+def require_angular_constant(field, name):
+    """Never project a nonaxisymmetric input into the axisymmetric space."""
+    value=np.asarray(field,float)
+    if (value.ndim<1 or value.shape[-1]<1 or not np.isfinite(value).all()
+            or not np.all(value==value[..., :1])):
+        raise ValueError("AXISYMMETRIC_INPUT_NOT_CONSTANT: "+name)
+    return value
+
+
+def _solve_axisymmetric(equation,q0,p0,qscale,qforce,pscale,pforce,settings):
+    """Exact symmetry restriction of the original full strong equations.
+
+    Unknowns repeat identically on the full angular grid. Each evaluation
+    still computes every original strong equation; any materially different
+    angular residual rejects the restricted problem. Final acceptance uses
+    the original scaled infinity norm on the complete grid.
+    """
+    ns=q0.shape[-1]
+    if ns<2:
+        raise ValueError("AXISYMMETRIC_FULL_GRID_REQUIRED")
+    for name,value in (("mechanical",q0),("electrical",p0),
+                       ("mechanical state scale",qscale),("mechanical equation scale",qforce),
+                       ("electrical state scale",pscale),("electrical equation scale",pforce)):
+        if value is not None:
+            require_angular_constant(value,name)
+    expand=lambda field: None if field is None else np.repeat(field,ns,axis=-1)
+    restrict=lambda field: None if field is None else field[..., :1].copy()
+    def full(q,p):
+        result=equation(expand(q),expand(p))
+        if not isinstance(result,tuple) or len(result)!=2:
+            raise TypeError("strong equation must return mechanical/electric tuple")
+        out=[]
+        for value,scale in zip(result,(qforce,pforce)):
+            if scale is None:
+                if value is not None:
+                    raise ValueError("electrical equation when field is OFF")
+                out.append(None)
+                continue
+            value=np.asarray(value,float)
+            if value.shape!=scale.shape or not np.isfinite(value).all():
+                raise ValueError("AXISYMMETRIC_INVALID_FULL_EQUATIONS")
+            scaled=value/scale
+            if not np.isfinite(scaled).all():
+                raise ValueError("nonfinite scaled strong equations")
+            # Roundoff tolerance only, not an alternative convergence gate.
+            defect=np.max(np.abs(scaled-scaled[..., :1]))
+            limit=.05*settings.scaled_absolute_tolerance+128*np.finfo(float).eps*max(
+                1.,float(np.max(np.abs(scaled))))
+            if defect>limit:
+                raise ValueError("AXISYMMETRIC_EQUATIONS_NOT_INVARIANT")
+            out.append(value)
+        return tuple(out)
+    def reduced(q,p):
+        rm,re=full(q,p)
+        return restrict(rm),restrict(re)
+    result=solve_strong_nonlinear_equations(
+        reduced,restrict(q0),restrict(p0),
+        mechanical_state_scale=restrict(qscale),mechanical_equation_scale=restrict(qforce),
+        electrical_state_scale=restrict(pscale),electrical_equation_scale=restrict(pforce),
+        settings=replace(settings,axisymmetric=False))
+    norm=result.scaled_equation_norm
+    converged=result.converged
+    status=result.status
+    if converged:
+        rm,re=full(result.mechanical,result.electrical)
+        norm=max(float(np.max(np.abs(rm/qforce))),
+                 0. if re is None else float(np.max(np.abs(re/pforce))))
+        if norm>settings.scaled_absolute_tolerance:
+            converged=False
+            status="AXISYMMETRIC_FULL_EQUILIBRIUM_FAILED"
+    return replace(result,mechanical=expand(result.mechanical),electrical=expand(result.electrical),
+                   converged=converged,status=status,scaled_equation_norm=norm)
+
+
 def solve_strong_nonlinear_equations(
         equation: Callable, mechanical, electrical=None, *,
         mechanical_state_scale, mechanical_equation_scale,
@@ -166,6 +243,14 @@ def solve_strong_nonlinear_equations(
         raise ValueError('electrical state and both dimensional scales must agree')
     qscale = _positive_scale(mechanical_state_scale, q0.shape, 'mechanical state')
     qforce = _positive_scale(mechanical_equation_scale, q0.shape, 'mechanical equation')
+    if settings.axisymmetric:
+        if electric_gauge is not None:
+            raise ValueError("AXISYMMETRIC_FLOATING_GAUGE_UNSUPPORTED")
+        pscale=None if p0 is None else _positive_scale(
+            electrical_state_scale,p0.shape,"electric state")
+        pforce=None if p0 is None else _positive_scale(
+            electrical_equation_scale,p0.shape,"electric equation")
+        return _solve_axisymmetric(equation,q0,p0,qscale,qforce,pscale,pforce,settings)
     if p0 is None:
         xscale = qscale.ravel()
         rscale = qforce.ravel()

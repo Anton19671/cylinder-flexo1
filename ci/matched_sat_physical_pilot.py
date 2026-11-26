@@ -49,6 +49,7 @@ def make_case(root,theory,gradient,kind):
             integrator=None if kind=="STATIC" else kind,
             dt_s=None if kind=="STATIC" else DT,steps=0 if kind=="STATIC" else 1,
             max_dofs=2048,max_iterations=8,linear_solver="DENSE_LU",dense_lu_dof_limit=2048,
+            axisymmetric=True,
             mechanical_state_scale=1.e-4,mechanical_equation_scale=1.e4,
             electrical_state_scale=1.,electrical_equation_scale=1.e-3,potential_scale_v=1.),
         initial_state_npz="seed.npz",loads_npz="loads.npz",output_dir="RESULTS")
@@ -68,6 +69,7 @@ def run(root,theory,gradient,kind):
         path,nm,pe=make_case(root,theory,gradient,kind)
         preview=native.run(path,validate_only=True)
         assert preview["axial_scheme"]=="MATCHED_QUARTIC_SAT_V1"
+        assert preview["axisymmetric"] is True
         print("PILOT_BEGIN",theory,gradient,kind,flush=True)
         ans=native.run(path,validate_only=False)
         assert ans["accepted_steps"]==1
@@ -76,6 +78,7 @@ def run(root,theory,gradient,kind):
             q=np.asarray(data["mechanical"],float);p=np.asarray(data["electrical"],float)
             assert q.shape==(nm,NX,NS) and p.shape==(pe+1,NX,NS)
             assert np.isfinite(q).all() and np.isfinite(p).all()
+            assert np.all(q==q[..., :1]) and np.all(p==p[..., :1])
             radial=(q[2*(pe+1):].sum(axis=0) if theory.startswith("CUF_TE") else q[2])
             assert radial[NX//2,0]<-1.e-14 and np.max(abs(p))>1.e-14
             assert np.max(abs(q[:,[0,-1],:]))<=1.e-9

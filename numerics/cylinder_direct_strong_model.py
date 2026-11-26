@@ -25,6 +25,11 @@ def _state(value, shape, label):
     return a
 
 
+def _identical_angular_jets(*groups):
+    """Exact equality only: never average or approximate a general field."""
+    return all(np.all(a==a[..., :1]) for group in groups for a in group)
+
+
 def _nonnegative(value, label):
     if isinstance(value,(bool,np.bool_)):
         raise ValueError(label+": finite nonnegative number required")
@@ -150,8 +155,12 @@ class DirectStrongShell:
                 inertia=partial(kinetic_weak_coefficients,theory=self.theory,
                     radius_m=self.grid.radius_m,thickness_m=self.thickness_m,
                     density_kg_m3=rho,n_gauss=self.n_gauss)
+        # The homogeneous cylinder local law has no explicit theta argument.
+        # Identical prepared jets (including dynamic jets) produce identical
+        # local coefficients. Reuse their evaluation, not a modified stencil.
+        same=_identical_angular_jets(mder,eder,*( (vd,ad) if dynamic else () ))
         for i in range(nx):
-            for j in range(ns):
+            for j in range(1 if same else ns):
                 local=self._local(self._point_jets(mder,eder,i,j))
                 mc[:,:,i,j]=local.mechanical.reshape(self.n_mechanical,len(mder)).T
                 if ec is not None:
@@ -168,6 +177,10 @@ class DirectStrongShell:
                     mc[:3,:,i,j]+=inertia(self._point_jets(ad,zero_elec,i,j)).T
                     if alpha:
                         mc[:3,:,i,j]+=alpha*inertia(self._point_jets(vd,zero_elec,i,j)).T
+        if same:
+            mc[:]=mc[..., :1]
+            if ec is not None:
+                ec[:]=ec[..., :1]
         if dynamic and self.theory.startswith("CUF"):
             from cuf_g3d_weak import mass_matrix_te
             n=int(self.theory[-1])+1
