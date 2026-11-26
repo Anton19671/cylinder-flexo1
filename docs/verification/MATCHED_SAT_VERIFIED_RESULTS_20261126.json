@@ -1,0 +1,336 @@
+{
+  "scope": "Verified successful physical runs available at consolidation. Not a complete campaign or external benchmark.",
+  "gui": {
+    "run_id": 45828505005,
+    "job_id": 139938793155,
+    "source_commit": "ff4c3eb021b4290e17f5cc7205dd965d02ec5ff5",
+    "passed": 188
+  },
+  "matrix_preflight": {
+    "run_id": 45827131361,
+    "job_id": 139934068107,
+    "source_commit": "f224151a1f1a625306906ab5018106a347c0a171",
+    "passed": 54
+  },
+  "core": {
+    "run_id": 45826424053,
+    "job_id": 139931637103,
+    "source_commit": "722b6f34f588e9c7a9d8048c82bac4466703eedf",
+    "passed": 304,
+    "subtests": 3
+  },
+  "physical": [
+    {
+      "run_id": 45826424053,
+      "job_id": 139932259410,
+      "job_name": "physical (KL, G3D, STATIC)",
+      "result": {
+        "status": "ACCEPTED_RESEARCH_ONLY",
+        "theory": "KL",
+        "gradient": "G3D",
+        "kind": "STATIC",
+        "grid": [
+          21,
+          4
+        ],
+        "pressure_pa": 100,
+        "axial_scheme": "MATCHED_QUARTIC_SAT_V1",
+        "git_sha": "722b6f34f588e9c7a9d8048c82bac4466703eedf",
+        "scientific_accuracy_certified": false,
+        "physical_boundary_closure_certified": false,
+        "mesh_convergence_certified": false,
+        "midpoint_radial_m": -0.000004377018399926385,
+        "radial_max_abs_m": 0.000004377018399926385,
+        "potential_max_abs_v": 0.1712925056539732,
+        "mechanical_support_max_abs": 8.106735533584573e-23,
+        "electric_support_max_abs_v": 0,
+        "solver_status": "EXPERIMENTAL_STATIONARY_UNCERTIFIED",
+        "static_diagnostics": {
+          "status": "CONVERGED",
+          "iterations": 2,
+          "converged": true,
+          "scaled_equation_norm": 6.127881529213878e-11
+        },
+        "initial_diagnostics": null
+      }
+    },
+    {
+      "run_id": 45826424053,
+      "job_id": 139932259413,
+      "job_name": "physical (FSDT, G3D, BATHE)",
+      "result": {
+        "status": "ACCEPTED_RESEARCH_ONLY",
+        "theory": "FSDT",
+        "gradient": "G3D",
+        "kind": "BATHE",
+        "grid": [
+          21,
+          4
+        ],
+        "pressure_pa": 100,
+        "axial_scheme": "MATCHED_QUARTIC_SAT_V1",
+        "git_sha": "722b6f34f588e9c7a9d8048c82bac4466703eedf",
+        "scientific_accuracy_certified": false,
+        "physical_boundary_closure_certified": false,
+        "mesh_convergence_certified": false,
+        "midpoint_radial_m": -2.549437938747184e-9,
+        "radial_max_abs_m": 2.615082976790553e-9,
+        "potential_max_abs_v": 0.0005473231840623376,
+        "mechanical_support_max_abs": 0,
+        "electric_support_max_abs_v": 0,
+        "velocity_max_abs": 0.00012835514751647947,
+        "acceleration_max_abs": 2.8266002537769097,
+        "solver_status": "EXPERIMENTAL_COMPLETED_UNCERTIFIED",
+        "static_diagnostics": null,
+        "initial_diagnostics": {
+          "status": "CONVERGED",
+          "iterations": 1,
+          "converged": true,
+          "scaled_equation_norm": 4.075719175489212e-11
+        }
+      }
+    },
+    {
+      "run_id": 45826424053,
+      "job_id": 139932259434,
+      "job_name": "physical (CUF_TE1, Gz, GAUSS_IRK4)",
+      "result": {
+        "status": "ACCEPTED_RESEARCH_ONLY",
+        "theory": "CUF_TE1",
+        "gradient": "Gz",
+        "kind": "GAUSS_IRK4",
+        "grid": [
+          21,
+          4
+        ],
+        "pressure_pa": 100,
+        "axial_scheme": "MATCHED_QUARTIC_SAT_V1",
+        "git_sha": "722b6f34f588e9c7a9d8048c82bac4466703eedf",
+        "scientific_accuracy_certified": false,
+        "physical_boundary_closure_certified": false,
+        "mesh_convergence_certified": false,
+        "midpoint_radial_m": -5.484776394473187e-9,
+        "radial_max_abs_m": 5.6322027093337825e-9,
+        "potential_max_abs_v": 0.001917987385707778,
+        "mechanical_support_max_abs": 0,
+        "electric_support_max_abs_v": 0,
+        "velocity_max_abs": 0.000052277913689676315,
+        "acceleration_max_abs": 1.5058769846327789,
+        "solver_status": "EXPERIMENTAL_COMPLETED_UNCERTIFIED",
+        "static_diagnostics": null,
+        "initial_diagnostics": {
+          "status": "CONVERGED",
+          "iterations": 2,
+          "converged": true,
+          "scaled_equation_norm": 1.4210854715202004e-18
+        }
+      }
+    },
+    {
+      "run_id": 45826424053,
+      "job_id": 139932259620,
+      "job_name": "physical (REDDY, Gz, NEWMARK)",
+      "result": {
+        "status": "ACCEPTED_RESEARCH_ONLY",
+        "theory": "REDDY",
+        "gradient": "Gz",
+        "kind": "NEWMARK",
+        "grid": [
+          21,
+          4
+        ],
+        "pressure_pa": 100,
+        "axial_scheme": "MATCHED_QUARTIC_SAT_V1",
+        "git_sha": "722b6f34f588e9c7a9d8048c82bac4466703eedf",
+        "scientific_accuracy_certified": false,
+        "physical_boundary_closure_certified": false,
+        "mesh_convergence_certified": false,
+        "midpoint_radial_m": -2.5491464086634477e-9,
+        "radial_max_abs_m": 2.6067588080326283e-9,
+        "potential_max_abs_v": 0.000923204192016798,
+        "mechanical_support_max_abs": 0,
+        "electric_support_max_abs_v": 0,
+        "velocity_max_abs": 0.00008870723831879332,
+        "acceleration_max_abs": 2.6673040453279273,
+        "solver_status": "EXPERIMENTAL_COMPLETED_UNCERTIFIED",
+        "static_diagnostics": null,
+        "initial_diagnostics": {
+          "status": "CONVERGED",
+          "iterations": 2,
+          "converged": true,
+          "scaled_equation_norm": 4.263256414560601e-18
+        }
+      }
+    },
+    {
+      "run_id": 45827131361,
+      "job_id": 139934427442,
+      "job_name": "physical (KL, Gz, STATIC)",
+      "result": {
+        "status": "ACCEPTED_RESEARCH_ONLY",
+        "theory": "KL",
+        "gradient": "Gz",
+        "kind": "STATIC",
+        "grid": [
+          21,
+          4
+        ],
+        "pressure_pa": 100,
+        "n_gauss": 12,
+        "steps_requested": 0,
+        "dt_s": null,
+        "axial_scheme": "MATCHED_QUARTIC_SAT_V1",
+        "git_sha": "f224151a1f1a625306906ab5018106a347c0a171",
+        "scientific_accuracy_certified": false,
+        "physical_boundary_closure_certified": false,
+        "mesh_convergence_certified": false,
+        "solve_elapsed_s": 204.08714417899998,
+        "midpoint_mid_surface_radial_m": -0.000004377099696159512,
+        "midpoint_outer_surface_radial_m": -0.000004377099696159512,
+        "midpoint_inner_surface_radial_m": -0.000004377099696159512,
+        "outer_radial_max_abs_m": 0.000004377099696159512,
+        "potential_coefficient_max_abs_v": 0.10314599346292785,
+        "sampled_physical_potential_max_abs_v": 0.10383363341934737,
+        "potential_thickness_sample_count": 81,
+        "mechanical_support_max_abs": 2.995966375389427e-22,
+        "electric_support_max_abs_v": 0,
+        "solver_status": "EXPERIMENTAL_STATIONARY_UNCERTIFIED",
+        "static_diagnostics": {
+          "status": "CONVERGED",
+          "iterations": 2,
+          "converged": true,
+          "scaled_equation_norm": 7.288671147390174e-11
+        },
+        "initial_diagnostics": null
+      }
+    },
+    {
+      "run_id": 45827131361,
+      "job_id": 139934427480,
+      "job_name": "physical (FSDT, G3D, STATIC)",
+      "result": {
+        "status": "ACCEPTED_RESEARCH_ONLY",
+        "theory": "FSDT",
+        "gradient": "G3D",
+        "kind": "STATIC",
+        "grid": [
+          21,
+          4
+        ],
+        "pressure_pa": 100,
+        "n_gauss": 12,
+        "steps_requested": 0,
+        "dt_s": null,
+        "axial_scheme": "MATCHED_QUARTIC_SAT_V1",
+        "git_sha": "f224151a1f1a625306906ab5018106a347c0a171",
+        "scientific_accuracy_certified": false,
+        "physical_boundary_closure_certified": false,
+        "mesh_convergence_certified": false,
+        "solve_elapsed_s": 467.178236466,
+        "midpoint_mid_surface_radial_m": -0.0000033714643308633373,
+        "midpoint_outer_surface_radial_m": -0.0000033714643308633373,
+        "midpoint_inner_surface_radial_m": -0.0000033714643308633373,
+        "outer_radial_max_abs_m": 0.0000033714643308633373,
+        "potential_coefficient_max_abs_v": 0.18199574904658716,
+        "sampled_physical_potential_max_abs_v": 0.2529742754492359,
+        "potential_thickness_sample_count": 81,
+        "mechanical_support_max_abs": 1.68295247451932e-23,
+        "electric_support_max_abs_v": 0,
+        "solver_status": "EXPERIMENTAL_STATIONARY_UNCERTIFIED",
+        "static_diagnostics": {
+          "status": "CONVERGED",
+          "iterations": 2,
+          "converged": true,
+          "scaled_equation_norm": 4.279309815786135e-11
+        },
+        "initial_diagnostics": null
+      }
+    },
+    {
+      "run_id": 45827131361,
+      "job_id": 139934427488,
+      "job_name": "physical (KL, G3D, STATIC)",
+      "result": {
+        "status": "ACCEPTED_RESEARCH_ONLY",
+        "theory": "KL",
+        "gradient": "G3D",
+        "kind": "STATIC",
+        "grid": [
+          21,
+          4
+        ],
+        "pressure_pa": 100,
+        "n_gauss": 12,
+        "steps_requested": 0,
+        "dt_s": null,
+        "axial_scheme": "MATCHED_QUARTIC_SAT_V1",
+        "git_sha": "f224151a1f1a625306906ab5018106a347c0a171",
+        "scientific_accuracy_certified": false,
+        "physical_boundary_closure_certified": false,
+        "mesh_convergence_certified": false,
+        "solve_elapsed_s": 274.092271177,
+        "midpoint_mid_surface_radial_m": -0.000004377018399855952,
+        "midpoint_outer_surface_radial_m": -0.000004377018399855952,
+        "midpoint_inner_surface_radial_m": -0.000004377018399855952,
+        "outer_radial_max_abs_m": 0.000004377018399855952,
+        "potential_coefficient_max_abs_v": 0.17129250565567522,
+        "sampled_physical_potential_max_abs_v": 0.26210255888512435,
+        "potential_thickness_sample_count": 81,
+        "mechanical_support_max_abs": 2.91173076482073e-22,
+        "electric_support_max_abs_v": 0,
+        "solver_status": "EXPERIMENTAL_STATIONARY_UNCERTIFIED",
+        "static_diagnostics": {
+          "status": "CONVERGED",
+          "iterations": 2,
+          "converged": true,
+          "scaled_equation_norm": 5.393074186304937e-11
+        },
+        "initial_diagnostics": null
+      }
+    },
+    {
+      "run_id": 45827131361,
+      "job_id": 139934428133,
+      "job_name": "physical (KL, Gz, NEWMARK)",
+      "result": {
+        "status": "ACCEPTED_RESEARCH_ONLY",
+        "theory": "KL",
+        "gradient": "Gz",
+        "kind": "NEWMARK",
+        "grid": [
+          21,
+          4
+        ],
+        "pressure_pa": 100,
+        "n_gauss": 12,
+        "steps_requested": 2,
+        "dt_s": 0.0001,
+        "axial_scheme": "MATCHED_QUARTIC_SAT_V1",
+        "git_sha": "f224151a1f1a625306906ab5018106a347c0a171",
+        "scientific_accuracy_certified": false,
+        "physical_boundary_closure_certified": false,
+        "mesh_convergence_certified": false,
+        "solve_elapsed_s": 422.10751003,
+        "midpoint_mid_surface_radial_m": -1.0191586453470778e-8,
+        "midpoint_outer_surface_radial_m": -1.0191586453470778e-8,
+        "midpoint_inner_surface_radial_m": -1.0191586453470778e-8,
+        "outer_radial_max_abs_m": 1.0724080716645612e-8,
+        "potential_coefficient_max_abs_v": 0.004828387298110434,
+        "sampled_physical_potential_max_abs_v": 0.004860576546764363,
+        "potential_thickness_sample_count": 81,
+        "mechanical_support_max_abs": 0,
+        "electric_support_max_abs_v": 0,
+        "velocity_max_abs": 0.0001106449207229768,
+        "acceleration_max_abs": 0.6273331840805881,
+        "solver_status": "EXPERIMENTAL_COMPLETED_UNCERTIFIED",
+        "static_diagnostics": null,
+        "initial_diagnostics": {
+          "status": "CONVERGED",
+          "iterations": 2,
+          "converged": true,
+          "scaled_equation_norm": 2.8754776337791554e-18
+        }
+      }
+    }
+  ]
+}

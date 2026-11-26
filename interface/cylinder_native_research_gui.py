@@ -8,6 +8,7 @@ BETWEEN accepted physical steps. Stop terminates the child if needed.
 The mini online graph reads already-accepted native NPZ results only.
 """
 from __future__ import annotations
+from copy import deepcopy
 import json
 import os
 from pathlib import Path
@@ -28,6 +29,43 @@ SCHEMAS=frozenset((
     "INDEPENDENT_ENERGY_FDM_COUPLED_RESEARCH_V1",
     "INDEPENDENT_MVI_COUPLED_RESEARCH_V1",
 ))
+
+
+STRONG_SCHEMA="INDEPENDENT_MKR_COUPLED_RESEARCH_V1"
+STRONG_AXIAL_SCHEMES=("LEGACY_TRAPEZOID","MATCHED_QUARTIC_V1","MATCHED_QUARTIC_SAT_V1")
+
+
+def updated_strong_options(case, scheme, axisymmetric):
+    """Edit only explicit strong-FDM numerical options, never physics."""
+    if not isinstance(case,dict) or case.get("schema")!=STRONG_SCHEMA:
+        raise ValueError("Эти настройки доступны только для нативного strong-FDM")
+    if case.get("research_opt_in") is not True:
+        raise ValueError("Требуется явный исследовательский CASE")
+    if scheme not in STRONG_AXIAL_SCHEMES or type(axisymmetric) is not bool:
+        raise ValueError("Недопустимый выбор осевой схемы")
+    if not all(isinstance(case.get(key),dict) for key in ("grid","solver","boundary")):
+        raise ValueError("В CASE отсутствует grid, solver или boundary")
+    if scheme!="LEGACY_TRAPEZOID":
+        nx=case["grid"].get("nx")
+        if type(nx) is not int or not 20<=nx<=257:
+            raise ValueError("Согласованная схема требует 20–257 осевых узлов; сетка не изменена")
+    if scheme=="MATCHED_QUARTIC_SAT_V1":
+        if (case["boundary"].get("mechanical")!="IMMOBILE_PARALLEL_ENDS"
+                or case["boundary"].get("electric") not in ("OFF","GROUNDED_BOTH")):
+            raise ValueError("SAT: неподвижные торцы, электричество OFF или GROUNDED_BOTH")
+    if axisymmetric and scheme!="MATCHED_QUARTIC_SAT_V1":
+        raise ValueError("Осесимметричное ускорение требует схемы SAT")
+    changed=deepcopy(case)
+    changed["grid"]["axial_scheme"]=scheme
+    changed["solver"]["axisymmetric"]=axisymmetric
+    return changed
+
+
+def _strong_options_description(result):
+    if "axial_scheme" not in result:
+        return ""
+    return ("; осевая схема: "+str(result["axial_scheme"])+
+            "; осесимметрия: "+("да" if result.get("axisymmetric") else "нет"))
 
 
 def _load_native(path):
@@ -60,6 +98,8 @@ class NativeResearchWindow(tk.Toplevel):
         self.case_description=tk.StringVar(value="CASE не выбран")
         self.state_description=tk.StringVar(value="Ожидание")
         self.path_description=tk.StringVar(value="Папка результатов не выбрана")
+        self.strong_scheme=tk.StringVar(value=STRONG_AXIAL_SCHEMES[0])
+        self.strong_axisymmetric=tk.BooleanVar(value=False)
         self._build()
         self.protocol("WM_DELETE_WINDOW",self._close)
         self.after(180,self._poll)
@@ -91,6 +131,20 @@ class NativeResearchWindow(tk.Toplevel):
             "Явная постановка. Изменения нужно сохранить перед запуском. "
             "Неподдержанные физические условия отклоняются.")).pack(
             anchor="w",padx=6,pady=4)
+        options=ttk.LabelFrame(editor,text="Осевая схема strong-FDM (исследовательский режим)",padding=6)
+        options.pack(fill="x",padx=6,pady=4)
+        self.strong_scheme_box=ttk.Combobox(options,state="disabled",
+            textvariable=self.strong_scheme,values=STRONG_AXIAL_SCHEMES,width=28)
+        self.strong_scheme_box.grid(row=0,column=0,sticky="w",padx=(0,6))
+        self.strong_axisymmetric_box=ttk.Checkbutton(options,
+            text="Осесимметрия",variable=self.strong_axisymmetric,state="disabled")
+        self.strong_axisymmetric_box.grid(row=0,column=1,sticky="w",padx=6)
+        self.strong_apply_button=ttk.Button(options,text="Применить к CASE",
+            command=self.apply_strong_options,state="disabled")
+        self.strong_apply_button.grid(row=0,column=2,sticky="w",padx=6)
+        ttk.Label(options,text=("SAT: неподвижные торцы, естественные высшие следы; "
+            "осесимметрия — только для симметричных данных. Изменения нужно сохранить."),
+            wraplength=660).grid(row=1,column=0,columnspan=3,sticky="w",pady=(4,0))
         shell=ttk.Frame(editor)
         shell.pack(fill="both",expand=True)
         self.editor=tk.Text(shell,wrap="none",undo=True,font=("Consolas",10))
@@ -147,6 +201,30 @@ class NativeResearchWindow(tk.Toplevel):
             raise ValueError("Нативный экспериментальный CASE требует research_opt_in=true")
         return case
 
+    def _sync_strong_options(self,case):
+        active=case.get("schema")==STRONG_SCHEMA
+        grid=case.get("grid",{})
+        solver=case.get("solver",{})
+        self.strong_scheme.set(grid.get("axial_scheme","LEGACY_TRAPEZOID")
+                               if active and isinstance(grid,dict) else "LEGACY_TRAPEZOID")
+        self.strong_axisymmetric.set(bool(active and isinstance(solver,dict)
+                                          and solver.get("axisymmetric") is True))
+        self.strong_scheme_box.configure(state="readonly" if active else "disabled")
+        self.strong_axisymmetric_box.configure(state="normal" if active else "disabled")
+        self.strong_apply_button.configure(state="normal" if active else "disabled")
+
+    def apply_strong_options(self):
+        try:
+            self._require_idle()
+            case=updated_strong_options(self._edited(),self.strong_scheme.get(),
+                                        self.strong_axisymmetric.get())
+            self.editor.delete("1.0","end")
+            self.editor.insert("1.0",json.dumps(case,ensure_ascii=False,indent=2))
+            self.state_description.set("Настройки FDM изменены; сохраните и проверьте CASE")
+            self._log("Изменена только численная схема FDM. Файл ещё не сохранён.")
+        except Exception as exc:
+            messagebox.showerror("Настройки strong-FDM",str(exc),parent=self)
+
     def _save_to(self,destination):
         if self.process is not None and self.process.poll() is None:
             raise ValueError("Нельзя изменять CASE во время расчёта")
@@ -159,6 +237,7 @@ class NativeResearchWindow(tk.Toplevel):
             encoding="utf-8")
         self.case_path=destination
         self.case_description.set(str(destination))
+        self._sync_strong_options(case)
         self._log("CASE сохранён: "+str(destination))
         return destination
 
@@ -177,6 +256,7 @@ class NativeResearchWindow(tk.Toplevel):
                 data,ensure_ascii=False,indent=2))
             self.editor.edit_modified(False)
             self.case_description.set(str(chosen))
+            self._sync_strong_options(data)
             self._show_output(data,chosen.parent)
             self._log("Открыт: "+str(chosen))
         except Exception as exc:
@@ -264,7 +344,7 @@ class NativeResearchWindow(tk.Toplevel):
             self._require_saved()
             result=validate_final_case(self.case_path,dry_run=True)
             self._log("Проверка входных данных успешна: "+
-                      result.get("solver_backend",""))
+                      result.get("solver_backend","")+_strong_options_description(result))
             self.state_description.set("CASE проверен; физический расчёт не запускался")
         except Exception as exc:
             self.state_description.set("Проверка CASE не прошла")
@@ -276,7 +356,7 @@ class NativeResearchWindow(tk.Toplevel):
             if self.process is not None and self.process.poll() is None:
                 raise ValueError("Расчёт уже выполняется")
             self._require_saved()
-            validate_final_case(self.case_path,dry_run=True)
+            validation=validate_final_case(self.case_path,dry_run=True)
             if self.results_dir.exists():
                 raise ValueError("Папка результатов уже существует: "+str(self.results_dir))
             self.seen_steps=set()
@@ -301,7 +381,8 @@ class NativeResearchWindow(tk.Toplevel):
                              args=(self.process,),daemon=True).start()
             self.run_button.configure(state="disabled")
             self.state_description.set("Расчёт выполняется")
-            self._log("Начат нативный расчёт (отдельный процесс).")
+            self._log("Начат нативный расчёт (отдельный процесс)"+
+                      _strong_options_description(validation)+".")
         except Exception as exc:
             self._log("ОШИБКА запуска: "+str(exc))
             messagebox.showerror("Запуск",str(exc),parent=self)
@@ -431,7 +512,7 @@ class NativeResearchWindow(tk.Toplevel):
         width=max(canvas.winfo_width(),400)
         height=max(canvas.winfo_height(),230)
         canvas.create_text(12,12,anchor="nw",
-                           text="Прогиб в центре, м — онлайн по принятым шагам",
+                           text="Радиальное перемещение срединной поверхности в центре, м",
                            fill="#202020")
         x0,y0,x1,y1=52,height-35,width-20,35
         canvas.create_line(x0,y0,x1,y0,fill="#333333")

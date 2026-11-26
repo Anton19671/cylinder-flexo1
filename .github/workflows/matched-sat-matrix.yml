@@ -1,0 +1,45 @@
+name: Matched SAT seven-theory pressure matrix
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  PYTHONPATH: ".:independent_mkr:independent_mvi:mechanics:numerics:flexoelectric:physics:interface:ci"
+  OPENBLAS_NUM_THREADS: "1"
+  OMP_NUM_THREADS: "1"
+  MKL_NUM_THREADS: "1"
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install numpy scipy pytest
+      - run: python -m pytest -q --tb=short tests/test_matched_sat_physical_matrix.py tests/test_axisymmetric_strong_newton.py tests/test_matched_strong_sat_integration.py tests/test_stationary_strong_support_scaling.py
+  physical:
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        theory: [KL, FSDT, REDDY, CUF_TE1, CUF_TE2, CUF_TE3, CUF_TE4]
+        gradient: [G3D, Gz]
+        kind: [STATIC, NEWMARK]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install numpy scipy
+      - name: Real pressure calculation
+        run: python ci/matched_sat_physical_pilot.py --theory ${{ matrix.theory }} --gradient ${{ matrix.gradient }} --kind ${{ matrix.kind }} --n-gauss 12 --steps 2 --output pilot
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: matrix-${{ matrix.theory }}-${{ matrix.gradient }}-${{ matrix.kind }}
+          path: pilot/
