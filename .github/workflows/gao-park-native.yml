@@ -2,7 +2,7 @@ name: Gao-Park native plane-strain benchmark
 on:
   push:
     branches: ["benchmark/gao-park-plane-strain"]
-    paths: [".github/workflows/gao-park-native.yml", "ci/gao_park_plane_strain.py"]
+    paths: [".github/workflows/gao-park-native.yml", "ci/gao_park_plane_strain.py", "ci/gao_park_linear_local.py", "ci/gao_park_native_series.py"]
   workflow_dispatch:
 concurrency:
   group: gao-park-native-${{ github.ref }}
@@ -12,14 +12,13 @@ permissions:
 jobs:
   physical:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 150
     strategy:
       fail-fast: false
       max-parallel: 8
       matrix:
         order: [1, 2, 3, 4]
         ell_index: [0, 1, 2, 3]
-        grid: [{nx: 21, ns: 9}, {nx: 31, ns: 13}, {nx: 41, ns: 17}]
     env:
       PYTHONPATH: ".:ci:independent_mkr:independent_mvi:mechanics:numerics:flexoelectric:physics:interface"
       OPENBLAS_NUM_THREADS: "1"
@@ -31,32 +30,11 @@ jobs:
         with:
           python-version: "3.11"
       - run: python -m pip install numpy scipy
-      - name: Native FDM and MVI fixed ranks 1-8
-        shell: bash
-        run: |
-          mkdir -p evidence
-          bad=0
-          for method in FDM MVI; do
-            ranks="0"
-            if [ "$method" = MVI ]; then ranks="1 2 3 4 5 6 7 8"; fi
-            for rank in $ranks; do
-              out="evidence/${method}_${rank}"
-              mkdir -p "$out"
-              args=()
-              if [ "$method" = MVI ]; then args=(--rank "$rank"); fi
-              set +e
-              timeout 480 python -u ci/gao_park_plane_strain.py --order ${{ matrix.order }} --ell-index ${{ matrix.ell_index }} --method "$method" --nx ${{ matrix.grid.nx }} --ns ${{ matrix.grid.ns }} "${args[@]}" --output "$out" > "$out/run.log" 2>&1
-              rc=$?
-              set -e
-              echo "$rc" > "$out/exit_code.txt"
-              cat "$out/run.log"
-              if [ "$rc" -ne 0 ]; then bad=1; fi
-            done
-          done
-          exit "$bad"
+      - name: Independent native FDM and MVI1-8 on three grids with audited linear local kernel
+        run: python -u ci/gao_park_native_series.py --order ${{ matrix.order }} --ell-index ${{ matrix.ell_index }} --output evidence
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: GAO_PARK_TE${{ matrix.order }}_ELL${{ matrix.ell_index }}_${{ matrix.grid.nx }}x${{ matrix.grid.ns }}
+          name: GAO_PARK_NATIVE_TE${{ matrix.order }}_ELL${{ matrix.ell_index }}_ALL_GRIDS
           path: evidence/
           if-no-files-found: error

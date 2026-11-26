@@ -14,6 +14,7 @@ R, H, L = (A+B)/2, B-A, 12e-6
 ELL = (0., .1e-6, np.sqrt(.05)*1e-6, .5e-6)
 U0 = P*A/E
 NX, NS = 21, 9
+CACHE_LINEAR_LOCAL = False
 
 
 def data(order, nx=None, ns=None):
@@ -59,6 +60,9 @@ def solve_fdm(order, ell):
     from flexo_gradient_g3d import G3DMaterial
     g=DirectStrongGrid(NX,NS,L,R,axial_scheme='MATCHED_QUARTIC_SAT_V1')
     model=DirectStrongShell(f'CUF_TE{order}',G3DMaterial(E,NU,ell,0.,0.,0.,'G3D'),grid=g,thickness_m=H,n_gauss=32,geometry_model='LINEAR')
+    if CACHE_LINEAR_LOCAL:
+        from gao_park_linear_local import install_verified_linear_local
+        install_verified_linear_local(model,U0)
     load,active=data(order); fixed=2*(order+1)
     scale=np.full(model.shape,P); scale[:fixed]=U0
     t0=np.eye(NX)[[0,-1]]
@@ -89,6 +93,9 @@ def solve_mvi(order,ell,rank):
             self.validate(surface)
             return tuple(np.arange(1,NX-1) if c<fixed else np.arange(NX) for c in range(surface.n_fields))
     surface=NativeCoupledMVISurface(f'CUF_TE{order}',G3DMaterial(E,NU,ell,0.,0.,0.,'G3D'),grid=CoupledMVISurfaceGrid(NX,NS,L,R),thickness_m=H,n_gauss=32,geometry_model='LINEAR',potential_order=None)
+    if CACHE_LINEAR_LOCAL:
+        from gao_park_linear_local import install_verified_linear_local
+        install_verified_linear_local(surface,U0)
     x,y=seed(surface.n_fields,rank)
     factors=CoupledMVIFactors(x,y)
     settings=CoupledMVISweepSettings(max_sweeps=8,relative_field_change=1e-7,halfstep=CoupledMVIHalfstepSettings(max_iterations=12,max_coordinates=2000,linear_solver='MATRIX_FREE_GMRES',tolerance_scaled=1e-8,krylov_restart=48,krylov_maxiter=80,krylov_relative_tolerance=1e-7),allow_projected_convergence=False)
@@ -107,12 +114,12 @@ def run(order,ell_index,method,rank=None):
     reference=reference_te_nm(order,ell,xi)
     max_error=float(np.max(np.abs(profile-reference[:,None,None]))/np.max(np.abs(reference)))
     deviation=float(np.max(np.abs(profile-mean[:,None,None])))
-    result=dict(order=order,ell_um=float(ell*1e6),method=method,rank=rank,nx=NX,ns=NS,grid=f'{NX}x{NS}',geometry='LINEAR',gradient_model='G3D',n_gauss=32,converged=bool(ok),status=status,inner_nm=float(mean[0]),mid_nm=float(mean[200]),outer_nm=float(mean[-1]),max_axial_angular_variation_nm=deviation,reference_te_inner_nm=float(reference[0]),max_profile_relative_error=max_error,benchmark_pass=bool(ok and max_error<1e-3))
+    result=dict(order=order,ell_um=float(ell*1e6),method=method,rank=rank,nx=NX,ns=NS,grid=f'{NX}x{NS}',geometry='LINEAR',gradient_model='G3D',n_gauss=32,local_kernel='VERIFIED_LINEAR_CACHE' if CACHE_LINEAR_LOCAL else 'DIRECT_GAUSS',converged=bool(ok),status=status,inner_nm=float(mean[0]),mid_nm=float(mean[200]),outer_nm=float(mean[-1]),max_axial_angular_variation_nm=deviation,reference_te_inner_nm=float(reference[0]),max_profile_relative_error=max_error,benchmark_pass=bool(ok and max_error<1e-3))
     return result,profile
 
 
 def main():
-    global NX, NS
+    global NX, NS, CACHE_LINEAR_LOCAL
     p=argparse.ArgumentParser()
     p.add_argument('--order',type=int,choices=range(1,5),required=True)
     p.add_argument('--ell-index',type=int,choices=range(4),required=True)
@@ -120,11 +127,13 @@ def main():
     p.add_argument('--rank',type=int,choices=range(1,9))
     p.add_argument('--nx',type=int,default=21)
     p.add_argument('--ns',type=int,default=9)
+    p.add_argument('--cache-linear-local',action='store_true')
     p.add_argument('--output',default='gao_park_native')
     a=p.parse_args()
     if not 20 <= a.nx <= 257 or a.ns < 9 or a.ns % 2 == 0:
         p.error('matched FDM needs 20<=nx<=257; fixed ranks 1-8 require odd ns>=9')
     NX, NS = a.nx, a.ns
+    CACHE_LINEAR_LOCAL = a.cache_linear_local
     if (a.method=='MVI')!=(a.rank is not None): p.error('rank is required only for MVI')
     from cylinder_paths import activate
     activate()
