@@ -164,6 +164,21 @@ def test_invalid_mechanical_end_order_is_rejected(tmp_path):
         native.load_case(path)
 
 
+@pytest.mark.parametrize("theory",("FSDT","REDDY","CUF_TE1","CUF_TE2","CUF_TE3","CUF_TE4"))
+def test_gz_strong_rejects_identically_zero_higher_end_row(tmp_path,theory):
+    path,case=make_case(tmp_path,theory=theory,kind="STATIC")
+    case["physics"]["material"]["gradient_model"]="Gz"
+    from cylinder_native_mkr_end_program import reference_axial_half_orders
+    orders=list(reference_axial_half_orders(theory,"Gz"))
+    case["boundary"]["axial_orders"]=orders
+    path.write_text(json.dumps(case))
+    assert native.run(path,validate_only=True)["validated_only"] is True
+    orders[0]=2
+    path.write_text(json.dumps(case))
+    with pytest.raises(ValueError,match="MKR_END_GZ_IDENTICALLY_ZERO_NATURAL_ROW"):
+        native.run(path,validate_only=True)
+
+
 def test_invalid_face_potential_is_never_silently_accepted(tmp_path):
     path,case=make_case(tmp_path,electric=True)
     case["electric_faces"]={"inner":None,

@@ -60,10 +60,15 @@ def dielectric_face_flux_fdm(potential_v, *, length_m, radius_m, thickness_m,
         charge=np.asarray(free_charge_c_per_m2,float)
         if charge.shape!=phi.shape or not np.isfinite(charge).all():
             raise ValueError("free_charge shape/nonfinite")
+        # Normalize before integration: no dimensional one-coulomb floor.
+        amplitude=float(np.max(np.abs(charge),initial=0.))
+        if amplitude>0.:
+            terms=((wx/np.max(wx))[:,None]*(charge/amplitude)).ravel()
+            if abs(math.fsum(terms))>1.e-12*math.fsum(np.abs(terms)):
+                raise ValueError("insulated dielectric requires zero total charge")
         supplied=wx[:,None]*ds*charge
-        total=float(np.sum(supplied))
-        if abs(total)>1.e-12*max(1.,float(np.sum(np.abs(supplied)))):
-            raise ValueError("insulated dielectric requires zero total charge")
+        if not np.isfinite(supplied).all():
+            raise ValueError("nonfinite integrated free charge")
         residual+=supplied
         energy+=float(np.sum(supplied*phi))
     checkerboard=False

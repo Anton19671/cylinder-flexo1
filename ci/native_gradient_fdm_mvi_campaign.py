@@ -23,6 +23,7 @@ from cylinder_paths import activate
 activate()
 from independent_mkr import run_coupled_research as fdm
 from independent_mvi import run_coupled_research as mvi
+from cylinder_native_mkr_end_program import reference_axial_half_orders
 
 THEORIES = ("KL", "FSDT", "REDDY", "CUF_TE1", "CUF_TE2", "CUF_TE3", "CUF_TE4")
 GRADIENTS = ("G3D", "Gz")
@@ -113,6 +114,9 @@ def physical_data(theory,gradient,kind):
         nominal_outer_face_pressure_pa=PRESSURE,
         mechanical_load_sha256=hashlib.sha256(forcing.tobytes()).hexdigest(),
         full_higher_boundary_conditions_certified=False)
+    passport["strong_fdm_reference_axial_half_orders"]=list(
+        reference_axial_half_orders(theory,gradient))
+    passport["strong_fdm_order_scope"]="REFERENCE_STATE_NOMINAL_NOT_CERTIFIED"
     if theory=="KL":
         passport["kl_radial_face_traction"]=dict(
             face="OUTER",traction_pa=np.broadcast_to(
@@ -150,7 +154,7 @@ def write_input(folder,item):
             physics=physics,grid=grid,
             boundary=dict(mechanical="IMMOBILE_PARALLEL_ENDS",
                           electric="GROUNDED_BOTH",
-                          axial_orders=[2]*nm),
+                          axial_orders=list(reference_axial_half_orders(theory,gradient))),
             solver=dict(kind=kind,
                 integrator="NEWMARK" if kind=="DYNAMIC" else None,
                 dt_s=DT if kind=="DYNAMIC" else None,

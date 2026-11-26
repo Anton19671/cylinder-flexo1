@@ -42,6 +42,19 @@ class ElectricFaceFluxTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"zero total charge"):
             self.base(phi,free_charge_c_per_m2=np.ones_like(phi))
 
+    def test_insulated_charge_compatibility_is_scale_invariant(self):
+        phi=np.zeros((5,6))
+        for amplitude in (1.,1.e-14,1.e-150,1.e-300):
+            with self.subTest(amplitude=amplitude):
+                with self.assertRaisesRegex(ValueError,"zero total charge"):
+                    self.base(phi,free_charge_c_per_m2=amplitude*np.ones_like(phi))
+                balanced=np.broadcast_to(
+                    amplitude*(-1.)**np.arange(6),phi.shape).copy()
+                result=self.base(phi,free_charge_c_per_m2=balanced)
+                self.assertTrue(np.any(result.residual_c))
+                self.assertLessEqual(abs(result.net_residual_c),
+                                     1.e-12*np.sum(np.abs(result.residual_c)))
+
     def test_periodic_zero_net_charge_load(self):
         charge=np.broadcast_to(
             np.sin(2*np.pi*np.arange(7)/7),(5,7)).copy()

@@ -41,6 +41,40 @@ def _profile(value,n,ns,name):
     return v
 
 
+def reference_axial_half_orders(theory, gradient_model):
+    """Nominal nondegenerate reference-state orders with active gradient.
+
+    Finite-rotation KL mixes axial fields away from the reference state.
+    These counts are NOT a nonlinear coupled-symbol or boundary certificate.
+    """
+    if gradient_model not in ("G3D","Gz","GZ"):
+        raise ValueError("MKR_END_UNKNOWN_GRADIENT_MODEL")
+    m=2 if gradient_model=="G3D" else 1
+    if theory=="KL":
+        return (m,m,m+1)
+    if theory=="REDDY":
+        return (m,m,m+1,m,m)
+    if theory=="FSDT":
+        return (m,)*5
+    if theory in ("CUF_TE1","CUF_TE2","CUF_TE3","CUF_TE4"):
+        return (m,)*(3*(int(theory[-1])+1))
+    raise ValueError("MKR_END_UNKNOWN_THEORY")
+
+
+def reject_absent_gz_strong_end_rows(model, axial_orders):
+    """Reject structurally absent Gz natural rows, not certify PDE orders.
+
+    FSDT/CUF use first surface jets for Gz; Reddy adds second derivatives
+    of w only. Extra natural axial rows would be identically zero.
+    KL finite rotations require separate coupled trace analysis.
+    """
+    if model.material.gradient_model!="GZ" or model.theory=="KL":
+        return
+    limits=reference_axial_half_orders(model.theory,"GZ")
+    if any(m>limit for m,limit in zip(axial_orders,limits)):
+        raise ValueError("MKR_END_GZ_IDENTICALLY_ZERO_NATURAL_ROW")
+
+
 def compile_native_mkr_end_program(
         model:DirectStrongShell,*,axial_orders,mechanical,
         electric,potential_order,mechanical_end_work=None,
@@ -119,4 +153,5 @@ def compile_native_mkr_end_program(
     return MKREndProgram(orders,bounds,e,gauge)
 
 
-__all__=("MKREndProgram","compile_native_mkr_end_program")
+__all__=("MKREndProgram","compile_native_mkr_end_program",
+         "reference_axial_half_orders","reject_absent_gz_strong_end_rows")

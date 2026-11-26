@@ -222,6 +222,10 @@ def load_case(filename, *, expected_schema=SCHEMA):
         electric=b["electric"],potential_order=potential_order,
         mechanical_end_work=case.get("mechanical_end_work"),
         potential_scale_v=opts["potential_scale_v"])
+    if expected_schema==SCHEMA:
+        # Only the strong route replaces bulk rows by natural equations.
+        from cylinder_native_mkr_end_program import reject_absent_gz_strong_end_rows
+        reject_absent_gz_strong_end_rows(model,program.axial_orders)
     qm_shape=model.shape
     e_shape=(potential_order+1,grid.nx,grid.ns) if model.electrical_on else None
     from cylinder_direct_strong_newton import _positive_scale

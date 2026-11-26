@@ -65,6 +65,12 @@ def test_fdm_and_all_mvi_ranks_have_distinct_inputs_but_identical_physics(
                 np.testing.assert_array_equal(z["mechanical_load"],forcing)
         else:
             assert "rank" not in case
+            expected={
+                "KL":[2,2,3],"FSDT":[2]*5,"REDDY":[2,2,3,2,2],
+            }.get(theory,[2]*campaign.nmechanical(theory))
+            if gradient=="Gz":
+                expected=[m-1 for m in expected]
+            assert case["boundary"]["axial_orders"]==expected
             with np.load(folder/"loads.npz",allow_pickle=False) as z:
                 np.testing.assert_array_equal(z["mechanical_load"],forcing)
     assert len(hashes)==1
