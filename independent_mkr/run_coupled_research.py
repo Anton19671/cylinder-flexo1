@@ -413,7 +413,17 @@ def run(filename,*,validate_only):
                 mechanical_load=args["sources"]["mechanical_load"],
                 electrical_charge=args["sources"].get("electrical_charge"),
                 **kw)
+            # Preserve actual Newton diagnostics even on rejected states.
+            summary["static_nonlinear_diagnostics"]=dict(
+                status=answer.status,iterations=int(answer.iterations),
+                converged=bool(answer.converged),
+                scaled_equation_norm=(float(answer.scaled_equation_norm)
+                    if math.isfinite(answer.scaled_equation_norm) else None))
             if not answer.converged:
+                summary["static_nonlinear_diagnostics"].update(
+                    best_trial_scaled_norm=answer.line_search_best_scaled_norm,
+                    best_trial_alpha=answer.line_search_best_alpha,
+                    linearized_relative_defect=answer.line_search_linearized_relative_defect)
                 raise RuntimeError("MKR_STATIC_"+answer.status)
             summary["electric_faces"]=face_diagnostic(
                 answer.mechanical,answer.electrical)

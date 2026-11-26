@@ -292,10 +292,26 @@ class DirectStrongShell:
         orders, end conditions and dimensional scales remain caller inputs;
         the maximum stored jet is not used to guess physical orders.
         """
-        from cylinder_direct_strong_boundary import assemble_physical_end_rows
+        from cylinder_direct_strong_boundary import (
+            assemble_physical_end_rows, stationary_essential_scales,
+        )
         from cylinder_direct_strong_newton import (
             StrongNewtonSettings, solve_strong_nonlinear_equations,
         )
+        settings=StrongNewtonSettings() if settings is None else settings
+        if not isinstance(settings,StrongNewtonSettings):
+            raise TypeError("StrongNewtonSettings required")
+        # The Newton tolerance is dimensionless, but essential rows have
+        # displacement/rotation/potential units, not force/charge units.
+        # Keep all original bulk and natural-row scales unchanged.
+        mechanical_equation_scale=stationary_essential_scales(
+            self.grid,self.shape,mechanical_ends,mechanical_equation_scale,
+            scaled_absolute_tolerance=settings.scaled_absolute_tolerance)
+        if electrical is not None:
+            electrical_equation_scale=stationary_essential_scales(
+                self.grid,np.asarray(electrical).shape,electrical_ends,
+                electrical_equation_scale,electric=True,
+                scaled_absolute_tolerance=settings.scaled_absolute_tolerance)
         def equation(q,p):
             balance=self.balance(q,p,mechanical_load=mechanical_load,
                                  electrical_charge=electrical_charge)
@@ -310,7 +326,7 @@ class DirectStrongShell:
             electrical_state_scale=electrical_state_scale,
             electrical_equation_scale=electrical_equation_scale,
             electric_gauge=electric_gauge,
-            settings=StrongNewtonSettings() if settings is None else settings)
+            settings=settings)
 
 
 __all__=("DirectStrongShell", "THEORIES")
