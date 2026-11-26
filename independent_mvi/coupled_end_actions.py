@@ -81,8 +81,8 @@ def formal_mvi_axial_end_actions(surface: NativeCoupledMVISurface,
                 value=np.zeros(surface.grid.ns)
                 for ax in range(derivative_order+1,max_order+1):
                     order=ax-derivative_order-1
-                    value+=(-1)**order*(surface._dx_power[order]@
-                                         reduced[ax])[node]
+                    value+=(-1)**order*surface.axial_dual_chain(
+                        reduced[ax],derivative_order+2,ax)[node]
                 actions.append(normal*value)
             sides.append(tuple(actions))
         results.append((sides[0],sides[1],reduced))

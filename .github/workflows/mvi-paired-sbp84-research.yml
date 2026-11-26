@@ -1,0 +1,82 @@
+name: MVI paired SBP84 research candidate
+on:
+  push:
+    branches: [verify-mvi-paired-sbp84-20261126]
+permissions:
+  contents: read
+env:
+  PYTHONPATH: ".:independent_mkr:independent_mvi:mechanics:numerics:flexoelectric:physics:interface:ci"
+  OPENBLAS_NUM_THREADS: "1"
+  OMP_NUM_THREADS: "1"
+  MKL_NUM_THREADS: "1"
+  MPLBACKEND: Agg
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements.txt
+      - run: python -m pytest -q tests/test_independent_mvi_paired_sbp84.py tests/test_independent_coupled_mvi_operators.py tests/test_independent_coupled_mvi_discrete_green.py tests/test_independent_coupled_mvi_dynamic_green.py tests/test_independent_coupled_mvi_end_actions.py tests/test_independent_coupled_mvi_weighted_gateaux.py
+      - run: python ci/dimosthenis_2024_paired_mvi.py --preflight --output preflight
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements.txt
+      - run: python -c 'from cylinder_paths import activate; activate(); import pytest; raise SystemExit(pytest.main(["-q","tests","--junitxml=audit-full-tests.xml"]))'
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paired-mvi-full-regression
+          path: audit-full-tests.xml
+  physical:
+    needs: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        rank: [1,2,3,4,5,6,7,8]
+        kind: [STATIC,NEWMARK,BATHE,GAUSS_IRK4]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install numpy scipy
+      - run: python ci/dimosthenis_2024_paired_mvi.py --nx 21 --rank ${{ matrix.rank }} --kind ${{ matrix.kind }} --output result
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paired-axial-${{ matrix.kind }}-R${{ matrix.rank }}
+          path: result/
+  refine:
+    needs: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        kind: [STATIC,NEWMARK,BATHE,GAUSS_IRK4]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install numpy scipy
+      - run: python ci/dimosthenis_2024_paired_mvi.py --nx 41 --rank 1 --kind ${{ matrix.kind }} --output result
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paired-axial-refined-${{ matrix.kind }}
+          path: result/

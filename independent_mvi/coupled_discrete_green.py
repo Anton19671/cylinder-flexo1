@@ -71,9 +71,10 @@ def _sbp_and_fourier_guard(surface,relative_tolerance):
     B=np.zeros((grid.nx,grid.nx))
     B[0,0]=-1.
     B[-1,-1]=1.
-    error_x=hx[:,None]*dx+dx.T*hx[None,:]-B
+    partner=dx if grid.axial_scheme=="SBP42" else grid.dx_partner
+    error_x=hx[:,None]*partner+dx.T*hx[None,:]-B
     error_s=hs[:,None]*ds+ds.T*hs[None,:]
-    size_x=max(1.,_max_abs(hx[:,None]*dx),_max_abs(dx.T*hx[None,:]))
+    size_x=max(1.,_max_abs(hx[:,None]*partner),_max_abs(dx.T*hx[None,:]))
     size_s=max(1.,_max_abs(hs[:,None]*ds),_max_abs(ds.T*hs[None,:]))
     if (_max_abs(error_x)>relative_tolerance*size_x or
             _max_abs(error_s)>relative_tolerance*size_s):
@@ -127,7 +128,7 @@ def coupled_mvi_discrete_green_identity(
     for c,reduced in enumerate(formal.circumferentially_reduced):
         max_ax=len(reduced)-1
         for a,Ca in enumerate(reduced):
-            volume[c]+=(-1.)**a*(dx[a]@Ca)*weights
+            volume[c]+=(-1.)**a*surface.axial_dual_chain(Ca,1,a)*weights
         field_left=[]
         field_right=[]
         field_nleft=[]
@@ -135,7 +136,7 @@ def coupled_mvi_discrete_green_identity(
         for k in range(max_ax):
             Pk=np.zeros((surface.grid.nx,surface.grid.ns))
             for a in range(k+1,max_ax+1):
-                Pk+=(-1.)**(a-k-1)*(dx[a-k-1]@reduced[a])
+                Pk+=(-1.)**(a-k-1)*surface.axial_dual_chain(reduced[a],k+2,a)
             # Axial-coordinate derivative of the variation.
             L=-Pk[0].copy()
             R=Pk[-1].copy()
@@ -175,6 +176,7 @@ def coupled_mvi_discrete_green_identity(
         tuples_locked(coord_left),tuples_locked(coord_right),
         tuples_locked(normal_left),tuples_locked(normal_right),
         defect,relative,
+        status=("MVI_EXACT_DISCRETE_SBP_FOURIER_GREEN_IDENTITY" if surface.grid.axial_scheme=="SBP42" else "MVI_EXACT_DISCRETE_PAIRED_SBP84_FOURIER_GREEN_IDENTITY"),
     )
 
 

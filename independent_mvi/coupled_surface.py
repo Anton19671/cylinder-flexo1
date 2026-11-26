@@ -26,6 +26,7 @@ import numpy as np
 from flexo_gradient_g3d import G3DMaterial
 from cylinder_kinematic_models import normalized_model
 from independent_mvi.coupled_operators import (coupled_mvi_sbp42, coupled_mvi_odd_fourier)
+from independent_mvi.coupled_axial_sbp84_pair import (SCHEME as PAIRED_AXIAL, LEGACY as LEGACY_AXIAL, coupled_mvi_sbp84_pair)
 
 
 THEORIES=("KL","FSDT","REDDY","CUF_TE1","CUF_TE2","CUF_TE3","CUF_TE4")
@@ -59,7 +60,9 @@ class CoupledMVISurfaceGrid:
     ns: int
     length_m: float
     radius_m: float
+    axial_scheme: str=LEGACY_AXIAL
     dx: np.ndarray=field(init=False,repr=False)
+    dx_partner: np.ndarray=field(init=False,repr=False)
     ds: np.ndarray=field(init=False,repr=False)
     wx: np.ndarray=field(init=False,repr=False)
     ws: np.ndarray=field(init=False,repr=False)
@@ -70,9 +73,15 @@ class CoupledMVISurfaceGrid:
             raise ValueError("MVI requires nx>=9 and odd ns>=5 for SBP/Fourier")
         L=_positive(self.length_m,"length")
         R=_positive(self.radius_m,"radius")
-        Dx,wx=coupled_mvi_sbp42(self.nx,L)
+        if self.axial_scheme==LEGACY_AXIAL:
+            Dx,wx=coupled_mvi_sbp42(self.nx,L)
+            partner=Dx
+        elif self.axial_scheme==PAIRED_AXIAL:
+            Dx,partner,wx=coupled_mvi_sbp84_pair(self.nx,L)
+        else:
+            raise ValueError("MVI_UNKNOWN_AXIAL_SCHEME")
         Ds,ws=coupled_mvi_odd_fourier(self.ns,R)
-        for name,raw in (("dx",Dx),("ds",Ds),("wx",wx),("ws",ws)):
+        for name,raw in (("dx",Dx),("dx_partner",partner),("ds",Ds),("wx",wx),("ws",ws)):
             array=np.array(raw,dtype=float,copy=True)
             if not np.isfinite(array).all():
                 raise ValueError("nonfinite MVI derivative or quadrature")
@@ -198,7 +207,13 @@ class NativeCoupledMVISurface:
         self.n_fields=self.n_mechanical+self.n_electric
         self.mechanical_multi=MECHANICAL_MULTI[:6 if theory.startswith("CUF") else 10]
         self.multi=MECHANICAL_MULTI
-        self._dx_power=tuple(np.linalg.matrix_power(grid.dx,k) for k in range(4))
+        if grid.axial_scheme==LEGACY_AXIAL:
+            self._dx_power=tuple(np.linalg.matrix_power(grid.dx,k) for k in range(4))
+        else:
+            D2=grid.dx_partner@grid.dx
+            self._dx_power=(np.eye(grid.nx),grid.dx,D2,grid.dx@D2)
+            for matrix in self._dx_power:
+                matrix.setflags(write=False)
         self._ds_power=tuple(np.linalg.matrix_power(grid.ds,k) for k in range(4))
         params=dict(radius_m=grid.radius_m,thickness_m=h,
                     n_gauss=n_gauss,geometry_model=self.geometry_model)
@@ -219,6 +234,23 @@ class NativeCoupledMVISurface:
     @property
     def shape(self):
         return (self.n_fields,self.grid.nx,self.grid.ns)
+
+    def axial_dual_chain(self,coefficient,first,last):
+        """Unsigned dual product for successive trial jet steps first..last.
+
+        Trial step j is P (odd) or M (even). Its weighted integration by
+        parts uses M (odd) or P (even). Empty chain is the identity.
+        Legacy arithmetic remains exactly the original D**k.
+        """
+        if not (1<=first<=4 and 0<=last<=3):
+            raise ValueError("MVI_INVALID_AXIAL_DUAL_CHAIN")
+        if self.grid.axial_scheme==LEGACY_AXIAL:
+            return self._dx_power[max(0,last-first+1)]@coefficient
+        value=coefficient
+        for j in range(last,first-1,-1):
+            dual=self.grid.dx_partner if j%2 else self.grid.dx
+            value=dual@value
+        return value
 
     def _check_factors(self,factors):
         if not isinstance(factors,CoupledMVIFactors):

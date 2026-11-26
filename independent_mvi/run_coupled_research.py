@@ -151,7 +151,10 @@ def load_case(path, *, allow_existing_output=False):
     if case["research_opt_in"] is not True:
         raise ValueError("COUPLED_MVI_RESEARCH_OPT_IN_REQUIRED")
     p=_exact(case["physics"],PHYSICS_KEYS,"COUPLED_MVI_PHYSICS")
-    grid=_exact(case["grid"],GRID_KEYS,"COUPLED_MVI_GRID")
+    grid_keys=GRID_KEYS
+    if isinstance(case["grid"],dict) and "axial_scheme" in case["grid"]:
+        grid_keys=GRID_KEYS|{"axial_scheme"}
+    grid=_exact(case["grid"],grid_keys,"COUPLED_MVI_GRID")
     mat=_exact(p["material"],MATERIAL_KEYS,"COUPLED_MVI_MATERIAL")
     if p["theory"] not in THEORIES:
         raise ValueError("COUPLED_MVI_UNKNOWN_THEORY")
@@ -165,6 +168,11 @@ def load_case(path, *, allow_existing_output=False):
         potential_order=p["potential_order"],
         geometry_model=p["geometry_model"],
         floating_gauge=floating)
+    if surface.grid.axial_scheme!="SBP42":
+        if surface.theory in ("KL","REDDY") and surface.material.gradient_model=="G3D":
+            raise ValueError("MVI_PAIRED_SBP84_SIXTH_ORDER_NOT_YET_VALIDATED")
+        if b["electric"] not in ("OFF","GROUNDED_BOTH"):
+            raise ValueError("MVI_PAIRED_SBP84_REQUIRES_FIXED_ELECTRIC_ENDS")
     if type(case["rank"]) is not int or not 1<=case["rank"]<=8:
         raise ValueError("COUPLED_MVI_FIXED_RANK_MUST_BE_1_TO_8")
     program=CoupledMVIEndProgram(**b)
@@ -638,6 +646,8 @@ def _run_loaded_case(items,*,validate_only,resume=False):
         physical_boundary_closure_certified=False,
         time_dependent_loads=bool(items["load_program"].law is not None),
         projected_dynamic_opt_in=bool(opts.get("allow_projected_dynamic",False)))
+    if "axial_scheme" in items["case"]["grid"]:
+        result["axial_scheme"]=surface.grid.axial_scheme
     if validate_only:
         return result
 
