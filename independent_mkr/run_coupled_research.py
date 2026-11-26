@@ -155,7 +155,11 @@ def load_case(filename, *, expected_schema=SCHEMA):
     if case["schema"]!=expected_schema or case["research_opt_in"] is not True:
         raise ValueError("MKR_COUPLED_EXPLICIT_RESEARCH_SCHEMA_REQUIRED")
     p=_strict(case["physics"],PHYS_KEYS,"MKR_PHYSICS")
-    g=_strict(case["grid"],GRID_KEYS,"MKR_GRID")
+    grid_keys=GRID_KEYS
+    if (expected_schema==SCHEMA and isinstance(case["grid"],dict)
+            and "axial_scheme" in case["grid"]):
+        grid_keys=GRID_KEYS|{"axial_scheme"}
+    g=_strict(case["grid"],grid_keys,"MKR_GRID")
     m=_strict(p["material"],MAT_KEYS,"MKR_MATERIAL")
     if p["theory"] not in THEORIES:
         raise ValueError("MKR_COUPLED_UNKNOWN_THEORY")
@@ -369,6 +373,7 @@ def run(filename,*,validate_only):
         solver_backend="INDEPENDENT_MKR",
         theory=model.theory,geometry_model=model.geometry_model,
         gradient_model=model.material.gradient_model,
+        axial_scheme=model.grid.axial_scheme,
         kind=opts["kind"],calculation_kind=opts["kind"],
         integrator=opts["integrator"],steps=opts["steps"],
         requested_steps=opts["steps"],

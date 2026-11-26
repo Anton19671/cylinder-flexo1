@@ -24,6 +24,7 @@ class DirectStrongGrid:
     ns: int
     length_m: float
     radius_m: float
+    axial_scheme: str = "LEGACY_TRAPEZOID"
 
     def __post_init__(self):
         if (isinstance(self.nx, (bool, np.bool_)) or
@@ -32,6 +33,10 @@ class DirectStrongGrid:
                 not isinstance(self.ns, (int, np.integer)) or
                 self.nx < 7 or self.ns < 4):
             raise ValueError("direct strong grid requires nx>=7, ns>=4")
+        if self.axial_scheme not in ("LEGACY_TRAPEZOID","MATCHED_QUARTIC_V1"):
+            raise ValueError("DIRECT_STRONG_UNKNOWN_AXIAL_SCHEME")
+        if self.axial_scheme=="MATCHED_QUARTIC_V1" and not 20<=self.nx<=257:
+            raise ValueError("QUARTIC_MATCHED_AXIAL_REQUIRES_20_TO_257_NODES")
         for value, key in ((self.length_m, "length"), (self.radius_m, "radius")):
             if (isinstance(value, (bool, np.bool_)) or
                     not math.isfinite(float(value)) or float(value) <= 0):
@@ -40,6 +45,22 @@ class DirectStrongGrid:
     @property
     def dx(self):
         return float(self.length_m) / (self.nx - 1)
+
+    @property
+    def matched_axial(self):
+        if self.axial_scheme=="LEGACY_TRAPEZOID":
+            return None
+        from cylinder_matched_axial_quartic import quartic_matched_axial_differences
+        return quartic_matched_axial_differences(int(self.nx))
+
+    @property
+    def axial_weights(self):
+        matched=self.matched_axial
+        if matched is not None:
+            return self.dx*matched.weights
+        w=np.full(self.nx,self.dx)
+        w[[0,-1]]*=.5
+        return w
 
     @property
     def ds(self):
@@ -107,6 +128,45 @@ def _axial_weights(nx, order):
     return result
 
 
+def _apply_axial_matrix(values, matrix, order, grid):
+    values=np.asarray(values,float)
+    if (values.ndim<2 or values.shape[-2:]!=(grid.nx,grid.ns)
+            or not np.isfinite(values).all()):
+        raise ValueError("finite axial field required")
+    out=np.einsum("ij,...jk->...ik",matrix,values,optimize=True)/grid.dx**order
+    if not np.isfinite(out).all():
+        raise ValueError("nonfinite matched axial derivative")
+    return out
+
+
+def matched_kinematic_axial_derivative(field, order, grid):
+    if (not isinstance(grid,DirectStrongGrid) or grid.matched_axial is None
+            or type(order) is not int or order not in (1,2,3)):
+        raise ValueError("matched axial kinematic derivative requires explicit matched grid")
+    return _apply_axial_matrix(field,grid.matched_axial.kinematic[order],order,grid)
+
+
+def direct_axial_end_derivative(field, coefficient_order, trace_order, grid):
+    """Derivative of A_k in its end action conjugate to trace j.
+
+    This returns only the derivative; the existing outward signs are
+    imposed by direct_strong_jet_balance. The quartic dual family needs
+    P for the A2 displacement action and P M for A3, not the bulk F1/F2.
+    """
+    if (not isinstance(grid,DirectStrongGrid) or type(coefficient_order) is not int
+            or type(trace_order) is not int or not 1<=coefficient_order<=3
+            or not 0<=trace_order<coefficient_order):
+        raise ValueError("invalid axial coefficient/end trace order")
+    order=coefficient_order-trace_order-1
+    op=grid.matched_axial
+    if op is None or order==0:
+        return direct_coefficient_derivative(field,order,0,grid)
+    matrix={(2,0):op.second_displacement_flux,
+            (3,0):op.third_displacement_flux,
+            (3,1):op.third_slope_flux}[(coefficient_order,trace_order)]
+    return _apply_axial_matrix(field,matrix,order,grid)
+
+
 def direct_coefficient_derivative(field, axial_order, circum_order, grid):
     """Direct spatial differentiation of unweighted constitutive fields."""
     if not isinstance(grid, DirectStrongGrid):
@@ -131,9 +191,10 @@ def direct_coefficient_derivative(field, axial_order, circum_order, grid):
         out = (lap if circum_order == 2 else
                (lap - np.roll(lap, 1, axis=-1)) / ds)
     if axial_order:
-        out = np.einsum("ij,...jk->...ik",
-                        _axial_weights(grid.nx, axial_order),
-                        out, optimize=True) / grid.dx**axial_order
+        op=grid.matched_axial
+        matrix=(_axial_weights(grid.nx,axial_order) if op is None
+                else op.coefficient[axial_order])
+        out=_apply_axial_matrix(out,matrix,axial_order,grid)
     if not np.isfinite(out).all():
         raise ValueError("strong derivative produced nonfinite values")
     return out
@@ -192,14 +253,14 @@ def direct_strong_jet_balance(mechanical_coefficients, derivative_orders, grid,
         strong -= _finite_field(mechanical_load, mc[0].shape, "mechanical load")
     q_action = by_axial[1].copy()
     if highest >= 2:
-        q_action -= direct_coefficient_derivative(by_axial[2], 1, 0, grid)
+        q_action -= direct_axial_end_derivative(by_axial[2],2,0,grid)
     if highest >= 3:
-        q_action += direct_coefficient_derivative(by_axial[3], 2, 0, grid)
+        q_action += direct_axial_end_derivative(by_axial[3],3,0,grid)
     qx_action = None
     if highest >= 2:
         qx_action = by_axial[2].copy()
         if highest >= 3:
-            qx_action -= direct_coefficient_derivative(by_axial[3], 1, 0, grid)
+            qx_action -= direct_axial_end_derivative(by_axial[3],3,1,grid)
     qxx_action = by_axial[3] if highest >= 3 else None
     elec_bulk = None
     elec_end = None
@@ -218,11 +279,16 @@ def direct_strong_jet_balance(mechanical_coefficients, derivative_orders, grid,
         elec_end = _outward_ends(ec[1])
     elif electrical_charge is not None:
         raise ValueError("electric charge requires electrical coefficients")
+    # The wider paired stencils extend the boundary-affected band.
+    margin=(8+5*(highest-1) if grid.matched_axial is not None and highest else highest)
+    status=("MATCHED_QUARTIC_STRONG_RESEARCH_NOT_BOUNDARY_CERTIFIED"
+            if grid.matched_axial is not None else
+            "DIRECT_STRONG_INTERIOR_NO_PHYSICAL_END_CLOSURE")
     return DirectStrongBalance(
         strong, elec_bulk, _outward_ends(q_action),
         np.stack((qx_action[..., 0, :], qx_action[..., -1, :])) if qx_action is not None else None,
         _outward_ends(qxx_action) if qxx_action is not None else None,
-        elec_end, tuple(range(highest, grid.nx-highest)), highest)
+        elec_end, tuple(range(margin, grid.nx-margin)), highest,status)
 
 
 def direct_strong_from_functional(functional, mechanical, electrical=None, *,
@@ -259,5 +325,6 @@ def direct_strong_from_functional(functional, mechanical, electrical=None, *,
 
 
 __all__ = ("DirectStrongGrid", "DirectStrongBalance",
-           "direct_coefficient_derivative", "direct_strong_jet_balance",
+           "direct_coefficient_derivative", "direct_axial_end_derivative",
+           "matched_kinematic_axial_derivative", "direct_strong_jet_balance",
            "direct_strong_from_functional")

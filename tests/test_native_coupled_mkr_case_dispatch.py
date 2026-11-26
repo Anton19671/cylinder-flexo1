@@ -227,3 +227,26 @@ def test_no_mvi_fallback_import_in_own_native_mkr_runner():
         "independent_mvi","cylinder_variational_mvi",
         "cylinder_reference_case","cylinder_functional_assembly"))
         for name in imported)
+
+
+
+def test_quartic_matched_strong_grid_is_explicit_research_option(tmp_path):
+    path,case=make_case(tmp_path,theory="FSDT",kind="STATIC")
+    case["grid"].update(nx=21,axial_scheme="MATCHED_QUARTIC_V1")
+    case["boundary"]["axial_orders"]=[2]*5
+    q=np.zeros((5,21,5))
+    np.savez_compressed(tmp_path/"initial.npz",mechanical=q)
+    np.savez_compressed(tmp_path/"loads.npz",mechanical_load=q)
+    path.write_text(json.dumps(case),encoding="utf-8")
+    answer=native.run(path,validate_only=True)
+    assert answer["axial_scheme"]=="MATCHED_QUARTIC_V1"
+    assert answer["physical_steps_computed"]==0
+    assert not answer["physical_boundary_closure_certified"]
+    assert not (tmp_path/"result").exists()
+    model=native.load_case(path)["model"]
+    assert not np.isclose(model.grid.axial_weights[0],model.grid.dx/2)
+    np.testing.assert_allclose(model.area_weights[:,0],
+                               model.grid.axial_weights*model.grid.ds)
+    from cylinder_native_energy_fdm import NativeEnergyFDM
+    with pytest.raises(ValueError,match="REQUIRES_LEGACY_GRID_SCHEME"):
+        NativeEnergyFDM(model)

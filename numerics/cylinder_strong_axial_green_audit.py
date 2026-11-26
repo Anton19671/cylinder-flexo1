@@ -19,7 +19,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from cylinder_direct_strong_fdm import (
-    DirectStrongGrid, direct_coefficient_derivative,
+    DirectStrongGrid, direct_coefficient_derivative, direct_axial_end_derivative,
 )
 from cylinder_mkr_field_jets import MKRFieldJets
 
@@ -44,8 +44,7 @@ def audit_native_axial_green(grid: DirectStrongGrid) -> NativeAxialGreenAudit:
     basis=np.broadcast_to(np.eye(n)[:,:,None],(n,n,grid.ns)).copy()
     dkin=MKRFieldJets(grid).derivative(basis,1,0)[:,:,0].T
     dflux=direct_coefficient_derivative(basis,1,0,grid)[:,:,0].T
-    w=np.full(n,grid.dx,float)
-    w[[0,-1]]*=.5
+    w=grid.axial_weights
     boundary=np.zeros((n,n),float)
     boundary[0,0]=-1.
     boundary[-1,-1]=1.
@@ -121,8 +120,7 @@ def audit_native_higher_axial_green(
         coefficient.append(
             direct_coefficient_derivative(basis,order,0,grid)[:,:,0].T)
 
-    weights=np.full(n,grid.dx,dtype=float)
-    weights[[0,-1]]*=.5
+    weights=grid.axial_weights
     W=np.diag(weights)
     boundary=np.zeros((n,n),dtype=float)
     boundary[0,0]=-1.
@@ -136,7 +134,8 @@ def audit_native_higher_axial_green(
         strong=((-1.)**order)*(W@coefficient[order])
         for trace in range(order):
             strong+=((-1.)**(order-trace-1))*(
-                kinematic[trace].T@boundary@coefficient[order-trace-1])
+                kinematic[trace].T@boundary@
+                direct_axial_end_derivative(basis,order,trace,grid)[:,:,0].T)
         defect=weak-strong
         if not np.isfinite(defect).all():
             raise ValueError("HIGHER_AXIAL_GREEN_NONFINITE_DEFECT")

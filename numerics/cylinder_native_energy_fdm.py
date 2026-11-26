@@ -89,6 +89,8 @@ class NativeEnergyFDM:
     def __init__(self, model: DirectStrongShell):
         if not isinstance(model,DirectStrongShell):
             raise TypeError("NativeEnergyFDM requires native DirectStrongShell")
+        if model.grid.axial_scheme!="LEGACY_TRAPEZOID":
+            raise ValueError("NATIVE_ENERGY_FDM_REQUIRES_LEGACY_GRID_SCHEME")
         self.model=model
         self.axial,self.angular=_stencil_matrices(
             model.grid.nx,model.grid.ns,

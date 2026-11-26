@@ -94,8 +94,7 @@ class DirectStrongShell:
 
     @property
     def area_weights(self):
-        wx=np.full(self.grid.nx,self.grid.dx)
-        wx[[0,-1]]*=.5
+        wx=self.grid.axial_weights
         return np.broadcast_to(wx[:,None]*self.grid.ds,
                                (self.grid.nx,self.grid.ns)).copy()
 

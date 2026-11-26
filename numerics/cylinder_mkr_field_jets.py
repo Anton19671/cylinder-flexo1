@@ -16,6 +16,7 @@ from dataclasses import dataclass
 import numpy as np
 from cylinder_direct_strong_fdm import (
     DirectStrongGrid, direct_coefficient_derivative,
+    matched_kinematic_axial_derivative,
 )
 
 
@@ -44,6 +45,8 @@ class MKRFieldJets:
         return a
 
     def _x(self, value):
+        if self.grid.matched_axial is not None:
+            return matched_kinematic_axial_derivative(value,1,self.grid)
         out=np.empty_like(value)
         out[:,1:-1,:]=(value[:,2:,:]-value[:,:-2,:])/(2*self.grid.dx)
         out[:,0,:]=(-1.5*value[:,0,:]+2*value[:,1,:]-.5*value[:,2,:])/self.grid.dx
@@ -56,6 +59,8 @@ class MKRFieldJets:
         Repeated centered first differences would use a two-cell stride,
         decouple alternating axial nodes and annihilate the checkerboard.
         """
+        if self.grid.matched_axial is not None:
+            return matched_kinematic_axial_derivative(value,2,self.grid)
         h2=self.grid.dx**2
         out=np.empty_like(value)
         out[:,1:-1,:]=(value[:,2:,:]-2.*value[:,1:-1,:]+
@@ -75,6 +80,8 @@ class MKRFieldJets:
         Use the native direct-strong Fornberg derivative for q_xxx;
         this does not certify its adjoint or sixth-order end closure.
         """
+        if self.grid.matched_axial is not None:
+            return matched_kinematic_axial_derivative(value,3,self.grid)
         return direct_coefficient_derivative(value,3,0,self.grid)
 
     def _s(self, value):
