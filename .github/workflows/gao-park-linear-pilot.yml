@@ -1,0 +1,49 @@
+name: Gao-Park native verified linear local pilot
+on:
+  push:
+    branches: ["benchmark/gao-park-linear-cache"]
+    paths: [".github/workflows/gao-park-linear-pilot.yml", "ci/gao_park_linear_local.py", "ci/gao_park_plane_strain.py"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  pilot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        order: [1, 4]
+        method_rank: [0, 1, 2, 3, 4, 5, 6, 7, 8]
+    env:
+      PYTHONPATH: ".:ci:independent_mkr:independent_mvi:mechanics:numerics:flexoelectric:physics:interface"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      RANK: ${{ matrix.method_rank }}
+      ORDER: ${{ matrix.order }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install numpy scipy
+      - name: Independently verify the local kernel and solve one native case
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p evidence
+          method=FDM
+          args=()
+          if [ "$RANK" -ne 0 ]; then method=MVI; args=(--rank "$RANK"); fi
+          timeout 720 python -u ci/gao_park_plane_strain.py --order "$ORDER" --ell-index 3 --nx 21 --ns 9 --method "$method" "${args[@]}" --cache-linear-local --output evidence 2>&1 | tee evidence/run.log
+          rc=${PIPESTATUS[0]}
+          echo "$rc" > evidence/exit_code.txt
+          exit "$rc"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: GAO_PARK_PILOT_TE${{ matrix.order }}_ELL3_21x9_R${{ matrix.method_rank }}
+          path: evidence/
+          if-no-files-found: error
