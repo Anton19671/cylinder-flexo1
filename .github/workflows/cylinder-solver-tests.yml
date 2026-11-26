@@ -2,13 +2,9 @@ name: Cylinder Flexoelectric G3D/Gz
 # Run on every main code change; documentation-only commits do not
 # rerun the full numerical suite. Runner availability is independent of CI.
 on:
-  workflow_dispatch:
   push:
     branches:
-      - main
-    paths-ignore:
-      - "docs/**"
-      - "*.md"
+      - verify-consolidated-full-suite-20261126
 concurrency:
   group: cylinder-verify-${{ github.ref }}
   cancel-in-progress: true
@@ -22,6 +18,9 @@ jobs:
     env:
       MPLBACKEND: Agg
       PYTHONDONTWRITEBYTECODE: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
