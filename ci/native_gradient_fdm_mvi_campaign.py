@@ -361,6 +361,8 @@ def compare(root,output,scope):
             comparison_quality="NOT_COMPARABLE",
             relative_mechanical_l2=None,relative_electric_l2=None,
             relative_outer_radial_l2=None,midpoint_radial_difference_m=None,
+            relative_velocity_l2=None,relative_acceleration_l2=None,
+            absolute_velocity_l2=None,absolute_acceleration_l2=None,
             status="MISSING_OR_FAILED")
         if f and m and f[0]["status"]=="COMPLETED_RESEARCH_ONLY" and \
            m[0]["status"]=="COMPLETED_RESEARCH_ONLY":
@@ -377,14 +379,32 @@ def compare(root,output,scope):
             else:
                 with np.load(f[1]/"FULL_FIELDS.npz",allow_pickle=False) as fa, \
                      np.load(m[1]/"FULL_FIELDS.npz",allow_pickle=False) as ma:
-                    for key,label in (("mechanical","mechanical"),
-                                      ("electrical","electric"),
-                                      ("radial_outer","outer_radial")):
+                    metrics=[("mechanical","mechanical"),
+                             ("electrical","electric"),
+                             ("radial_outer","outer_radial")]
+                    if kind=="DYNAMIC":
+                        if any(key not in archive.files for archive in (fa,ma)
+                               for key in ("velocity","acceleration")):
+                            row["status"]="DYNAMIC_FIELDS_MISSING"
+                            rows.append(row)
+                            continue
+                        metrics.extend((("velocity","velocity"),
+                                        ("acceleration","acceleration")))
+                    for key,label in metrics:
                         x=np.asarray(fa[key],float)
                         y=np.asarray(ma[key],float)
                         if x.shape!=y.shape or not np.isfinite(x).all() or not np.isfinite(y).all():
                             raise AssertionError("INVALID_COMPARISON_"+key)
-                        row["relative_"+label+"_l2"]=float(np.linalg.norm(y-x)/max(np.linalg.norm(x),1.e-30))
+                        if key in ("velocity","acceleration"):
+                            if x.shape!=fa["mechanical"].shape:
+                                raise AssertionError("INVALID_DYNAMIC_COMPARISON_"+key)
+                            difference=float(np.linalg.norm(y-x))
+                            reference_norm=float(np.linalg.norm(x))
+                            row["absolute_"+key+"_l2"]=difference
+                            row["relative_"+key+"_l2"]=(
+                                difference/reference_norm if reference_norm>0. else None)
+                        else:
+                            row["relative_"+label+"_l2"]=float(np.linalg.norm(y-x)/max(np.linalg.norm(x),1.e-30))
                     row["midpoint_radial_difference_m"]=float(
                         ma["radial_outer"][GRID[0]//2,0]-fa["radial_outer"][GRID[0]//2,0])
                 row["status"]="COMPARED_RESEARCH_ONLY"

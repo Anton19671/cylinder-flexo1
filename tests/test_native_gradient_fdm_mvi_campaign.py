@@ -111,10 +111,12 @@ def test_comparison_separates_full_and_projected_and_rejects_stale_solver_source
                               "MVI_FIXED_RANK_FULL_NODAL_STATIONARY",
         }
         (folder/"EVIDENCE.json").write_text(json.dumps(record))
-        np.savez_compressed(
-            folder/"FULL_FIELDS.npz",
-            mechanical=np.ones(shape),electrical=np.ones(electric),
-            radial_outer=np.ones(campaign.GRID))
+        fields=dict(mechanical=np.ones(shape),electrical=np.ones(electric),
+                    radial_outer=np.ones(campaign.GRID))
+        if case[2]=="DYNAMIC":
+            fields.update(velocity=np.full(shape,1.5 if is_mvi else 1.),
+                          acceleration=np.full(shape,3. if is_mvi else 2.))
+        np.savez_compressed(folder/"FULL_FIELDS.npz",**fields)
     # This report must raise because stale source ranks cannot be compared.
     with pytest.raises(RuntimeError,match="INCOMPLETE_NATIVE_FDM_MVI_GRADIENT_CAMPAIGN"):
         campaign.compare(root,output,"pilot")
@@ -131,6 +133,22 @@ def test_comparison_separates_full_and_projected_and_rejects_stale_solver_source
     assert report["projected_only_compared_pairs"]==4
     assert report["compared_pairs"]==8
     assert report["status"]=="INCOMPLETE"
+    dynamic=[r for r in rows if r["kind"]=="DYNAMIC" and
+             r["status"]=="COMPARED_RESEARCH_ONLY"]
+    assert len(dynamic)==4
+    for row in dynamic:
+        assert row["relative_velocity_l2"]==pytest.approx(.5)
+        assert row["relative_acceleration_l2"]==pytest.approx(.5)
+        assert row["absolute_velocity_l2"]>0.
+        assert row["absolute_acceleration_l2"]>0.
+    target=root/"KL_G3D_DYNAMIC_MVI_R1"/"FULL_FIELDS.npz"
+    with np.load(target,allow_pickle=False) as data:
+        incomplete={key:data[key] for key in data.files if key!="acceleration"}
+    np.savez_compressed(target,**incomplete)
+    with pytest.raises(RuntimeError,match="INCOMPLETE_NATIVE_FDM_MVI_GRADIENT_CAMPAIGN"):
+        campaign.compare(root,output,"pilot")
+    changed=json.loads((output/"COMPARISON.json").read_text())["results"]
+    assert any(row["status"]=="DYNAMIC_FIELDS_MISSING" for row in changed)
 
 
 def test_comparison_rejects_matching_unknown_revisions(tmp_path):
