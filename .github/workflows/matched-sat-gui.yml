@@ -1,0 +1,23 @@
+name: Matched SAT GUI integration
+on:
+  push:
+    branches: [verify-matched-sat-gui-20261126]
+permissions:
+  contents: read
+jobs:
+  targeted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONPATH: ".:independent_mkr:independent_mvi:mechanics:numerics:flexoelectric:physics:interface:ci"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      MPLBACKEND: Agg
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install numpy scipy pytest
+      - run: python -m pytest -q --tb=short tests/test_native_strong_gui_options.py tests/test_native_research_gui_lifecycle.py tests/test_independent_native_final_dispatch.py tests/test_native_coupled_mkr_case_dispatch.py tests/test_native_energy_case_dispatch.py tests/test_axisymmetric_strong_newton.py
