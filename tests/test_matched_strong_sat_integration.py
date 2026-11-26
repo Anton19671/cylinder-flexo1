@@ -17,6 +17,7 @@ from cylinder_native_mkr_end_program import (
 )
 from cylinder_native_mkr_newmark import NativeStrongNewmark
 from cylinder_native_mkr_initial import initialize_consistent_native_mkr
+from cylinder_direct_strong_newton import StrongNewtonSettings
 
 
 def _model(theory,gradient,geometry="GREEN_LAGRANGE"):
@@ -101,7 +102,8 @@ def test_manufactured_native_sat_initialization_and_newmark():
         mechanical_ends=program.mechanical_ends,electrical_ends=program.electrical_ends,
         density_kg_m3=rho,mechanical_load=fm,electrical_charge=fe)
     opts=dict(mechanical_state_scale=1.e-4,mechanical_equation_scale=1.e4,
-              electrical_state_scale=1.,electrical_equation_scale=1.e-3)
+              electrical_state_scale=1.,electrical_equation_scale=1.e-3,
+              settings=StrongNewtonSettings(max_dofs=1024))
     init=initialize_consistent_native_mkr(engine,q,v,p,acceleration_guess=a,**opts)
     assert init.state is not None,init.nonlinear.status
     np.testing.assert_allclose(init.state.acceleration,a,atol=1.e-9,rtol=1.e-8)
