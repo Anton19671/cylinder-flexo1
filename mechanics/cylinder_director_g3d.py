@@ -233,6 +233,37 @@ def _strain_virtual(F,Fx,Fs,Fz,dF,dFx,dFs,dFz,
     return de,der
 
 
+def _green_lagrange_virtual_work(F,Fx,Fs,Fz,library,sigma,hyper,R,z):
+    """Batched scalar director Gateaux law, indexed by (jet, field).
+
+    Cached virtual F jets have axes (surface derivative, component,
+    derivative of F, row, column). Retain the engineering shear factors
+    and cylindrical connection terms of the scalar law.
+    """
+    def engineering(t):
+        return np.stack((t[...,0,0],t[...,1,1],t[...,2,2],
+                         2*t[...,0,1],2*t[...,0,2],2*t[...,1,2]),axis=-1)
+
+    def transpose(a):
+        return np.swapaxes(a,-1,-2)
+
+    dF,dFx,dFs,dFz=np.moveaxis(library,2,0)
+    de=engineering(.5*(transpose(dF)@F+F.T@dF))
+    dx,ds,dz=(engineering(.5*(transpose(df)@F+fi.T@dF+
+                                 transpose(dF)@fi+F.T@df))
+              for fi,df in zip((Fx,Fs,Fz),(dFx,dFs,dFz)))
+    if not all(np.isfinite(a).all() for a in (de,dx,ds,dz)):
+        raise ValueError("Virtual strain jets must be finite")
+    dg=np.stack((dx,ds/(1+z/R),dz),axis=-1)
+    invr=1./(R+z)
+    dg[...,1,1]+=de[...,5]*invr
+    dg[...,2,1]-=de[...,5]*invr
+    dg[...,3,1]+=de[...,4]*invr
+    dg[...,4,1]-=de[...,3]*invr
+    dg[...,5,1]+=2.*(de[...,2]-de[...,1])*invr
+    return de@sigma+np.sum(hyper*dg,axis=(-2,-1))
+
+
 def _zero_like(jets):
     return {n:np.zeros_like(getattr(jets,n)) for n in (*FIELDS,*ELECTRICAL_FIELDS)}
 
@@ -320,13 +351,17 @@ def thickness_weak_coefficients(jets: DirectorSurfaceJets, material: G3DMaterial
         F,Fx,Fs,Fz=_F_jets(jets,theory,z,R,h)
         sigma,hyper,D=enthalpy_derivatives(p.strain6,p.gradient6x3,p.electric3,material)
         total+=w*p.H*enthalpy_parts(p.strain6,p.gradient6x3,p.electric3,material)["total"]
-        for k in range(len(FIELDS)):
-            for i in range(5):
-                dF,dFx,dFs,dFz=library[k,i]
-                de,der=_strain_virtual(F,Fx,Fs,Fz,dF,dFx,dFs,dFz,
-                                        geometry_model)
-                dg=covariant_strain_gradients(de,*der,radius_m=R,z_m=z)
-                mech[i,k]+=w*p.H*(sigma@de + np.sum(hyper*dg))
+        if normalized_model(geometry_model)=="GREEN_LAGRANGE":
+            mech+=w*p.H*_green_lagrange_virtual_work(
+                F,Fx,Fs,Fz,library,sigma,hyper,R,z).T
+        else:
+            for k in range(len(FIELDS)):
+                for i in range(5):
+                    dF,dFx,dFs,dFz=library[k,i]
+                    de,der=_strain_virtual(F,Fx,Fs,Fz,dF,dFx,dFs,dFz,
+                                            geometry_model)
+                    dg=covariant_strain_gradients(de,*der,radius_m=R,z_m=z)
+                    mech[i,k]+=w*p.H*(sigma@de + np.sum(hyper*dg))
         G,Gz,_=te_basis(z,h,jets.potential_order)
         elec[:,0]+=w*p.H*Gz*D[2]
         elec[:,1]+=w*p.H*G*D[0]
