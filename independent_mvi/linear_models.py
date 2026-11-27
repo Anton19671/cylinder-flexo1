@@ -579,12 +579,32 @@ class IndependentVariationalModel:
 
     def _endpoint_factors(self,field,tolerance=3.e-9):
         c=self.case
+        field=np.asarray(field,dtype=float)
+        if field.shape!=(self.n,c.nx,c.ns) or not np.isfinite(field).all():
+            raise RuntimeError("MVI_GAUSS_ENDPOINT_INVALID_FIELD")
         X=np.zeros((self.n,self.rank,c.nx))
         Y=np.zeros((self.n,self.rank,c.ns))
+        # Collocation endpoints are formed by adding stage fields. A
+        # physically zero component can therefore contain nonseparable
+        # floating-point noise. A component-relative rank test alone
+        # magnifies that noise into a false rank/trace failure.
+        # Allow roundoff only at the scale of components of the SAME
+        # physical dimension: FSDT/Reddy translations [m] and rotations
+        # [rad] must not set one another's tolerances. KL and the CUF
+        # coefficients (dimensionless thickness basis) are lengths.
+        # BLAS vector norms avoid squaring tiny/large dimensional fields.
+        norms=np.array([linalg.norm(item.ravel()) for item in field])
+        if not np.isfinite(norms).all():
+            raise RuntimeError("MVI_GAUSS_ENDPOINT_INVALID_FIELD")
+        groups=(slice(0,3),slice(3,5)) if getattr(c,"theory",None) in (
+            "FSDT","REDDY") else (slice(None),)
+        roundoff=np.zeros(self.n)
+        for group in groups:
+            roundoff[group]=64*np.finfo(float).eps*np.max(norms[group])
         for k,B in enumerate(self.basis):
             projected=B.T@field[k]
-            if np.linalg.norm(field[k]-B@projected)>tolerance*max(
-                    np.linalg.norm(field[k]),1.e-30):
+            if linalg.norm((field[k]-B@projected).ravel())>(
+                    tolerance*norms[k]+roundoff[k]):
                 raise RuntimeError("MVI_GAUSS_ENDPOINT_CONSTRAINT_FAILURE")
             Q,R,piv=linalg.qr(projected,mode="economic",pivoting=True,
                               check_finite=True)
@@ -594,8 +614,8 @@ class IndependentVariationalModel:
             angular=np.zeros((number,self.case.ns))
             angular[:,piv]=R[:number]
             reconstructed=Q[:,:number]@angular
-            if np.linalg.norm(projected-reconstructed)>tolerance*max(
-                    np.linalg.norm(projected),1.e-30):
+            if linalg.norm((projected-reconstructed).ravel())>(
+                    tolerance*linalg.norm(projected.ravel())+roundoff[k]):
                 raise RuntimeError("MVI_GAUSS_ENDPOINT_RANK_FAILURE")
             X[k,:number]=(B@Q[:,:number]).T
             Y[k,:number]=angular
